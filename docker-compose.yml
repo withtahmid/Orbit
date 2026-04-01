@@ -1,21 +1,22 @@
 services:
-    postgres:
+    db:
         image: postgres:15
-        container_name: node-setup-postgres
+        container_name: orbit-db
         restart: unless-stopped
         environment:
             POSTGRES_USER: postgres
             POSTGRES_PASSWORD: postgres
             POSTGRES_DB: postgres
         volumes:
-            - postgres_data:/var/lib/postgresql/data
+            - orbit_db_data:/var/lib/postgresql/data
         networks:
-            - node-setup
+            - orbit
         ports:
             - 5432:5432
 
     maildev:
         image: maildev/maildev
+        container_name: orbit-maildev
         user: root
         ports:
             - "1080:1080"
@@ -24,12 +25,12 @@ services:
             - MAILDEV_WEB_PORT=1080
             - MAILDEV_SMTP_PORT=1025
         volumes:
-            - maildev_data:/tmp/maildev
+            - orbit_maildev_data:/tmp/maildev
         networks:
-            - node-setup
+            - orbit
 
-    mono:
-        container_name: node-setup-mono
+    orbit:
+        container_name: orbit
         build:
             context: .
             dockerfile: Dockerfile
@@ -51,15 +52,15 @@ services:
         volumes:
             - ./:/app
         depends_on:
-            - postgres
+            - db
             - maildev
 
         networks:
-            - node-setup
+            - orbit
 networks:
-    node-setup:
+    orbit:
         driver: bridge
 
 volumes:
-    postgres_data:
-    maildev_data:
+    orbit_db_data:
+    orbit_maildev_data:

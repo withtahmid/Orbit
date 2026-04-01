@@ -74,15 +74,15 @@ export const migrate = async (forward: boolean): Promise<void> => {
     console.log(divider);
 
     if (error) {
-        logger.error("failed to migrate");
-        logger.error(error);
+        logger.error("Failed to migrate");
+        console.error(error);
         process.exit(1);
     }
     try {
         await db.destroy();
     } catch (error) {
         logger.error("Failed to destroy database connection");
-        logger.error(error);
+        console.error(error);
     }
 };
 

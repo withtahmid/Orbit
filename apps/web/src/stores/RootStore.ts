@@ -1,4 +1,6 @@
 import { AuthStore } from "./AuthStore";
+import { SignupStore } from "./SignupStore";
+import { ForgotPasswordStore } from "./ForgotPasswordStore";
 
 /**
  * RootStore
@@ -8,11 +10,13 @@ import { AuthStore } from "./AuthStore";
  */
 export class RootStore {
     authStore: AuthStore;
-    // uiStore: UiStore;
-    // userStore: UserStore;
+    signupStore: SignupStore;
+    forgotPasswordStore: ForgotPasswordStore;
 
     constructor() {
         this.authStore = new AuthStore();
+        this.signupStore = new SignupStore();
+        this.forgotPasswordStore = new ForgotPasswordStore();
     }
 }
 

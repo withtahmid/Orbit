@@ -16,8 +16,8 @@ import { NotFoundPage } from "@/pages/public/NotFoundPage";
 
 // Auth pages (guest only — redirect if already logged in)
 import { LoginPage } from "@/pages/auth/LoginPage";
-import { SignupPage } from "@/pages/auth/SignupPage";
-import { ForgotPasswordPage } from "@/pages/auth/ForgotPasswordPage";
+import { SignupPage } from "@/pages/auth/signup";
+import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
 
 // Protected pages
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
