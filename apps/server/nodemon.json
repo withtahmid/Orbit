@@ -1,0 +1,5 @@
+{
+    "watch": ["./dist", "./sites", "./scrapers", "./themes"],
+    "ext": "js,mjs,cjs,json,liquid",
+    "delay": 2000
+}

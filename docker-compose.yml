@@ -1,0 +1,65 @@
+services:
+    postgres:
+        image: postgres:15
+        container_name: node-setup-postgres
+        restart: unless-stopped
+        environment:
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: postgres
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        networks:
+            - node-setup
+        ports:
+            - 5432:5432
+
+    maildev:
+        image: maildev/maildev
+        user: root
+        ports:
+            - "1080:1080"
+            - "1025:1025"
+        environment:
+            - MAILDEV_WEB_PORT=1080
+            - MAILDEV_SMTP_PORT=1025
+        volumes:
+            - maildev_data:/tmp/maildev
+        networks:
+            - node-setup
+
+    mono:
+        container_name: node-setup-mono
+        build:
+            context: .
+            dockerfile: Dockerfile
+
+        restart: unless-stopped
+        working_dir: /app
+        command: pnpm dev
+
+        ports:
+            - target: 3000
+              published: 3000
+
+            - target: 5173
+              published: 5173
+
+        env_file:
+            - ./.env.local
+
+        volumes:
+            - ./:/app
+        depends_on:
+            - postgres
+            - maildev
+
+        networks:
+            - node-setup
+networks:
+    node-setup:
+        driver: bridge
+
+volumes:
+    postgres_data:
+    maildev_data:

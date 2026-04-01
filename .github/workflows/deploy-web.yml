@@ -1,0 +1,19 @@
+name: "Deploy Web"
+
+on:
+    push:
+        branches:
+            - production
+        paths:
+            - apps/web/**
+            - .github/workflows/deploy-web.yml
+defaults:
+    run:
+        working-directory: apps/web
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v3

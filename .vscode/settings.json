@@ -1,0 +1,16 @@
+{
+    "eslint.workingDirectories": [
+        {
+            "mode": "auto"
+        }
+    ],
+    "cSpell.words": [
+        "codegen",
+        "kysely",
+        "maildev",
+        "safenv",
+        "sslmode",
+        "timestamptz",
+        "withtahmid"
+    ]
+}

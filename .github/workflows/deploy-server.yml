@@ -1,0 +1,19 @@
+name: "Deploy Server"
+
+on:
+    push:
+        branches:
+            - production
+        paths:
+            - apps/server/**
+            - .github/workflows/deploy-server.yml
+defaults:
+    run:
+        working-directory: apps/server
+
+jobs:
+    build-and-push:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v3

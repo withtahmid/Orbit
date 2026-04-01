@@ -1,0 +1,42 @@
+/**
+ * ROUTE PATHS — single source of truth.
+ *
+ * Usage:
+ *   import { ROUTES } from "@/router/routes";
+ *   navigate(ROUTES.dashboard);
+ *   navigate(ROUTES.userDetail("42"));
+ *   navigate(ROUTES.search({ q: "react", page: "2" }));
+ */
+
+export const ROUTES = {
+    // Public
+    home: "/",
+    about: "/about",
+
+    // Auth (guest-only)
+    login: "/login",
+    signup: "/signup",
+    forgotPassword: "/forgot-password",
+
+    // Protected — static
+    dashboard: "/dashboard",
+    profile: "/profile",
+    search: "/search",
+
+    // Protected — settings (nested)
+    settings: "/settings",
+    settingsGeneral: "/settings/general",
+    settingsSecurity: "/settings/security",
+
+    // Protected — dynamic param helper
+    userDetail: (userId: string) => `/users/${userId}`,
+
+    // Query-param helper  (returns a full path string)
+    searchWithQuery: (params: { q?: string; page?: string }) => {
+        const sp = new URLSearchParams();
+        if (params.q) sp.set("q", params.q);
+        if (params.page) sp.set("page", params.page);
+        const qs = sp.toString();
+        return qs ? `/search?${qs}` : "/search";
+    },
+} as const;
