@@ -17,7 +17,7 @@ export const PersonalInfoStep = observer(() => {
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
 
-    const completeSignup = trpc.auth.completeSignup.useMutation();
+    const completeSignup = trpc.auth.signup.complete.useMutation();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -36,10 +36,18 @@ export const PersonalInfoStep = observer(() => {
         setLoading(true);
 
         try {
+            if (!signupStore.signupToken) {
+                setError("Your signup session expired. Please restart signup.");
+                signupStore.setStep(1);
+                return;
+            }
+
             const result = await completeSignup.mutateAsync({
+                token: signupStore.signupToken,
                 firstName,
                 lastName,
                 password,
+                confirmPassword,
             });
 
             // Store final auth token and user
@@ -60,7 +68,16 @@ export const PersonalInfoStep = observer(() => {
     return (
         <div className="signup-step signup-step--personal">
             <div className="signup-step__icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
                     <circle cx="12" cy="7" r="4" />
                 </svg>
@@ -72,7 +89,14 @@ export const PersonalInfoStep = observer(() => {
 
             {error && (
                 <div className="signup-alert signup-alert--error" role="alert">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                    >
                         <circle cx="12" cy="12" r="10" />
                         <line x1="15" y1="9" x2="9" y2="15" />
                         <line x1="9" y1="9" x2="15" y2="15" />
@@ -137,13 +161,27 @@ export const PersonalInfoStep = observer(() => {
                             aria-label={showPassword ? "Hide password" : "Show password"}
                         >
                             {showPassword ? (
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <svg
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                >
                                     <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
                                     <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
                                     <line x1="1" y1="1" x2="23" y2="23" />
                                 </svg>
                             ) : (
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <svg
+                                    width="18"
+                                    height="18"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                >
                                     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                                     <circle cx="12" cy="12" r="3" />
                                 </svg>
@@ -172,11 +210,7 @@ export const PersonalInfoStep = observer(() => {
                     disabled={loading || !firstName || !lastName || !password || !confirmPassword}
                     className="signup-btn signup-btn--primary"
                 >
-                    {loading ? (
-                        <span className="signup-btn__spinner" />
-                    ) : (
-                        "Create account"
-                    )}
+                    {loading ? <span className="signup-btn__spinner" /> : "Create account"}
                 </button>
             </form>
         </div>

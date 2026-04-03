@@ -9,7 +9,7 @@ export const EmailStep = observer(() => {
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
 
-    const initiateSignup = trpc.auth.initiateSignup.useMutation();
+    const initiateSignup = trpc.auth.signup.initiate.useMutation();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -32,7 +32,16 @@ export const EmailStep = observer(() => {
     return (
         <div className="signup-step signup-step--email">
             <div className="signup-step__icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
                     <rect x="2" y="4" width="20" height="16" rx="2" />
                     <path d="M22 4L12 13L2 4" />
                 </svg>
@@ -44,7 +53,14 @@ export const EmailStep = observer(() => {
 
             {error && (
                 <div className="signup-alert signup-alert--error" role="alert">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                    >
                         <circle cx="12" cy="12" r="10" />
                         <line x1="15" y1="9" x2="9" y2="15" />
                         <line x1="9" y1="9" x2="15" y2="15" />
@@ -75,11 +91,7 @@ export const EmailStep = observer(() => {
                     disabled={loading || !email}
                     className="signup-btn signup-btn--primary"
                 >
-                    {loading ? (
-                        <span className="signup-btn__spinner" />
-                    ) : (
-                        "Continue"
-                    )}
+                    {loading ? <span className="signup-btn__spinner" /> : "Continue"}
                 </button>
             </form>
         </div>

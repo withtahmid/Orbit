@@ -11,8 +11,8 @@ export const VerifyStep = observer(() => {
     const [resending, setResending] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    const verifyCode = trpc.auth.verifyPasswordResetCode.useMutation();
-    const resendCode = trpc.auth.resendCode.useMutation();
+    const verifyCode = trpc.auth.resetPassword.verify.useMutation();
+    const resendCode = trpc.auth.resetPassword.resendCode.useMutation();
 
     useEffect(() => {
         inputRefs.current[0]?.focus();
@@ -24,11 +24,11 @@ export const VerifyStep = observer(() => {
         newCode[index] = value;
         setCode(newCode);
         setError("");
-        
+
         if (value && index < 5) {
             inputRefs.current[index + 1]?.focus();
         }
-        
+
         if (value && index === 5 && newCode.every((d) => d !== "")) {
             handleSubmit(newCode.join(""));
         }
@@ -44,46 +44,64 @@ export const VerifyStep = observer(() => {
         e.preventDefault();
         const pastedData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
         if (pastedData.length === 0) return;
-        
+
         const newCode = [...code];
         for (let i = 0; i < pastedData.length; i++) {
             newCode[i] = pastedData[i]!;
         }
         setCode(newCode);
-        
+
         const nextEmpty = newCode.findIndex((d) => d === "");
         inputRefs.current[nextEmpty === -1 ? 5 : nextEmpty]?.focus();
-        
+
         if (newCode.every((d) => d !== "")) {
             handleSubmit(newCode.join(""));
         }
     };
 
-    const handleSubmit = useCallback(async (codeStr?: string) => {
-        const fullCode = codeStr || code.join("");
-        if (fullCode.length !== 6) return;
-        
-        setError("");
-        setLoading(true);
-        try {
-            const result = await verifyCode.mutateAsync({ code: fullCode });
-            forgotPasswordStore.setResetToken(result.token);
-            forgotPasswordStore.setStep(3);
-        } catch (err: any) {
-            setError(err.message || "Invalid code. Please try again.");
-            setCode(["", "", "", "", "", ""]);
-            inputRefs.current[0]?.focus();
-        } finally {
-            setLoading(false);
-        }
-    }, [code, verifyCode, forgotPasswordStore]);
+    const handleSubmit = useCallback(
+        async (codeStr?: string) => {
+            const fullCode = codeStr || code.join("");
+            if (fullCode.length !== 6) return;
+
+            setError("");
+            setLoading(true);
+            try {
+                if (!forgotPasswordStore.resetToken) {
+                    setError("Your reset session expired. Please restart from email step.");
+                    forgotPasswordStore.setStep(1);
+                    return;
+                }
+
+                const result = await verifyCode.mutateAsync({
+                    code: fullCode,
+                    token: forgotPasswordStore.resetToken,
+                });
+                forgotPasswordStore.setResetToken(result.token);
+                forgotPasswordStore.setStep(3);
+            } catch (err: any) {
+                setError(err.message || "Invalid code. Please try again.");
+                setCode(["", "", "", "", "", ""]);
+                inputRefs.current[0]?.focus();
+            } finally {
+                setLoading(false);
+            }
+        },
+        [code, verifyCode, forgotPasswordStore]
+    );
 
     const handleResend = async () => {
         if (forgotPasswordStore.resendCooldown > 0 || resending) return;
         setResending(true);
         setError("");
         try {
-            await resendCode.mutateAsync();
+            if (!forgotPasswordStore.resetToken) {
+                setError("Your reset session expired. Please restart from email step.");
+                forgotPasswordStore.setStep(1);
+                return;
+            }
+
+            await resendCode.mutateAsync({ token: forgotPasswordStore.resetToken });
             // Start 60s cooldown
             forgotPasswordStore.startResendCooldown(60);
         } catch (err: any) {
@@ -96,7 +114,16 @@ export const VerifyStep = observer(() => {
     return (
         <div className="signup-step signup-step--verify">
             <div className="signup-step__icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                     <polyline points="9 12 12 15 16 10" />
                 </svg>
@@ -104,12 +131,21 @@ export const VerifyStep = observer(() => {
             <h2 className="signup-step__title">Check your email</h2>
             <p className="signup-step__subtitle">
                 We sent a 6-digit code to{" "}
-                <strong className="signup-step__email-highlight">{forgotPasswordStore.email}</strong>
+                <strong className="signup-step__email-highlight">
+                    {forgotPasswordStore.email}
+                </strong>
             </p>
 
             {error && (
                 <div className="signup-alert signup-alert--error" role="alert">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                    >
                         <circle cx="12" cy="12" r="10" />
                         <line x1="15" y1="9" x2="9" y2="15" />
                         <line x1="9" y1="9" x2="15" y2="15" />
@@ -122,7 +158,9 @@ export const VerifyStep = observer(() => {
                 {code.map((digit, index) => (
                     <input
                         key={index}
-                        ref={(el) => { inputRefs.current[index] = el; }}
+                        ref={(el) => {
+                            inputRefs.current[index] = el;
+                        }}
                         type="text"
                         inputMode="numeric"
                         maxLength={1}
@@ -163,7 +201,14 @@ export const VerifyStep = observer(() => {
                 onClick={() => forgotPasswordStore.setStep(1)}
                 className="signup-back-btn"
             >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                >
                     <polyline points="15 18 9 12 15 6" />
                 </svg>
                 Use a different email

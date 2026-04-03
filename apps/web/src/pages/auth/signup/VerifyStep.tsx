@@ -11,8 +11,8 @@ export const VerifyStep = observer(() => {
     const [resending, setResending] = useState(false);
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-    const verifyCode = trpc.auth.verifyCode.useMutation();
-    const resendCode = trpc.auth.resendCode.useMutation();
+    const verifyCode = trpc.auth.signup.verify.useMutation();
+    const resendCode = trpc.auth.signup.resendCode.useMutation();
 
     // Auto-focus first input on mount
     useEffect(() => {
@@ -66,26 +66,38 @@ export const VerifyStep = observer(() => {
         }
     };
 
-    const handleSubmit = useCallback(async (codeStr?: string) => {
-        const fullCode = codeStr || code.join("");
-        if (fullCode.length !== 6) return;
+    const handleSubmit = useCallback(
+        async (codeStr?: string) => {
+            const fullCode = codeStr || code.join("");
+            if (fullCode.length !== 6) return;
 
-        setError("");
-        setLoading(true);
+            setError("");
+            setLoading(true);
 
-        try {
-            const result = await verifyCode.mutateAsync({ code: fullCode });
-            signupStore.setSignupToken(result.token);
-            signupStore.setStep(3);
-        } catch (err: any) {
-            setError(err.message || "Invalid code. Please try again.");
-            // Clear code and refocus
-            setCode(["", "", "", "", "", ""]);
-            inputRefs.current[0]?.focus();
-        } finally {
-            setLoading(false);
-        }
-    }, [code, verifyCode, signupStore]);
+            try {
+                if (!signupStore.signupToken) {
+                    setError("Your signup session expired. Please restart from email step.");
+                    signupStore.setStep(1);
+                    return;
+                }
+
+                const result = await verifyCode.mutateAsync({
+                    code: fullCode,
+                    token: signupStore.signupToken,
+                });
+                signupStore.setSignupToken(result.token);
+                signupStore.setStep(3);
+            } catch (err: any) {
+                setError(err.message || "Invalid code. Please try again.");
+                // Clear code and refocus
+                setCode(["", "", "", "", "", ""]);
+                inputRefs.current[0]?.focus();
+            } finally {
+                setLoading(false);
+            }
+        },
+        [code, verifyCode, signupStore]
+    );
 
     const handleResend = async () => {
         if (signupStore.resendCooldown > 0 || resending) return;
@@ -93,7 +105,13 @@ export const VerifyStep = observer(() => {
         setError("");
 
         try {
-            await resendCode.mutateAsync();
+            if (!signupStore.signupToken) {
+                setError("Your signup session expired. Please restart from email step.");
+                signupStore.setStep(1);
+                return;
+            }
+
+            await resendCode.mutateAsync({ token: signupStore.signupToken });
             signupStore.startResendCooldown(60);
         } catch (err: any) {
             setError(err.message || "Failed to resend code.");
@@ -105,7 +123,16 @@ export const VerifyStep = observer(() => {
     return (
         <div className="signup-step signup-step--verify">
             <div className="signup-step__icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                    width="48"
+                    height="48"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                >
                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                     <polyline points="9 12 12 15 16 10" />
                 </svg>
@@ -118,7 +145,14 @@ export const VerifyStep = observer(() => {
 
             {error && (
                 <div className="signup-alert signup-alert--error" role="alert">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                    >
                         <circle cx="12" cy="12" r="10" />
                         <line x1="15" y1="9" x2="9" y2="15" />
                         <line x1="9" y1="9" x2="15" y2="15" />
@@ -131,7 +165,9 @@ export const VerifyStep = observer(() => {
                 {code.map((digit, index) => (
                     <input
                         key={index}
-                        ref={(el) => { inputRefs.current[index] = el; }}
+                        ref={(el) => {
+                            inputRefs.current[index] = el;
+                        }}
                         type="text"
                         inputMode="numeric"
                         maxLength={1}
@@ -172,7 +208,14 @@ export const VerifyStep = observer(() => {
                 onClick={() => signupStore.setStep(1)}
                 className="signup-back-btn"
             >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                >
                     <polyline points="15 18 9 12 15 6" />
                 </svg>
                 Use a different email

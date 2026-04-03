@@ -27,7 +27,12 @@ export const LoginPage = observer(() => {
 
         try {
             const { token, user } = await loginMutation.mutateAsync({ email, password });
-            authStore.setAuth(token, user);
+            authStore.setAuth(token, {
+                id: user.id,
+                email: user.email,
+                name: `${user.firstName} ${user.lastName}`,
+                avatarUrl: user.avatar_url ?? undefined,
+            });
             navigate(redirectTo, { replace: true });
         } catch (err: any) {
             setError(err.message || "Invalid credentials. Please try again.");
@@ -42,20 +47,34 @@ export const LoginPage = observer(() => {
                 <div className="signup-card__content">
                     <div className="signup-step">
                         <div className="signup-step__icon">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <svg
+                                width="48"
+                                height="48"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
                                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
                                 <polyline points="10 17 15 12 10 7" />
                                 <line x1="15" y1="12" x2="3" y2="12" />
                             </svg>
                         </div>
                         <h2 className="signup-step__title">Welcome back</h2>
-                        <p className="signup-step__subtitle">
-                            Sign in to your account to continue
-                        </p>
+                        <p className="signup-step__subtitle">Sign in to your account to continue</p>
 
                         {error && (
                             <div className="signup-alert signup-alert--error" role="alert">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <svg
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                >
                                     <circle cx="12" cy="12" r="10" />
                                     <line x1="15" y1="9" x2="9" y2="15" />
                                     <line x1="9" y1="9" x2="15" y2="15" />
@@ -81,13 +100,23 @@ export const LoginPage = observer(() => {
                                     className="signup-field__input"
                                 />
                             </div>
-                            
+
                             <div className="signup-field">
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                    }}
+                                >
                                     <label htmlFor="login-password" className="signup-field__label">
                                         Password
                                     </label>
-                                    <Link to={ROUTES.forgotPassword} className="signup-link" style={{ fontSize: "13px" }}>
+                                    <Link
+                                        to={ROUTES.forgotPassword}
+                                        className="signup-link"
+                                        style={{ fontSize: "13px" }}
+                                    >
                                         Forgot password?
                                     </Link>
                                 </div>
@@ -111,11 +140,7 @@ export const LoginPage = observer(() => {
                                 className="signup-btn signup-btn--primary"
                                 style={{ marginTop: "10px" }}
                             >
-                                {loading ? (
-                                    <span className="signup-btn__spinner" />
-                                ) : (
-                                    "Sign in"
-                                )}
+                                {loading ? <span className="signup-btn__spinner" /> : "Sign in"}
                             </button>
                         </form>
                     </div>
