@@ -1,6 +1,6 @@
 services:
     db:
-        image: postgres:15
+        image: postgres:18
         container_name: orbit-db
         restart: unless-stopped
         environment:
@@ -8,7 +8,7 @@ services:
             POSTGRES_PASSWORD: postgres
             POSTGRES_DB: postgres
         volumes:
-            - orbit_db_data:/var/lib/postgresql/data
+            - orbit_db_data:/var/lib/postgresql
         networks:
             - orbit
         ports:
