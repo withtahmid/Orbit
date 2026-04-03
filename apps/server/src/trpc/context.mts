@@ -1,12 +1,17 @@
 import * as trpcExpress from "@trpc/server/adapters/express";
-import { getUserFromAuthHeader, JWTPayload } from "./auth.mjs";
+import { authorizeJWT, fetchUserFromJWT } from "./auth.mjs";
 import { createServices } from "../services/index.mjs";
 
-export const createContext = async ({ req, res }: trpcExpress.CreateExpressContextOptions) => {
-    const user = await getUserFromAuthHeader(req.headers.authorization);
+export const createContext = async ({ req }: trpcExpress.CreateExpressContextOptions) => {
+    const decodedJWTPayload = await authorizeJWT(req.headers.authorization);
+    const services = createServices();
+    const user = await fetchUserFromJWT(decodedJWTPayload, services.qb);
+
     return {
-        auth: { user } as { user: JWTPayload | null },
-        services: createServices(),
+        auth: {
+            user: user,
+        },
+        services,
     };
 };
 export type Context = Awaited<ReturnType<typeof createContext>>;
