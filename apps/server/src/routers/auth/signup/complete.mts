@@ -8,7 +8,7 @@ import { authorizeTmpJWT } from "./helper.mjs";
 import { CONFIG } from "../../../config/config.mjs";
 import { safeAwait } from "../../../utils/safeAwait.mjs";
 import { logger } from "../../../utils/logger.mjs";
-// ─── Step 3: Complete Signup ───────────────────────────────────────────────────
+
 export const completeSignup = publicProcedure
     .input(
         z
@@ -33,7 +33,7 @@ export const completeSignup = publicProcedure
         if (!tmpUser || tmpUser.purpose !== "signup-verified") {
             throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid or expired token." });
         }
-        // Verify pre-signup user exists
+
         const preUser = await qb
             .selectFrom("tmp_users")
             .select(["id", "email"])
@@ -47,10 +47,8 @@ export const completeSignup = publicProcedure
             });
         }
 
-        // Hash password
         const passwordHash = await bcrypt.hash(input.password, CONFIG.AUTH.SALT_ROUNDS);
 
-        // Move to users table
         const [error, userData] = await safeAwait(
             qb.transaction().execute(async (trx) => {
                 const user = await trx
@@ -78,7 +76,6 @@ export const completeSignup = publicProcedure
             });
         }
 
-        // Issue final auth JWT
         const authToken = signJWT({ userId: userData.id }, 7 * 24 * 60 * 60);
 
         return {

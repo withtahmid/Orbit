@@ -8,7 +8,6 @@ import { generateOTP } from "../utils/generateOTP.mjs";
 import { CONFIG } from "../../../config/config.mjs";
 import { signTmpJWT } from "./helper.mjs";
 
-// ─── Step 1: Initiate Signup ───────────────────────────────────────────────────
 export const initiateSignup = publicProcedure
     .input(
         z.object({
@@ -22,7 +21,6 @@ export const initiateSignup = publicProcedure
         const { email } = input;
         const { qb } = ctx.services;
 
-        // Check if an active user with this email already exists
         const [existingUserError, existingUser] = await safeAwait(
             qb
                 .selectFrom("users")

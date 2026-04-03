@@ -8,7 +8,6 @@ import { CONFIG } from "../../../config/config.mjs";
 import { safeAwait } from "../../../utils/safeAwait.mjs";
 import { generateOTP } from "../utils/generateOTP.mjs";
 
-// ─── Step 1b: Resend Code ──────────────────────────────────────────────────────
 export const resendSignupCode = publicProcedure
     .input(
         z.object({

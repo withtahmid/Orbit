@@ -1,10 +1,8 @@
-import { sql } from "kysely";
-import { signJWT } from "../../../trpc/auth.mjs";
-import publicProcedure from "../../../trpc/middlewares/public.mjs";
-import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { authorizeTmpJWT, signTmpJWT } from "./helper.mjs";
+import { z } from "zod";
+import publicProcedure from "../../../trpc/middlewares/public.mjs";
 import { safeAwait } from "../../../utils/safeAwait.mjs";
+import { authorizeTmpJWT, signTmpJWT } from "./helper.mjs";
 
 export const verifyCode = publicProcedure
     .input(

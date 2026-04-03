@@ -1,8 +1,8 @@
-import { z } from "zod";
-import publicProcedure from "../../trpc/middlewares/public.mjs";
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcrypt";
+import { z } from "zod";
 import { signJWT } from "../../trpc/auth.mjs";
+import publicProcedure from "../../trpc/middlewares/public.mjs";
 
 export const loginProcedure = publicProcedure
     .input(
