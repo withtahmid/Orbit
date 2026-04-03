@@ -3,4 +3,46 @@
  * Please do not edit it manually.
  */
 
-export interface DB {}
+import type { ColumnType } from "kysely";
+
+export type EmailVerificationCodePurpose = "change_email" | "password_reset" | "signup";
+
+export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
+  ? ColumnType<S, I | undefined, U>
+  : ColumnType<T, T | undefined, T>;
+
+export type Timestamp = ColumnType<Date, Date | string, Date | string>;
+
+export interface EmailVerificationCodes {
+  code: string;
+  created_at: Generated<Timestamp>;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  purpose: EmailVerificationCodePurpose;
+  tmp_user_id: string | null;
+  user_id: string | null;
+}
+
+export interface TmpUsers {
+  created_at: Generated<Timestamp>;
+  email: string;
+  id: Generated<string>;
+  is_email_verified: Generated<boolean>;
+}
+
+export interface Users {
+  avatar_url: string | null;
+  created_at: Generated<Timestamp>;
+  email: string;
+  first_name: string;
+  id: Generated<string>;
+  last_name: string;
+  password_hash: string;
+  updated_at: Timestamp | null;
+}
+
+export interface DB {
+  email_verification_codes: EmailVerificationCodes;
+  tmp_users: TmpUsers;
+  users: Users;
+}

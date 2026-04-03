@@ -11,4 +11,5 @@ export const ENV = configEnv(process.env, {
     SMTP_USER: e.string().optional(),
     SMTP_PASS: e.string().optional(),
     SMTP_FROM: e.string().default("noreply@yourdomain.com"),
+    JWT_SECRET: e.string().default("dev-jwt-secret-change-in-production"),
 });

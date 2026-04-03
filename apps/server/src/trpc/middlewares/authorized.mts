@@ -1,12 +1,25 @@
 import { TRPCError } from "@trpc/server";
-import { procedure } from "../index.mjs";
+import { AuthenticatedUser } from "../auth.mjs";
+import { t } from "../index.mjs";
+import { mutationLoggerMiddleware } from "./mutationLogger.mjs";
 
-const authorizedProcedure = procedure.use(async ({ ctx, next }) => {
-    // if (ctx.user === null) {
-    //     throw new TRPCError({
-    //         code: "UNAUTHORIZED",
-    //     });
-    // }
-    return next();
-});
-export default authorizedProcedure;
+export const authorizedProcedure = t.procedure
+    .use(mutationLoggerMiddleware)
+    .use(async function is_authenticated(opts) {
+        if (!opts.ctx.auth.user) {
+            throw new TRPCError({
+                code: "UNAUTHORIZED",
+                message: "Please login first to make this request",
+            });
+        }
+
+        return await opts.next({
+            ctx: {
+                ...opts.ctx,
+                auth: {
+                    ...opts.ctx.auth,
+                    user: opts.ctx.auth.user as AuthenticatedUser,
+                },
+            },
+        });
+    });

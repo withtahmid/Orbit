@@ -6,11 +6,15 @@
     ],
     "cSpell.words": [
         "codegen",
+        "COOLDOWN",
         "kysely",
         "maildev",
+        "pg_uuidv7",
+        "plpgsql",
         "safenv",
         "sslmode",
         "timestamptz",
+        "uuidv",
         "withtahmid"
     ]
 }

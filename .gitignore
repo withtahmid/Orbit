@@ -40,3 +40,5 @@ yarn-error.log*
 
 tsconfig.tsbuildinfo
 dist
+
+PR-Markdown.md

@@ -3,7 +3,7 @@ import { createQueryBuilder } from "../db/kysely/index.mjs";
 import { logger } from "../utils/logger.mjs";
 import { createMailService } from "./mail/mailer.mjs";
 
-type Services = {
+export type Services = {
     pgPool: ReturnType<typeof createPGPool>;
     qb: ReturnType<typeof createQueryBuilder>;
     mailer: ReturnType<typeof createMailService>;

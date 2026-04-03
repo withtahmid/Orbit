@@ -1,17 +1,17 @@
 import * as trpcExpress from "@trpc/server/adapters/express";
-import createPGPool from "../db/index.mjs";
-import { createQueryBuilder } from "../db/kysely/index.mjs";
-import { logger } from "../utils/logger.mjs";
-import { getUserFromAuthHeader } from "./auth.mjs";
+import { authorizeJWT, fetchUserFromJWT } from "./auth.mjs";
 import { createServices } from "../services/index.mjs";
 
-export const createContext = async ({ req, res }: trpcExpress.CreateExpressContextOptions) => {
-    const headers = req.headers;
-    const hostname = req.headers.hostname;
-    const user = await getUserFromAuthHeader(req.headers.authorization);
+export const createContext = async ({ req }: trpcExpress.CreateExpressContextOptions) => {
+    const decodedJWTPayload = await authorizeJWT(req.headers.authorization);
+    const services = createServices();
+    const user = await fetchUserFromJWT(decodedJWTPayload, services.qb);
+
     return {
-        auth: { user },
-        services: createServices(),
+        auth: {
+            user: user,
+        },
+        services,
     };
 };
 export type Context = Awaited<ReturnType<typeof createContext>>;
