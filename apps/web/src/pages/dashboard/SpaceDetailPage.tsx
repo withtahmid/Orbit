@@ -24,10 +24,16 @@ export function SpaceDetailPage() {
     const [eventName, setEventName] = useState("");
     const [eventStartAt, setEventStartAt] = useState("");
     const [eventEndAt, setEventEndAt] = useState("");
+    const [envelopName, setEnvelopName] = useState("");
+    const [planName, setPlanName] = useState("");
     const [eventDrafts, setEventDrafts] = useState<
         Record<string, { name: string; startAt: string; endAt: string }>
     >({});
+    const [envelopDrafts, setEnvelopDrafts] = useState<Record<string, { name: string }>>({});
+    const [planDrafts, setPlanDrafts] = useState<Record<string, { name: string }>>({});
     const [activeEventActionId, setActiveEventActionId] = useState<string | null>(null);
+    const [activeEnvelopActionId, setActiveEnvelopActionId] = useState<string | null>(null);
+    const [activePlanActionId, setActivePlanActionId] = useState<string | null>(null);
     const [status, setStatus] = useState("");
     const [error, setError] = useState("");
 
@@ -39,6 +45,12 @@ export function SpaceDetailPage() {
         spaceId: id,
     });
     const eventsBySpaceQuery = trpc.event.listBySpace.useQuery({
+        spaceId: id,
+    });
+    const envelopsBySpaceQuery = trpc.envelop.listBySpace.useQuery({
+        spaceId: id,
+    });
+    const plansBySpaceQuery = trpc.plan.listBySpace.useQuery({
         spaceId: id,
     });
 
@@ -70,6 +82,42 @@ export function SpaceDetailPage() {
         },
     });
 
+    const createEnvelopMutation = trpc.envelop.create.useMutation({
+        onSuccess: async () => {
+            await envelopsBySpaceQuery.refetch();
+        },
+    });
+
+    const updateEnvelopMutation = trpc.envelop.update.useMutation({
+        onSuccess: async () => {
+            await envelopsBySpaceQuery.refetch();
+        },
+    });
+
+    const deleteEnvelopMutation = trpc.envelop.delete.useMutation({
+        onSuccess: async () => {
+            await envelopsBySpaceQuery.refetch();
+        },
+    });
+
+    const createPlanMutation = trpc.plan.create.useMutation({
+        onSuccess: async () => {
+            await plansBySpaceQuery.refetch();
+        },
+    });
+
+    const updatePlanMutation = trpc.plan.update.useMutation({
+        onSuccess: async () => {
+            await plansBySpaceQuery.refetch();
+        },
+    });
+
+    const deletePlanMutation = trpc.plan.delete.useMutation({
+        onSuccess: async () => {
+            await plansBySpaceQuery.refetch();
+        },
+    });
+
     const currentSpace = spacesQuery.data?.find((space) => space.id === id);
 
     const eventsWithDrafts =
@@ -81,6 +129,24 @@ export function SpaceDetailPage() {
             };
 
             return { event, draft };
+        }) ?? [];
+
+    const envelopsWithDrafts =
+        envelopsBySpaceQuery.data?.map((envelop) => {
+            const draft = envelopDrafts[envelop.id] ?? {
+                name: envelop.name,
+            };
+
+            return { envelop, draft };
+        }) ?? [];
+
+    const plansWithDrafts =
+        plansBySpaceQuery.data?.map((plan) => {
+            const draft = planDrafts[plan.id] ?? {
+                name: plan.name,
+            };
+
+            return { plan, draft };
         }) ?? [];
 
     if (!spacesQuery.isLoading && !currentSpace) {
@@ -137,6 +203,42 @@ export function SpaceDetailPage() {
         }
     };
 
+    const handleCreateEnvelop = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        setStatus("");
+        setError("");
+
+        try {
+            await createEnvelopMutation.mutateAsync({
+                spaceId: id,
+                name: envelopName.trim(),
+            });
+
+            setEnvelopName("");
+            setStatus("Envelop created successfully.");
+        } catch (err: any) {
+            setError(err?.message || "Failed to create envelop.");
+        }
+    };
+
+    const handleCreatePlan = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        setStatus("");
+        setError("");
+
+        try {
+            await createPlanMutation.mutateAsync({
+                spaceId: id,
+                name: planName.trim(),
+            });
+
+            setPlanName("");
+            setStatus("Plan created successfully.");
+        } catch (err: any) {
+            setError(err?.message || "Failed to create plan.");
+        }
+    };
+
     const handleSaveEvent = async (eventId: string) => {
         const draft = eventDrafts[eventId];
         if (!draft) {
@@ -174,6 +276,82 @@ export function SpaceDetailPage() {
             setError(err?.message || "Failed to delete event.");
         } finally {
             setActiveEventActionId(null);
+        }
+    };
+
+    const handleSaveEnvelop = async (envelopId: string) => {
+        const draft = envelopDrafts[envelopId];
+        if (!draft) {
+            return;
+        }
+
+        setStatus("");
+        setError("");
+
+        try {
+            setActiveEnvelopActionId(envelopId);
+            await updateEnvelopMutation.mutateAsync({
+                envelopId,
+                name: draft.name.trim(),
+            });
+            setStatus("Envelop updated successfully.");
+        } catch (err: any) {
+            setError(err?.message || "Failed to update envelop.");
+        } finally {
+            setActiveEnvelopActionId(null);
+        }
+    };
+
+    const handleDeleteEnvelop = async (envelopId: string) => {
+        setStatus("");
+        setError("");
+
+        try {
+            setActiveEnvelopActionId(envelopId);
+            await deleteEnvelopMutation.mutateAsync({ envelopId });
+            setStatus("Envelop deleted successfully.");
+        } catch (err: any) {
+            setError(err?.message || "Failed to delete envelop.");
+        } finally {
+            setActiveEnvelopActionId(null);
+        }
+    };
+
+    const handleSavePlan = async (planId: string) => {
+        const draft = planDrafts[planId];
+        if (!draft) {
+            return;
+        }
+
+        setStatus("");
+        setError("");
+
+        try {
+            setActivePlanActionId(planId);
+            await updatePlanMutation.mutateAsync({
+                planId,
+                name: draft.name.trim(),
+            });
+            setStatus("Plan updated successfully.");
+        } catch (err: any) {
+            setError(err?.message || "Failed to update plan.");
+        } finally {
+            setActivePlanActionId(null);
+        }
+    };
+
+    const handleDeletePlan = async (planId: string) => {
+        setStatus("");
+        setError("");
+
+        try {
+            setActivePlanActionId(planId);
+            await deletePlanMutation.mutateAsync({ planId });
+            setStatus("Plan deleted successfully.");
+        } catch (err: any) {
+            setError(err?.message || "Failed to delete plan.");
+        } finally {
+            setActivePlanActionId(null);
         }
     };
 
@@ -295,6 +473,58 @@ export function SpaceDetailPage() {
                                 }
                             >
                                 Create event
+                            </button>
+                        </form>
+                    </article>
+
+                    <article className="space-card space-card--form">
+                        <h2>Create envelop in this space</h2>
+                        <form className="signup-form" onSubmit={handleCreateEnvelop}>
+                            <div className="signup-field">
+                                <label htmlFor="new-envelop-name" className="signup-field__label">
+                                    Envelop name
+                                </label>
+                                <input
+                                    id="new-envelop-name"
+                                    className="signup-field__input"
+                                    value={envelopName}
+                                    onChange={(e) => setEnvelopName(e.target.value)}
+                                    minLength={1}
+                                    maxLength={255}
+                                    required
+                                />
+                            </div>
+                            <button
+                                className="signup-btn signup-btn--primary"
+                                disabled={createEnvelopMutation.isPending || !envelopName.trim()}
+                            >
+                                Create envelop
+                            </button>
+                        </form>
+                    </article>
+
+                    <article className="space-card space-card--form">
+                        <h2>Create plan in this space</h2>
+                        <form className="signup-form" onSubmit={handleCreatePlan}>
+                            <div className="signup-field">
+                                <label htmlFor="new-plan-name" className="signup-field__label">
+                                    Plan name
+                                </label>
+                                <input
+                                    id="new-plan-name"
+                                    className="signup-field__input"
+                                    value={planName}
+                                    onChange={(e) => setPlanName(e.target.value)}
+                                    minLength={1}
+                                    maxLength={255}
+                                    required
+                                />
+                            </div>
+                            <button
+                                className="signup-btn signup-btn--primary"
+                                disabled={createPlanMutation.isPending || !planName.trim()}
+                            >
+                                Create plan
                             </button>
                         </form>
                     </article>
@@ -459,6 +689,160 @@ export function SpaceDetailPage() {
                                             className="signup-btn spaces-btn--danger space-members-table__btn"
                                             disabled={isRowBusy}
                                             onClick={() => handleDeleteEvent(event.id)}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </article>
+
+            <article className="space-card space-card--members" style={{ marginTop: 14 }}>
+                <div className="space-members__header">
+                    <h2>Envelops in this space</h2>
+                    {envelopsBySpaceQuery.isLoading && (
+                        <span className="spaces-suggestion__hint">Loading envelops...</span>
+                    )}
+                </div>
+
+                {envelopsBySpaceQuery.error && (
+                    <div className="signup-alert signup-alert--error" role="alert">
+                        Failed to load envelops.
+                    </div>
+                )}
+
+                {!envelopsBySpaceQuery.isLoading &&
+                    !envelopsBySpaceQuery.error &&
+                    envelopsWithDrafts.length === 0 && (
+                        <p className="spaces-suggestion__hint">
+                            No envelops yet. Create one from the form.
+                        </p>
+                    )}
+
+                {envelopsWithDrafts.length > 0 && (
+                    <div className="space-members-table">
+                        <div className="space-members-table__head">
+                            <span>Envelop</span>
+                            <span>Created</span>
+                            <span>Updated</span>
+                            <span>Actions</span>
+                        </div>
+                        {envelopsWithDrafts.map(({ envelop, draft }) => {
+                            const isRowBusy = activeEnvelopActionId === envelop.id;
+                            return (
+                                <div key={envelop.id} className="space-members-table__row">
+                                    <input
+                                        className="signup-field__input"
+                                        value={draft.name}
+                                        onChange={(e) =>
+                                            setEnvelopDrafts((previous) => ({
+                                                ...previous,
+                                                [envelop.id]: {
+                                                    name: e.target.value,
+                                                },
+                                            }))
+                                        }
+                                        disabled={isRowBusy}
+                                    />
+                                    <span>{toDisplayDateTime(envelop.created_at)}</span>
+                                    <span>
+                                        {envelop.updated_at
+                                            ? toDisplayDateTime(envelop.updated_at)
+                                            : "-"}
+                                    </span>
+                                    <div className="space-members-table__actions">
+                                        <button
+                                            type="button"
+                                            className="signup-btn signup-btn--primary space-members-table__btn"
+                                            disabled={isRowBusy || !draft.name.trim()}
+                                            onClick={() => handleSaveEnvelop(envelop.id)}
+                                        >
+                                            Save
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="signup-btn spaces-btn--danger space-members-table__btn"
+                                            disabled={isRowBusy}
+                                            onClick={() => handleDeleteEnvelop(envelop.id)}
+                                        >
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </article>
+
+            <article className="space-card space-card--members" style={{ marginTop: 14 }}>
+                <div className="space-members__header">
+                    <h2>Plans in this space</h2>
+                    {plansBySpaceQuery.isLoading && (
+                        <span className="spaces-suggestion__hint">Loading plans...</span>
+                    )}
+                </div>
+
+                {plansBySpaceQuery.error && (
+                    <div className="signup-alert signup-alert--error" role="alert">
+                        Failed to load plans.
+                    </div>
+                )}
+
+                {!plansBySpaceQuery.isLoading &&
+                    !plansBySpaceQuery.error &&
+                    plansWithDrafts.length === 0 && (
+                        <p className="spaces-suggestion__hint">
+                            No plans yet. Create one from the form.
+                        </p>
+                    )}
+
+                {plansWithDrafts.length > 0 && (
+                    <div className="space-members-table">
+                        <div className="space-members-table__head">
+                            <span>Plan</span>
+                            <span>Created</span>
+                            <span>Updated</span>
+                            <span>Actions</span>
+                        </div>
+                        {plansWithDrafts.map(({ plan, draft }) => {
+                            const isRowBusy = activePlanActionId === plan.id;
+                            return (
+                                <div key={plan.id} className="space-members-table__row">
+                                    <input
+                                        className="signup-field__input"
+                                        value={draft.name}
+                                        onChange={(e) =>
+                                            setPlanDrafts((previous) => ({
+                                                ...previous,
+                                                [plan.id]: {
+                                                    name: e.target.value,
+                                                },
+                                            }))
+                                        }
+                                        disabled={isRowBusy}
+                                    />
+                                    <span>{toDisplayDateTime(plan.created_at)}</span>
+                                    <span>
+                                        {plan.updated_at ? toDisplayDateTime(plan.updated_at) : "-"}
+                                    </span>
+                                    <div className="space-members-table__actions">
+                                        <button
+                                            type="button"
+                                            className="signup-btn signup-btn--primary space-members-table__btn"
+                                            disabled={isRowBusy || !draft.name.trim()}
+                                            onClick={() => handleSavePlan(plan.id)}
+                                        >
+                                            Save
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="signup-btn spaces-btn--danger space-members-table__btn"
+                                            disabled={isRowBusy}
+                                            onClick={() => handleDeletePlan(plan.id)}
                                         >
                                             Delete
                                         </button>

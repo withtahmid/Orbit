@@ -4,6 +4,8 @@ import { authRouter } from "./auth.mjs";
 import { spaceRouter } from "./space.mjs";
 import { accountRouter } from "./account.mjs";
 import { eventRouter } from "./event.mjs";
+import { envelopRouter } from "./envelop.mjs";
+import { planRouter } from "./plan.mjs";
 
 export const appRouter = router({
     health: healthProcedure,
@@ -11,5 +13,7 @@ export const appRouter = router({
     space: spaceRouter,
     account: accountRouter,
     event: eventRouter,
+    envelop: envelopRouter,
+    plan: planRouter,
 });
 export type AppRouter = typeof appRouter;
