@@ -13,7 +13,7 @@ export const up = async (db: Kysely<any>): Promise<void> => {
         .addColumn("updated_at", "timestamptz")
         .execute();
 
-    sql`
+    await sql`
         CREATE OR REPLACE FUNCTION update_users_updated_at_column()
         RETURNS TRIGGER AS $$
         BEGIN
@@ -23,7 +23,7 @@ export const up = async (db: Kysely<any>): Promise<void> => {
         $$ language 'plpgsql';
     `.execute(db);
 
-    sql`
+    await sql`
         CREATE TRIGGER update_users_updated_at
         BEFORE UPDATE ON users
         FOR EACH ROW

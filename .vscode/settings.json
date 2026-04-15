@@ -10,6 +10,7 @@
         "kysely",
         "maildev",
         "pg_uuidv7",
+        "pkey",
         "plpgsql",
         "safenv",
         "sslmode",
