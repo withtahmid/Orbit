@@ -33,6 +33,8 @@ export const ROUTES = {
     userDetail: (userId: string) => `/users/${userId}`,
     spaceDetail: (spaceId: string) => `/spaces/${spaceId}`,
     spaceEdit: (spaceId: string) => `/space/${spaceId}/edit`,
+    accountInSpace: (spaceId: string, accountId: string) =>
+        `/spaces/${spaceId}/accounts/${accountId}`,
 
     // Query-param helper  (returns a full path string)
     searchWithQuery: (params: { q?: string; page?: string }) => {

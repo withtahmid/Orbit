@@ -30,6 +30,7 @@ import { SearchPage } from "@/pages/dashboard/SearchPage";
 import { SpacesPage } from "@/pages/dashboard/SpacesPage";
 import { SpaceDetailPage } from "@/pages/dashboard/SpaceDetailPage";
 import { SpaceEditPage } from "@/pages/dashboard/SpaceEditPage";
+import { AccountManagePage } from "@/pages/dashboard/AccountManagePage";
 
 export const router = createBrowserRouter([
     {
@@ -119,6 +120,10 @@ export const router = createBrowserRouter([
                             {
                                 path: "/spaces/:id",
                                 element: <SpaceDetailPage />,
+                            },
+                            {
+                                path: "/spaces/:id/accounts/:accountId",
+                                element: <AccountManagePage />,
                             },
                             {
                                 path: "/space/:id/edit",

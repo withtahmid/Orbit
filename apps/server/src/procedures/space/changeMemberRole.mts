@@ -3,6 +3,7 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 import { SpaceMembers } from "../../db/kysely/types.mjs";
+import { resolveSpaceMembership } from "./utils/resolveSpaceMembership.mjs";
 
 export const changeMemberRoleInSpace = authorizedProcedure
     .input(
@@ -20,33 +21,12 @@ export const changeMemberRoleInSpace = authorizedProcedure
     .mutation(async ({ ctx, input }) => {
         const [error] = await safeAwait(
             ctx.services.qb.transaction().execute(async (trx) => {
-                const space = await trx
-                    .selectFrom("spaces")
-                    .select(["spaces.id"])
-                    .where("spaces.id", "=", input.spaceId)
-                    .executeTakeFirst();
-
-                if (!space) {
-                    throw new TRPCError({
-                        code: "NOT_FOUND",
-                        message: "Space not found",
-                    });
-                }
-
-                const membership = await trx
-                    .selectFrom("space_members")
-                    .select(["space_members.user_id", "role"])
-                    .where("space_members.space_id", "=", input.spaceId)
-                    .where("space_members.user_id", "=", ctx.auth.user.id)
-                    .where("space_members.role", "in", ["owner"])
-                    .executeTakeFirst();
-
-                if (!membership) {
-                    throw new TRPCError({
-                        code: "FORBIDDEN",
-                        message: "Only owners can change member roles",
-                    });
-                }
+                await resolveSpaceMembership({
+                    trx,
+                    spaceId: input.spaceId,
+                    userId: ctx.auth.user.id,
+                    roles: ["owner"] as unknown as SpaceMembers["role"][],
+                });
 
                 const targetMembership = await trx
                     .selectFrom("space_members")

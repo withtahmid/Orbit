@@ -2,6 +2,8 @@ import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { TRPCError } from "@trpc/server";
 import { safeAwait } from "../../utils/safeAwait.mjs";
+import { resolveSpaceMembership } from "./utils/resolveSpaceMembership.mjs";
+import { SpaceMembers } from "../../db/kysely/types.mjs";
 
 export const updateSpace = authorizedProcedure
     .input(
@@ -17,6 +19,13 @@ export const updateSpace = authorizedProcedure
         })
     )
     .mutation(async ({ ctx, input }) => {
+        await resolveSpaceMembership({
+            trx: ctx.services.qb,
+            spaceId: input.spaceId,
+            userId: ctx.auth.user.id,
+            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
+        });
+
         const [error, result] = await safeAwait(
             ctx.services.qb
                 .updateTable("spaces")
@@ -30,6 +39,9 @@ export const updateSpace = authorizedProcedure
         );
 
         if (error) {
+            if (error instanceof TRPCError) {
+                throw error;
+            }
             throw new TRPCError({
                 code: "INTERNAL_SERVER_ERROR",
                 message: error.message || "Failed to update space",

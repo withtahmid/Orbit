@@ -981,6 +981,11 @@ body {
     min-height: 38px;
     padding: 8px 12px;
     font-size: 13px;
+    text-decoration: none;
+}
+
+.space-members-table__actions a.signup-btn {
+    display: inline-flex;
 }
 
 @media (max-width: 900px) {

@@ -3,8 +3,8 @@ import { TRPCError } from "@trpc/server";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import type { SpaceMembers } from "../../db/kysely/types.mjs";
-
-type SpaceMemberRole = SpaceMembers["role"];
+import { resolve } from "path";
+import { resolveSpaceMembership } from "./utils/resolveSpaceMembership.mjs";
 
 export const addMembersToSpace = authorizedProcedure
     .input(
@@ -29,36 +29,15 @@ export const addMembersToSpace = authorizedProcedure
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
             ctx.services.qb.transaction().execute(async (trx) => {
-                const space = await trx
-                    .selectFrom("spaces")
-                    .select(["spaces.id"])
-                    .where("spaces.id", "=", input.spaceId)
-                    .executeTakeFirst();
-
-                if (!space) {
-                    throw new TRPCError({
-                        code: "NOT_FOUND",
-                        message: "Space not found",
-                    });
-                }
-
-                const membership = await trx
-                    .selectFrom("space_members")
-                    .select(["space_members.user_id", "space_members.role"])
-                    .where("space_members.space_id", "=", input.spaceId)
-                    .where("space_members.user_id", "=", ctx.auth.user.id)
-                    .where("space_members.role", "in", ["owner", "editor"])
-                    .executeTakeFirst();
-
-                if (!membership) {
-                    throw new TRPCError({
-                        code: "FORBIDDEN",
-                        message: "You are not a member of this space",
-                    });
-                }
+                const { membership } = await resolveSpaceMembership({
+                    trx,
+                    spaceId: input.spaceId,
+                    userId: ctx.auth.user.id,
+                    roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
+                });
 
                 const requesterIsOwner =
-                    membership.role === ("owner" as unknown as SpaceMemberRole);
+                    membership.role === ("owner" as unknown as SpaceMembers["role"]);
 
                 if (input.members.some((member) => member.role === "owner") && !requesterIsOwner) {
                     throw new TRPCError({
@@ -70,7 +49,7 @@ export const addMembersToSpace = authorizedProcedure
                 const insertValues = input.members.map((member) => ({
                     space_id: input.spaceId,
                     user_id: member.userId,
-                    role: member.role as unknown as SpaceMemberRole,
+                    role: member.role as unknown as SpaceMembers["role"],
                 }));
 
                 const insertedMembers = await trx
