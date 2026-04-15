@@ -27,6 +27,9 @@ import { SettingsGeneralPage } from "@/pages/dashboard/settings/SettingsGeneralP
 import { SettingsSecurityPage } from "@/pages/dashboard/settings/SettingsSecurityPage";
 import { UserDetailPage } from "@/pages/dashboard/UserDetailPage";
 import { SearchPage } from "@/pages/dashboard/SearchPage";
+import { SpacesPage } from "@/pages/dashboard/SpacesPage";
+import { SpaceDetailPage } from "@/pages/dashboard/SpaceDetailPage";
+import { SpaceEditPage } from "@/pages/dashboard/SpaceEditPage";
 
 export const router = createBrowserRouter([
     {
@@ -107,6 +110,19 @@ export const router = createBrowserRouter([
                             {
                                 path: "/search",
                                 element: <SearchPage />,
+                            },
+
+                            {
+                                path: "/spaces",
+                                element: <SpacesPage />,
+                            },
+                            {
+                                path: "/spaces/:id",
+                                element: <SpaceDetailPage />,
+                            },
+                            {
+                                path: "/space/:id/edit",
+                                element: <SpaceEditPage />,
                             },
 
                             // /settings — nested routes

@@ -23,6 +23,9 @@ export function useAppNavigate() {
             navigate(from ? `${ROUTES.login}?from=${encodeURIComponent(from)}` : ROUTES.login),
         toSignup: () => navigate(ROUTES.signup),
         toUserDetail: (userId: string) => navigate(ROUTES.userDetail(userId)),
+        toSpaces: () => navigate(ROUTES.spaces),
+        toSpaceDetail: (spaceId: string) => navigate(ROUTES.spaceDetail(spaceId)),
+        toSpaceEdit: (spaceId: string) => navigate(ROUTES.spaceEdit(spaceId)),
         toSearch: (params?: { q?: string; page?: string }) =>
             navigate(params ? ROUTES.searchWithQuery(params) : ROUTES.search),
         toSettings: () => navigate(ROUTES.settingsGeneral),

@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { signJWT } from "../../trpc/auth.mjs";
 import publicProcedure from "../../trpc/middlewares/public.mjs";
+import { logger } from "../../utils/logger.mjs";
 
 export const loginProcedure = publicProcedure
     .input(
@@ -29,7 +30,7 @@ export const loginProcedure = publicProcedure
     .mutation(async ({ ctx, input }) => {
         const { email, password } = input;
         const { qb } = ctx.services;
-
+        logger.debug(input);
         const dbUser = await qb
             .selectFrom("users")
             .select(["id", "email", "password_hash", "first_name", "last_name", "avatar_url"])

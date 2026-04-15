@@ -8,6 +8,7 @@ import { completeSignup } from "../procedures/auth//signup/complete.mjs";
 import { initiateSignup } from "../procedures/auth//signup/initiate.mjs";
 import { resendSignupCode } from "../procedures/auth//signup/resendCode.mjs";
 import { verifyCode } from "../procedures/auth//signup/verifyCode.mjs";
+import { findUserByEmail } from "../procedures/auth/users/findByEmail.mjs";
 
 export const authRouter = router({
     signup: router({
@@ -23,4 +24,5 @@ export const authRouter = router({
         verify: verifyPasswordResetCode,
         complete: completePasswordReset,
     }),
+    findUserByEmail,
 });

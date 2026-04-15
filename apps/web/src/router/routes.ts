@@ -22,6 +22,7 @@ export const ROUTES = {
     dashboard: "/dashboard",
     profile: "/profile",
     search: "/search",
+    spaces: "/spaces",
 
     // Protected — settings (nested)
     settings: "/settings",
@@ -30,6 +31,8 @@ export const ROUTES = {
 
     // Protected — dynamic param helper
     userDetail: (userId: string) => `/users/${userId}`,
+    spaceDetail: (spaceId: string) => `/spaces/${spaceId}`,
+    spaceEdit: (spaceId: string) => `/space/${spaceId}/edit`,
 
     // Query-param helper  (returns a full path string)
     searchWithQuery: (params: { q?: string; page?: string }) => {

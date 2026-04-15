@@ -23,6 +23,7 @@ export const DashboardLayout = observer(() => {
             <aside className="dashboard-layout__sidebar">
                 <nav>
                     <NavLink to={ROUTES.dashboard}>Dashboard</NavLink>
+                    <NavLink to={ROUTES.spaces}>Spaces</NavLink>
                     <NavLink to={ROUTES.profile}>Profile</NavLink>
                     <NavLink to={ROUTES.settingsGeneral}>Settings</NavLink>
                     <NavLink to={ROUTES.searchWithQuery({ q: "" })}>Search</NavLink>
