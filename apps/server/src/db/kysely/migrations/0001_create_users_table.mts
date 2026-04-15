@@ -10,25 +10,7 @@ export const up = async (db: Kysely<any>): Promise<void> => {
         .addColumn("last_name", "varchar(100)", (col) => col.notNull())
         .addColumn("avatar_url", "varchar(255)")
         .addColumn("created_at", "timestamptz", (col) => col.notNull().defaultTo(sql`NOW()`))
-        .addColumn("updated_at", "timestamptz")
         .execute();
-
-    await sql`
-        CREATE OR REPLACE FUNCTION update_users_updated_at_column()
-        RETURNS TRIGGER AS $$
-        BEGIN
-            NEW.updated_at = NOW();
-            RETURN NEW;
-        END;
-        $$ language 'plpgsql';
-    `.execute(db);
-
-    await sql`
-        CREATE TRIGGER update_users_updated_at
-        BEFORE UPDATE ON users
-        FOR EACH ROW
-        EXECUTE FUNCTION update_users_updated_at_column();
-    `.execute(db);
 };
 
 export const down = async (db: Kysely<any>): Promise<void> => {

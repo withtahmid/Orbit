@@ -172,7 +172,6 @@ export interface Users {
   id: Generated<string>;
   last_name: string;
   password_hash: string;
-  updated_at: Timestamp | null;
 }
 
 export interface DB {
