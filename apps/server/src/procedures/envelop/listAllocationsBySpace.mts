@@ -5,7 +5,7 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 
-export const listPlansBySpace = authorizedProcedure
+export const listEnvelopAllocationsBySpace = authorizedProcedure
     .input(
         z.object({
             spaceId: z.string().uuid(),
@@ -15,10 +15,10 @@ export const listPlansBySpace = authorizedProcedure
         z.array(
             z.object({
                 id: z.string().uuid(),
-                space_id: z.string().uuid(),
-                name: z.string(),
+                envelop_id: z.string().uuid(),
+                amount: z.string(),
                 created_at: z.date(),
-                updated_at: z.date().nullable(),
+                created_by: z.string().uuid(),
             })
         )
     )
@@ -33,10 +33,17 @@ export const listPlansBySpace = authorizedProcedure
                 });
 
                 return trx
-                    .selectFrom("plans")
-                    .select(["id", "space_id", "name", "created_at", "updated_at"])
-                    .where("plans.space_id", "=", input.spaceId)
-                    .orderBy("plans.created_at", "desc")
+                    .selectFrom("envelop_allocations")
+                    .innerJoin("envelops", "envelops.id", "envelop_allocations.envelop_id")
+                    .select([
+                        "envelop_allocations.id",
+                        "envelop_allocations.envelop_id",
+                        "envelop_allocations.amount",
+                        "envelop_allocations.created_at",
+                        "envelop_allocations.created_by",
+                    ])
+                    .where("envelops.space_id", "=", input.spaceId)
+                    .orderBy("envelop_allocations.created_at", "desc")
                     .execute();
             })
         );
@@ -47,7 +54,7 @@ export const listPlansBySpace = authorizedProcedure
             }
             throw new TRPCError({
                 code: "INTERNAL_SERVER_ERROR",
-                message: error.message || "Failed to fetch plans",
+                message: error.message || "Failed to fetch envelop allocations",
             });
         }
 

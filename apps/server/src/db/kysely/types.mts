@@ -5,192 +5,190 @@
 
 import type { ColumnType } from "kysely";
 
-export type ArrayType<T> = ArrayTypeImpl<T> extends (infer U)[]
-  ? U[]
-  : ArrayTypeImpl<T>;
+export type ArrayType<T> = ArrayTypeImpl<T> extends (infer U)[] ? U[] : ArrayTypeImpl<T>;
 
-export type ArrayTypeImpl<T> = T extends ColumnType<infer S, infer I, infer U>
-  ? ColumnType<S[], I[], U[]>
-  : T[];
+export type ArrayTypeImpl<T> =
+    T extends ColumnType<infer S, infer I, infer U> ? ColumnType<S[], I[], U[]> : T[];
 
 export type EmailVerificationCodePurpose = "change_email" | "password_reset" | "signup";
 
-export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
-  ? ColumnType<S, I | undefined, U>
-  : ColumnType<T, T | undefined, T>;
+export type Generated<T> =
+    T extends ColumnType<infer S, infer I, infer U>
+        ? ColumnType<S, I | undefined, U>
+        : ColumnType<T, T | undefined, T>;
 
 export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface AccountBalances {
-  account_id: string;
-  balance: Generated<Numeric>;
-  id: Generated<string>;
-  updated_at: Generated<Timestamp | null>;
+    account_id: string;
+    balance: Generated<Numeric>;
+    id: Generated<string>;
+    updated_at: Generated<Timestamp | null>;
 }
 
 export interface Accounts {
-  id: Generated<string>;
-  name: string;
-  updated_at: Generated<Timestamp | null>;
+    id: Generated<string>;
+    name: string;
+    updated_at: Generated<Timestamp | null>;
 }
 
 export interface EmailVerificationCodes {
-  code: string;
-  created_at: Generated<Timestamp>;
-  expires_at: Timestamp;
-  id: Generated<string>;
-  purpose: EmailVerificationCodePurpose;
-  tmp_user_id: string | null;
-  user_id: string | null;
+    code: string;
+    created_at: Generated<Timestamp>;
+    expires_at: Timestamp;
+    id: Generated<string>;
+    purpose: EmailVerificationCodePurpose;
+    tmp_user_id: string | null;
+    user_id: string | null;
 }
 
 export interface EnvelopAllocationConsumptions {
-  amount: Numeric;
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  envelop_allocation_id: string;
-  id: Generated<string>;
-  transaction_id: string;
+    amount: Numeric;
+    created_at: Generated<Timestamp>;
+    created_by: string;
+    envelop_allocation_id: string;
+    id: Generated<string>;
+    transaction_id: string;
 }
 
 export interface EnvelopAllocations {
-  amount: Numeric;
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  envelop_id: string;
-  id: Generated<string>;
+    amount: Numeric;
+    created_at: Generated<Timestamp>;
+    created_by: string;
+    envelop_id: string;
+    id: Generated<string>;
 }
 
 export interface EnvelopBalances {
-  allocated: Generated<Numeric>;
-  consumed: Generated<Numeric>;
-  envelop_id: string;
-  remaining: Generated<Numeric>;
+    allocated: Generated<Numeric>;
+    consumed: Generated<Numeric>;
+    envelop_id: string;
+    remaining: Generated<Numeric>;
 }
 
 export interface Envelops {
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-  name: string;
-  space_id: string;
-  updated_at: Generated<Timestamp | null>;
+    created_at: Generated<Timestamp>;
+    id: Generated<string>;
+    name: string;
+    space_id: string;
+    updated_at: Generated<Timestamp | null>;
 }
 
 export interface Events {
-  created_at: Generated<Timestamp>;
-  end_time: Timestamp;
-  id: Generated<string>;
-  name: string;
-  space_id: string;
-  start_time: Timestamp;
+    created_at: Generated<Timestamp>;
+    end_time: Timestamp;
+    id: Generated<string>;
+    name: string;
+    space_id: string;
+    start_time: Timestamp;
 }
 
 export interface ExpenseCategories {
-  created_at: Generated<Timestamp>;
-  envelop_id: string | null;
-  id: Generated<string>;
-  name: string;
-  parent_id: string | null;
-  space_id: string;
-  updated_at: Generated<Timestamp | null>;
+    created_at: Generated<Timestamp>;
+    envelop_id: string;
+    id: Generated<string>;
+    name: string;
+    parent_id: string | null;
+    space_id: string;
+    updated_at: Generated<Timestamp | null>;
 }
 
 export interface PlanAllocations {
-  amount: Numeric;
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  id: Generated<string>;
-  plan_id: string;
+    amount: Numeric;
+    created_at: Generated<Timestamp>;
+    created_by: string;
+    id: Generated<string>;
+    plan_id: string;
 }
 
 export interface Plans {
-  created_at: Generated<Timestamp>;
-  id: Generated<string>;
-  name: string;
-  space_id: string;
-  updated_at: Generated<Timestamp | null>;
+    created_at: Generated<Timestamp>;
+    id: Generated<string>;
+    name: string;
+    space_id: string;
+    updated_at: Generated<Timestamp | null>;
 }
 
 export interface SpaceAccounts {
-  account_id: string;
-  created_at: Generated<Timestamp>;
-  space_id: string;
+    account_id: string;
+    created_at: Generated<Timestamp>;
+    space_id: string;
 }
 
 export interface SpaceMembers {
-  created_at: Generated<Timestamp>;
-  role: ArrayType<"editor" | "owner" | "viewer">;
-  space_id: string;
-  user_id: string;
+    created_at: Generated<Timestamp>;
+    role: ArrayType<"editor" | "owner" | "viewer">;
+    space_id: string;
+    user_id: string;
 }
 
 export interface Spaces {
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  id: Generated<string>;
-  name: string;
-  updated_at: Generated<Timestamp | null>;
-  updated_by: string;
+    created_at: Generated<Timestamp>;
+    created_by: string;
+    id: Generated<string>;
+    name: string;
+    updated_at: Generated<Timestamp | null>;
+    updated_by: string;
 }
 
 export interface TmpUsers {
-  created_at: Generated<Timestamp>;
-  email: string;
-  id: Generated<string>;
-  is_email_verified: Generated<boolean>;
+    created_at: Generated<Timestamp>;
+    email: string;
+    id: Generated<string>;
+    is_email_verified: Generated<boolean>;
 }
 
 export interface Transactions {
-  amount: Numeric;
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  description: string | null;
-  destination_account_id: string | null;
-  expense_category_id: string | null;
-  id: Generated<string>;
-  is_deleted: Generated<boolean>;
-  location: string | null;
-  source_account_id: string | null;
-  space_id: string;
-  type: ArrayType<"expense" | "income" | "transfer">;
+    amount: Numeric;
+    created_at: Generated<Timestamp>;
+    created_by: string;
+    description: string | null;
+    destination_account_id: string | null;
+    expense_category_id: string | null;
+    id: Generated<string>;
+    is_deleted: Generated<boolean>;
+    location: string | null;
+    source_account_id: string | null;
+    space_id: string;
+    type: ArrayType<"expense" | "income" | "transfer">;
 }
 
 export interface UserAccounts {
-  account_id: string;
-  created_at: Generated<Timestamp>;
-  role: ArrayType<"owner" | "viewer">;
-  user_id: string;
+    account_id: string;
+    created_at: Generated<Timestamp>;
+    role: ArrayType<"owner" | "viewer">;
+    user_id: string;
 }
 
 export interface Users {
-  avatar_url: string | null;
-  created_at: Generated<Timestamp>;
-  email: string;
-  first_name: string;
-  id: Generated<string>;
-  last_name: string;
-  password_hash: string;
+    avatar_url: string | null;
+    created_at: Generated<Timestamp>;
+    email: string;
+    first_name: string;
+    id: Generated<string>;
+    last_name: string;
+    password_hash: string;
 }
 
 export interface DB {
-  account_balances: AccountBalances;
-  accounts: Accounts;
-  email_verification_codes: EmailVerificationCodes;
-  envelop_allocation_consumptions: EnvelopAllocationConsumptions;
-  envelop_allocations: EnvelopAllocations;
-  envelop_balances: EnvelopBalances;
-  envelops: Envelops;
-  events: Events;
-  expense_categories: ExpenseCategories;
-  plan_allocations: PlanAllocations;
-  plans: Plans;
-  space_accounts: SpaceAccounts;
-  space_members: SpaceMembers;
-  spaces: Spaces;
-  tmp_users: TmpUsers;
-  transactions: Transactions;
-  user_accounts: UserAccounts;
-  users: Users;
+    account_balances: AccountBalances;
+    accounts: Accounts;
+    email_verification_codes: EmailVerificationCodes;
+    envelop_allocation_consumptions: EnvelopAllocationConsumptions;
+    envelop_allocations: EnvelopAllocations;
+    envelop_balances: EnvelopBalances;
+    envelops: Envelops;
+    events: Events;
+    expense_categories: ExpenseCategories;
+    plan_allocations: PlanAllocations;
+    plans: Plans;
+    space_accounts: SpaceAccounts;
+    space_members: SpaceMembers;
+    spaces: Spaces;
+    tmp_users: TmpUsers;
+    transactions: Transactions;
+    user_accounts: UserAccounts;
+    users: Users;
 }

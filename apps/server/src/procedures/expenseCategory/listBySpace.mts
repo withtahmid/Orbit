@@ -5,7 +5,7 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 
-export const listPlansBySpace = authorizedProcedure
+export const listExpenseCategoriesBySpace = authorizedProcedure
     .input(
         z.object({
             spaceId: z.string().uuid(),
@@ -16,6 +16,8 @@ export const listPlansBySpace = authorizedProcedure
             z.object({
                 id: z.string().uuid(),
                 space_id: z.string().uuid(),
+                parent_id: z.string().uuid().nullable(),
+                envelop_id: z.string().uuid(),
                 name: z.string(),
                 created_at: z.date(),
                 updated_at: z.date().nullable(),
@@ -29,14 +31,22 @@ export const listPlansBySpace = authorizedProcedure
                     trx,
                     spaceId: input.spaceId,
                     userId: ctx.auth.user.id,
-                    roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
+                    roles: ["owner"] as unknown as SpaceMembers["role"][],
                 });
 
                 return trx
-                    .selectFrom("plans")
-                    .select(["id", "space_id", "name", "created_at", "updated_at"])
-                    .where("plans.space_id", "=", input.spaceId)
-                    .orderBy("plans.created_at", "desc")
+                    .selectFrom("expense_categories")
+                    .select([
+                        "id",
+                        "space_id",
+                        "parent_id",
+                        "envelop_id",
+                        "name",
+                        "created_at",
+                        "updated_at",
+                    ])
+                    .where("expense_categories.space_id", "=", input.spaceId)
+                    .orderBy("expense_categories.created_at", "asc")
                     .execute();
             })
         );
@@ -47,7 +57,7 @@ export const listPlansBySpace = authorizedProcedure
             }
             throw new TRPCError({
                 code: "INTERNAL_SERVER_ERROR",
-                message: error.message || "Failed to fetch plans",
+                message: error.message || "Failed to fetch expense categories",
             });
         }
 

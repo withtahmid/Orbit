@@ -11,7 +11,7 @@ export const up = async (db: Kysely<any>): Promise<void> => {
             col.references("expense_categories.id").onDelete("restrict")
         )
         .addColumn("envelop_id", "uuid", (col) =>
-            col.references("envelops.id").onDelete("restrict")
+            col.notNull().references("envelops.id").onDelete("restrict")
         )
 
         .addColumn("name", "varchar(255)", (col) => col.notNull())
