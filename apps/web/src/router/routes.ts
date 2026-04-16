@@ -9,9 +9,8 @@
  */
 
 export const ROUTES = {
-    // Public
+    // Root redirects to dashboard for authenticated users
     home: "/",
-    about: "/about",
 
     // Auth (guest-only)
     login: "/login",

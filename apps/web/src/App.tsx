@@ -6,6 +6,7 @@ import "@/App.css";
 import { router } from "@/router";
 import { trpc, trpcClient } from "@/trpc";
 import { RouterProvider } from "react-router-dom";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const App = () => {
     const [client] = useState(() => trpcClient);
@@ -14,8 +15,16 @@ const App = () => {
     return (
         <trpc.Provider client={client} queryClient={queryClient}>
             <QueryClientProvider client={queryClient}>
-                <StoreProvider value={rootStore}></StoreProvider>
-                <RouterProvider router={router} />
+                <StoreProvider value={rootStore}>
+                    <ThemeProvider
+                        attribute="class"
+                        defaultTheme="dark"
+                        forcedTheme="dark"
+                        enableSystem={false}
+                    >
+                        <RouterProvider router={router} />
+                    </ThemeProvider>
+                </StoreProvider>
             </QueryClientProvider>
         </trpc.Provider>
     );

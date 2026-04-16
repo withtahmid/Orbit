@@ -40,15 +40,10 @@ export const ProtectedRoute = observer(({ redirectTo = "/login" }: ProtectedRout
 
 function FullPageSpinner() {
     return (
-        <div
-            style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "100vh",
-            }}
-        >
-            <span>Loading…</span>
+        <div className="flex h-screen items-center justify-center bg-background">
+            <div className="rounded-xl border border-border bg-card px-6 py-4 text-sm text-muted-foreground">
+                Loading secure workspace...
+            </div>
         </div>
     );
 }
