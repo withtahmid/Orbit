@@ -32,6 +32,7 @@ export const ROUTES = {
     // Protected — dynamic param helper
     userDetail: (userId: string) => `/users/${userId}`,
     spaceDetail: (spaceId: string) => `/spaces/${spaceId}`,
+    spaceTransactions: (spaceId: string) => `/spaces/${spaceId}/transactions`,
     spaceEdit: (spaceId: string) => `/space/${spaceId}/edit`,
     accountInSpace: (spaceId: string, accountId: string) =>
         `/spaces/${spaceId}/accounts/${accountId}`,

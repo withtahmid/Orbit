@@ -31,6 +31,7 @@ import { SpacesPage } from "@/pages/dashboard/SpacesPage";
 import { SpaceDetailPage } from "@/pages/dashboard/SpaceDetailPage";
 import { SpaceEditPage } from "@/pages/dashboard/SpaceEditPage";
 import { AccountManagePage } from "@/pages/dashboard/AccountManagePage";
+import { SpaceTransactionsPage } from "@/pages/dashboard/SpaceTransactionsPage";
 
 export const router = createBrowserRouter([
     {
@@ -124,6 +125,10 @@ export const router = createBrowserRouter([
                             {
                                 path: "/spaces/:id/accounts/:accountId",
                                 element: <AccountManagePage />,
+                            },
+                            {
+                                path: "/spaces/:id/transactions",
+                                element: <SpaceTransactionsPage />,
                             },
                             {
                                 path: "/space/:id/edit",

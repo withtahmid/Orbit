@@ -550,6 +550,12 @@ export function SpaceDetailPage() {
                 >
                     Light Settings / Edit
                 </Link>
+                <Link
+                    className="signup-btn signup-btn--primary spaces-page__create-btn"
+                    to={ROUTES.spaceTransactions(id)}
+                >
+                    Transactions
+                </Link>
             </header>
 
             {(status || error) && (
