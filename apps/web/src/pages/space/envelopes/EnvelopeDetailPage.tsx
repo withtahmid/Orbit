@@ -43,6 +43,8 @@ import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
 import { cn } from "@/lib/utils";
+import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
+import { formatMoney } from "@/lib/money";
 
 export default function EnvelopeDetailPage() {
     const { space } = useCurrentSpace();
@@ -546,7 +548,7 @@ function RebalanceDialog({
                                         return (
                                             <SelectItem key={key} value={key}>
                                                 {account?.name ?? "Unassigned pool"} —{" "}
-                                                {s.remaining.toFixed(2)} available
+                                                {formatMoney(s.remaining)} available
                                             </SelectItem>
                                         );
                                     })}
@@ -619,10 +621,10 @@ function EnvelopeAllocationMap({
                 id: b.accountId ?? "unassigned",
                 name: account?.name ?? "Unassigned pool",
                 value: b.allocated,
-                color: account?.color ?? "#64748b",
+                color: account?.color ?? UNALLOCATED_COLOR,
                 hint: b.isDrift
-                    ? `Drift: spent ${b.consumed.toFixed(2)} against ${b.allocated.toFixed(2)} allocated`
-                    : `Spent ${b.consumed.toFixed(2)} · remaining ${b.remaining.toFixed(2)}`,
+                    ? `Drift: spent ${formatMoney(b.consumed)} against ${formatMoney(b.allocated)} allocated`
+                    : `Spent ${formatMoney(b.consumed)} · remaining ${formatMoney(b.remaining)}`,
             };
         });
 

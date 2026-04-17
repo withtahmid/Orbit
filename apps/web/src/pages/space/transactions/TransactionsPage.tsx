@@ -53,7 +53,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { NewTransactionSheet } from "@/features/transactions/NewTransactionSheet";
 import { ROUTES } from "@/router/routes";
 import { useStore } from "@/stores/useStore";
-import { colorTint } from "@/lib/entityStyle";
+import { colorTint, UNALLOCATED_COLOR } from "@/lib/entityStyle";
 import { cn } from "@/lib/utils";
 
 type TxType = "income" | "expense" | "transfer" | "adjustment";
@@ -451,7 +451,7 @@ export default function TransactionsPage() {
                                             />
                                         ) : (
                                             <EntityAvatar
-                                                color="#64748b"
+                                                color={UNALLOCATED_COLOR}
                                                 icon="banknote"
                                                 size="md"
                                             />
@@ -764,7 +764,7 @@ function AccountFlow({
             >
                 <EntityAvatar
                     size="sm"
-                    color={accountsById.get(id)?.color ?? "#64748b"}
+                    color={accountsById.get(id)?.color ?? UNALLOCATED_COLOR}
                     icon={accountsById.get(id)?.icon ?? "wallet"}
                 />
                 <span className="truncate max-w-[8rem]">

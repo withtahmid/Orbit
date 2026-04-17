@@ -48,6 +48,7 @@ import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
 import { format } from "date-fns";
+import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
 export default function AccountDetailPage() {
     const { space } = useCurrentSpace();
@@ -419,7 +420,6 @@ function AccountAllocationsTab({
     // partition (allocated), plus an "Unallocated" slice when positive.
     // Spent money has already left the account, so it doesn't appear here —
     // this chart shows where the *current balance* is mentally parked.
-    const UNALLOCATED_COLOR = "#64748b";
     const allocationDonut = [
         ...envelopes
             .filter((e) => e.remaining > 0)

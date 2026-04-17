@@ -6,14 +6,17 @@ import type { DB } from "../../../db/kysely/types.mjs";
  * or plan. On-read computation (the materialized balances table is gone).
  *
  * spendable = SUM(asset balances) − SUM(liability balances) (locked excluded)
- * held      = SUM(current-period envelope remaining) + SUM(plan allocated)
+ * held      = SUM(current-period envelope remaining, incl. carryIn) + SUM(plan allocated)
  * free      = spendable − held
  *
  * Envelope held:
  *   Per-envelope current-period remaining, summed. For cadence='none' the
  *   window is [epoch, ∞). For cadence='monthly' it's the current calendar
- *   month. Remaining = sum(allocations in period) − sum(expenses in period),
- *   clamped to ≥ 0 (overspend shows as drift but doesn't inflate free cash).
+ *   month. When `carry_over = true`, the previous period's remaining
+ *   (clamped to ≥ 0) is added in as `carryIn` — matching
+ *   `resolveEnvelopePeriodBalance`. The whole held value per envelope is
+ *   clamped to ≥ 0 so that overspend shows as drift but doesn't inflate
+ *   free cash.
  *
  * Plan held:
  *   Sum of all plan allocations (rolling, no period). Net of signed
@@ -35,6 +38,7 @@ export async function resolveSpaceUnallocated({
             SELECT
                 e.id AS envelop_id,
                 e.cadence,
+                e.carry_over,
                 CASE e.cadence
                     WHEN 'none' THEN DATE '1970-01-01'
                     WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
@@ -42,7 +46,15 @@ export async function resolveSpaceUnallocated({
                 CASE e.cadence
                     WHEN 'none' THEN DATE '9999-12-31'
                     WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
-                END AS p_end
+                END AS p_end,
+                CASE e.cadence
+                    WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) - INTERVAL '1 month')::date
+                    ELSE NULL
+                END AS prev_start,
+                CASE e.cadence
+                    WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
+                    ELSE NULL
+                END AS prev_end
             FROM envelops e
             WHERE e.space_id = ${spaceId}
         ),
@@ -68,6 +80,28 @@ export async function resolveSpaceUnallocated({
                 AND t.transaction_datetime >= p.p_start
                 AND t.transaction_datetime < p.p_end
             GROUP BY p.envelop_id
+        ),
+        env_prev_alloc AS (
+            SELECT p.envelop_id, COALESCE(SUM(a.amount), 0) AS allocated
+            FROM period p
+            LEFT JOIN envelop_allocations a ON a.envelop_id = p.envelop_id
+                AND p.cadence <> 'none'
+                AND p.carry_over
+                AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
+                AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
+            GROUP BY p.envelop_id
+        ),
+        env_prev_consume AS (
+            SELECT p.envelop_id, COALESCE(SUM(t.amount), 0) AS consumed
+            FROM period p
+            LEFT JOIN expense_categories ec ON ec.envelop_id = p.envelop_id
+                AND p.cadence <> 'none'
+                AND p.carry_over
+            LEFT JOIN transactions t ON t.expense_category_id = ec.id
+                AND t.type = 'expense'
+                AND t.transaction_datetime >= p.prev_start
+                AND t.transaction_datetime < p.prev_end
+            GROUP BY p.envelop_id
         )
         SELECT
             (
@@ -84,9 +118,18 @@ export async function resolveSpaceUnallocated({
                 WHERE sa.space_id = ${spaceId}
             ) AS spendable,
             (
-                SELECT COALESCE(SUM(GREATEST(0, ea.allocated - ec.consumed)), 0)
+                SELECT COALESCE(SUM(
+                    GREATEST(
+                        0,
+                        GREATEST(0, COALESCE(epa.allocated, 0) - COALESCE(epc.consumed, 0))
+                        + ea.allocated
+                        - ec.consumed
+                    )
+                ), 0)
                 FROM env_alloc ea
                 JOIN env_consume ec ON ec.envelop_id = ea.envelop_id
+                LEFT JOIN env_prev_alloc epa ON epa.envelop_id = ea.envelop_id
+                LEFT JOIN env_prev_consume epc ON epc.envelop_id = ea.envelop_id
             ) AS envelope_held,
             (
                 SELECT COALESCE(SUM(pa.amount), 0)

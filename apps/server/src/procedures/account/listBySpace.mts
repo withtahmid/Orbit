@@ -5,6 +5,18 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 
+/**
+ * All accounts shared into this space. Access is gated by space membership
+ * alone — once an account is shared into a space, every space member can
+ * see it and transact against it. Account-level ACL (`user_accounts`)
+ * governs edits to the account row itself (name, sharing, delete), not
+ * visibility inside a space.
+ *
+ * `myRole` is the caller's role in `user_accounts` (if any), surfaced so
+ * the UI can gate account-level mutations. It is `null` when the caller
+ * has no `user_accounts` row — which is legal: they can still view/use
+ * the account in this space, but cannot rename/share/delete it.
+ */
 export const listAccountsBySpace = authorizedProcedure
     .input(
         z.object({
@@ -23,7 +35,7 @@ export const listAccountsBySpace = authorizedProcedure
             ctx.services.qb
                 .selectFrom("accounts")
                 .innerJoin("space_accounts", "space_accounts.account_id", "accounts.id")
-                .innerJoin("user_accounts", (join) =>
+                .leftJoin("user_accounts", (join) =>
                     join
                         .onRef("user_accounts.account_id", "=", "accounts.id")
                         .on("user_accounts.user_id", "=", ctx.auth.user.id)
@@ -57,7 +69,7 @@ export const listAccountsBySpace = authorizedProcedure
             account_type: a.account_type as unknown as "asset" | "liability" | "locked",
             color: a.color,
             icon: a.icon,
-            balance: a.balance,
-            myRole: a.my_role as unknown as "owner" | "viewer",
+            balance: Number(a.balance ?? 0),
+            myRole: (a.my_role ?? null) as "owner" | "viewer" | null,
         }));
     });

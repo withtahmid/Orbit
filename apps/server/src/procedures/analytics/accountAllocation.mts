@@ -14,7 +14,10 @@ import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mj
  *
  * Envelope numbers use the envelope's own cadence: cadence='none' pulls
  * lifetime, cadence='monthly' pulls current-month. That matches what the
- * user sees on the Envelopes page so the two views reconcile.
+ * user sees on the Envelopes page so the two views reconcile. For envelopes
+ * with `carry_over = true`, the previous period's clamped-to-≥0 remaining
+ * (for this account partition) is added in as `carryIn` so the remaining /
+ * drift state here matches `resolveEnvelopePeriodBalance`.
  *
  * Consumed is transactions where `source_account_id = accountId` and
  * `expense_category_id` rolls up to the envelope — regardless of whether
@@ -52,20 +55,23 @@ export const accountAllocation = authorizedProcedure
                     });
                 }
 
-                // Envelope partitions at this account (current period per cadence)
+                // Envelope partitions at this account (current period per cadence,
+                // plus previous period for carry-over envelopes).
                 const envelopesRows = await sql<{
                     envelop_id: string;
                     name: string;
                     color: string;
                     icon: string;
                     cadence: string;
+                    carry_over: boolean;
                     allocated: string;
                     consumed: string;
+                    carry_in: string;
                 }>`
                     WITH period AS (
                         SELECT
                             e.id AS envelop_id,
-                            e.name, e.color, e.icon, e.cadence,
+                            e.name, e.color, e.icon, e.cadence, e.carry_over,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '1970-01-01'
                                 WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
@@ -73,13 +79,21 @@ export const accountAllocation = authorizedProcedure
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '9999-12-31'
                                 WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
-                            END AS p_end
+                            END AS p_end,
+                            CASE e.cadence
+                                WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) - INTERVAL '1 month')::date
+                                ELSE NULL
+                            END AS prev_start,
+                            CASE e.cadence
+                                WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
+                                ELSE NULL
+                            END AS prev_end
                         FROM envelops e
                         WHERE e.space_id = ${input.spaceId}
                     )
                     SELECT
                         p.envelop_id::text AS envelop_id,
-                        p.name, p.color, p.icon, p.cadence,
+                        p.name, p.color, p.icon, p.cadence, p.carry_over,
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
@@ -102,7 +116,31 @@ export const accountAllocation = authorizedProcedure
                               AND t.source_account_id = ${input.accountId}
                               AND t.transaction_datetime >= p.p_start
                               AND t.transaction_datetime < p.p_end
-                        ), 0)::text AS consumed
+                        ), 0)::text AS consumed,
+                        CASE
+                            WHEN p.cadence <> 'none' AND p.carry_over THEN GREATEST(0, (
+                                COALESCE((
+                                    SELECT SUM(a.amount)
+                                    FROM envelop_allocations a
+                                    WHERE a.envelop_id = p.envelop_id
+                                      AND a.account_id = ${input.accountId}
+                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
+                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
+                                ), 0)
+                                -
+                                COALESCE((
+                                    SELECT SUM(t.amount)
+                                    FROM transactions t
+                                    JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                    WHERE ec.envelop_id = p.envelop_id
+                                      AND t.type = 'expense'
+                                      AND t.source_account_id = ${input.accountId}
+                                      AND t.transaction_datetime >= p.prev_start
+                                      AND t.transaction_datetime < p.prev_end
+                                ), 0)
+                            ))
+                            ELSE 0
+                        END::text AS carry_in
                     FROM period p
                     ORDER BY p.name ASC
                 `.execute(trx);
@@ -111,6 +149,8 @@ export const accountAllocation = authorizedProcedure
                     .map((r) => {
                         const allocated = Number(r.allocated);
                         const consumed = Number(r.consumed);
+                        const carryIn = Number(r.carry_in);
+                        const remaining = carryIn + allocated - consumed;
                         return {
                             envelopId: r.envelop_id,
                             name: r.name,
@@ -119,12 +159,15 @@ export const accountAllocation = authorizedProcedure
                             cadence: r.cadence as "none" | "monthly",
                             allocated,
                             consumed,
-                            remaining: allocated - consumed,
-                            isDrift: allocated - consumed < 0,
+                            carryIn,
+                            remaining,
+                            isDrift: remaining < 0,
                         };
                     })
                     // Hide envelopes with no activity at this account
-                    .filter((e) => e.allocated !== 0 || e.consumed !== 0);
+                    .filter(
+                        (e) => e.allocated !== 0 || e.consumed !== 0 || e.carryIn !== 0
+                    );
 
                 const plansRows = await sql<{
                     plan_id: string;

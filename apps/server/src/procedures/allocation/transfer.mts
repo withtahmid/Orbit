@@ -77,8 +77,8 @@ export const transferAllocation = authorizedProcedure
 
                 // Verify any pinned account belongs to the space
                 for (const accountId of [
-                    (input.from as any).accountId as string | null | undefined,
-                    (input.to as any).accountId as string | null | undefined,
+                    targetAccountId(input.from),
+                    targetAccountId(input.to),
                 ]) {
                     if (accountId) {
                         const sa = await trx
@@ -96,11 +96,14 @@ export const transferAllocation = authorizedProcedure
                     }
                 }
 
-                // Source partition must have enough to give
+                // Source partition must have enough to give. Surface the
+                // available number via `cause` so the client can format
+                // it with MoneyDisplay instead of re-parsing the string.
                 if (fromInfo.available < input.amount) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",
-                        message: `Source only has ${fromInfo.available.toFixed(2)} available.`,
+                        message: "Source has insufficient available balance",
+                        cause: { available: fromInfo.available },
                     });
                 }
 
@@ -212,6 +215,10 @@ async function resolveTargetInfo(
         accountId: target.accountId ?? null,
     });
     return { spaceId: plan.space_id, available: bal.allocated, periodStart: null };
+}
+
+function targetAccountId(t: Target): string | null {
+    return t.accountId ?? null;
 }
 
 function sameTarget(a: Target, b: Target): boolean {

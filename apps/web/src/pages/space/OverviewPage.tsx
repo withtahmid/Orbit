@@ -46,6 +46,7 @@ import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
 import { addDays, addMonths, endOfMonth, startOfMonth } from "@/lib/dates";
 import { cn } from "@/lib/utils";
+import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
 export default function OverviewPage() {
     const { space } = useCurrentSpace();
@@ -134,7 +135,6 @@ export default function OverviewPage() {
     // plan allocated + unallocated (positive only; over-allocation is
     // shown in the banner above, not as a negative slice).
     const allocationDonut = useMemo(() => {
-        const UNALLOCATED_COLOR = "#64748b";
         const env = (utilization.data ?? [])
             .filter((e) => e.remaining > 0)
             .map((e) => ({
@@ -206,13 +206,17 @@ export default function OverviewPage() {
 
     const overAllocated = summary.data?.isOverAllocated ?? false;
 
-    // Month-over-month deltas
+    // Month-over-month deltas.
+    //   null       → data still loading (hide indicator)
+    //   0          → no change (or both zero)
+    //   Infinity   → previous was zero, current is non-zero (render "New")
+    //   finite num → percent change
     const monthOverMonth = useMemo(() => {
         const cur = summary.data;
         const prev = lastMonthSummary.data;
         const delta = (c?: number, p?: number): number | null => {
             if (c == null || p == null) return null;
-            if (p === 0) return c === 0 ? 0 : null;
+            if (p === 0) return c === 0 ? 0 : Infinity;
             return ((c - p) / Math.abs(p)) * 100;
         };
         return {
@@ -918,20 +922,35 @@ function StatCard({
     /** How to color the delta — "higher-better" shows up-green for positive. */
     trendDirection?: "higher-better" | "lower-better";
 }) {
-    const showTrend = trendPct != null && Number.isFinite(trendPct);
+    // Delta states:
+    //   null       → still loading (render nothing)
+    //   Infinity   → previous-period was zero → show a "New" pill
+    //   finite num → percentage change
+    const isNew = trendPct === Infinity;
+    const showTrend = trendPct != null && (Number.isFinite(trendPct) || isNew);
     let trendColor = "text-muted-foreground";
     if (showTrend) {
-        const good =
-            trendDirection === "higher-better" ? trendPct > 0 : trendPct < 0;
-        const bad =
-            trendDirection === "higher-better" ? trendPct < 0 : trendPct > 0;
-        if (good) trendColor = "text-[color:var(--income)]";
-        else if (bad) trendColor = "text-[color:var(--expense)]";
+        if (isNew) {
+            // "New" signals direction via variant: new income is good,
+            // new expense is bad. higher-better income → +income color,
+            // lower-better expense → +expense color.
+            trendColor =
+                trendDirection === "higher-better"
+                    ? "text-[color:var(--income)]"
+                    : "text-[color:var(--expense)]";
+        } else {
+            const good =
+                trendDirection === "higher-better" ? trendPct > 0 : trendPct < 0;
+            const bad =
+                trendDirection === "higher-better" ? trendPct < 0 : trendPct > 0;
+            if (good) trendColor = "text-[color:var(--income)]";
+            else if (bad) trendColor = "text-[color:var(--expense)]";
+        }
     }
     const TrendIcon =
         !showTrend || trendPct === 0
             ? null
-            : trendPct > 0
+            : isNew || trendPct! > 0
               ? TrendingUp
               : TrendingDown;
 
@@ -963,7 +982,9 @@ function StatCard({
                                 )}
                             >
                                 {TrendIcon && <TrendIcon className="size-3" />}
-                                {Math.abs(trendPct!).toFixed(0)}% vs last month
+                                {isNew
+                                    ? "New vs last month"
+                                    : `${Math.abs(trendPct!).toFixed(0)}% vs last month`}
                             </span>
                         )}
                         {description && (

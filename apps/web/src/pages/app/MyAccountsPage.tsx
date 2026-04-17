@@ -103,8 +103,10 @@ export default function MyAccountsPage() {
                                                 <div className="grid gap-1">
                                                     <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                                                         Shared with{" "}
-                                                        {a.spaces.length > 1
-                                                            ? `${a.spaces.length} spaces`
+                                                        {a.spaces.length +
+                                                            a.otherSpacesCount >
+                                                        1
+                                                            ? `${a.spaces.length + a.otherSpacesCount} spaces`
                                                             : "1 space"}
                                                     </p>
                                                     <div className="flex flex-wrap gap-1.5">
@@ -121,6 +123,14 @@ export default function MyAccountsPage() {
                                                                 <ExternalLink className="size-3 opacity-60" />
                                                             </Link>
                                                         ))}
+                                                        {a.otherSpacesCount > 0 && (
+                                                            <span
+                                                                className="inline-flex items-center rounded-md border border-dashed border-border bg-secondary/30 px-2 py-0.5 text-xs text-muted-foreground"
+                                                                title="Spaces you're not a member of"
+                                                            >
+                                                                +{a.otherSpacesCount} other
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </CardContent>

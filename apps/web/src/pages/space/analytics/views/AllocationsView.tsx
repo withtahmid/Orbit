@@ -20,6 +20,7 @@ import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
+import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
 /**
  * The relational allocation view. Three perspectives on the same
@@ -82,7 +83,7 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
                                 id: b.accountId ?? "unassigned",
                                 name: acct?.name ?? "Unassigned",
                                 value: b.allocated,
-                                color: acct?.color ?? "#64748b",
+                                color: acct?.color ?? UNALLOCATED_COLOR,
                             };
                         });
                     return {

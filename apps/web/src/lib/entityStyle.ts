@@ -21,6 +21,14 @@ export const ENTITY_COLORS = [
 
 export const DEFAULT_COLOR = ENTITY_COLORS[0];
 
+/**
+ * Canonical color for the "unassigned / unallocated" slice in charts and
+ * lists. Kept in sync with the slate entry in the curated palette (index
+ * 12) so it renders alongside entity colors without feeling out of place.
+ * Do not hardcode `#64748b` anywhere else — import this constant.
+ */
+export const UNALLOCATED_COLOR = "#64748b";
+
 export function isValidColor(c: string): boolean {
     return /^#[0-9a-fA-F]{6}$/.test(c);
 }

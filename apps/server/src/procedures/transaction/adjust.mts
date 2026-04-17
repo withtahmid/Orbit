@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sql } from "kysely";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
@@ -28,15 +29,43 @@ export const adjustAccountBalance = authorizedProcedure
                     type: "adjustment" as unknown as Transactions["type"],
                 });
 
-                const currentBalance = await trx
-                    .selectFrom("account_balances")
-                    .select("balance")
-                    .where("account_id", "=", input.accountId)
-                    .executeTakeFirstOrThrow();
+                // Compute the delta in Postgres so we preserve the exact
+                // precision of `account_balances.balance` (numeric(20,2))
+                // and don't round-trip it through a JS float. Also does
+                // the sign split for source/destination in-query.
+                const row = await sql<{
+                    delta: string;
+                    abs_delta: string;
+                    source_account_id: string | null;
+                    destination_account_id: string | null;
+                }>`
+                    SELECT
+                        (${input.newBalance}::numeric - ab.balance)::text AS delta,
+                        ABS(${input.newBalance}::numeric - ab.balance)::text AS abs_delta,
+                        CASE
+                            WHEN ${input.newBalance}::numeric < ab.balance
+                                THEN ab.account_id::text
+                            ELSE NULL
+                        END AS source_account_id,
+                        CASE
+                            WHEN ${input.newBalance}::numeric > ab.balance
+                                THEN ab.account_id::text
+                            ELSE NULL
+                        END AS destination_account_id
+                    FROM account_balances ab
+                    WHERE ab.account_id = ${input.accountId}
+                `
+                    .execute(trx)
+                    .then((r) => r.rows[0]);
 
-                const adjustmentAmount = input.newBalance - parseFloat(currentBalance.balance);
+                if (!row) {
+                    throw new TRPCError({
+                        code: "NOT_FOUND",
+                        message: "Account has no balance row",
+                    });
+                }
 
-                if (adjustmentAmount === 0) {
+                if (Number(row.delta) === 0) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",
                         message: "New balance is equal to current balance",
@@ -49,9 +78,11 @@ export const adjustAccountBalance = authorizedProcedure
                         space_id: input.spaceId,
                         created_by: ctx.auth.user.id,
                         type: "adjustment" as unknown as Transactions["type"],
-                        amount: Math.abs(adjustmentAmount),
-                        source_account_id: adjustmentAmount < 0 ? input.accountId : null,
-                        destination_account_id: adjustmentAmount > 0 ? input.accountId : null,
+                        // Pass as string to preserve precision end-to-end;
+                        // pg accepts numeric as string.
+                        amount: row.abs_delta as unknown as number,
+                        source_account_id: row.source_account_id,
+                        destination_account_id: row.destination_account_id,
                         description: input.description || null,
                         location: input.location || null,
                         transaction_datetime: input.datetime || new Date(),

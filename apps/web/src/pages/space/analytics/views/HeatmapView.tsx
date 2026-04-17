@@ -8,6 +8,7 @@ import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { startOfYear, endOfYear, startOfMonth } from "@/lib/dates";
 import { cn } from "@/lib/utils";
+import { formatMoney } from "@/lib/money";
 
 export default function HeatmapView() {
     const { space } = useCurrentSpace();
@@ -103,7 +104,7 @@ export default function HeatmapView() {
                                             return (
                                                 <div
                                                     key={di}
-                                                    title={`${format(d, "MMM d")} — ${v.toFixed(2)}`}
+                                                    title={`${format(d, "MMM d")} — ${formatMoney(v)}`}
                                                     className={cn(
                                                         "size-[12px] rounded-[3px] border border-border/60",
                                                         v === 0 && "bg-muted/30"
