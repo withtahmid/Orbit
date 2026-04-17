@@ -29,6 +29,15 @@ import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateD
 import { PlanAllocateDialog } from "@/features/allocations/PlanAllocateDialog";
 import { Donut } from "@/components/shared/charts/Donut";
 import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from "@/components/ui/dialog";
+import {
     Select,
     SelectContent,
     SelectItem,
@@ -120,9 +129,10 @@ export default function AccountDetailPage() {
             />
 
             <Tabs defaultValue="allocations">
-                <TabsList>
+                <TabsList className="h-auto flex-wrap">
                     <TabsTrigger value="allocations">Allocations</TabsTrigger>
                     <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                    <TabsTrigger value="shared">Shared with</TabsTrigger>
                     <TabsTrigger value="members">Members</TabsTrigger>
                     <PermissionGate roles={["owner"]}>
                         <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -131,6 +141,13 @@ export default function AccountDetailPage() {
 
                 <TabsContent value="allocations">
                     <AccountAllocationsTab spaceId={space.id} accountId={account.id} />
+                </TabsContent>
+
+                <TabsContent value="shared">
+                    <SharedSpacesTab
+                        accountId={account.id}
+                        currentSpaceId={space.id}
+                    />
                 </TabsContent>
 
                 <TabsContent value="transactions">
@@ -666,5 +683,232 @@ function AccountAllocationsTab({
                 )}
             </Card>
         </div>
+    );
+}
+
+function SharedSpacesTab({
+    accountId,
+    currentSpaceId,
+}: {
+    accountId: string;
+    currentSpaceId: string;
+}) {
+    const spacesQuery = trpc.account.listSpaces.useQuery({ accountId });
+    const utils = trpc.useUtils();
+    const unshare = trpc.account.unshareFromSpace.useMutation({
+        onSuccess: async () => {
+            toast.success("Account unshared from space");
+            await Promise.all([
+                utils.account.listSpaces.invalidate({ accountId }),
+                utils.account.listBySpace.invalidate(),
+                utils.account.listByUser.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    return (
+        <div className="grid gap-4">
+            <Card>
+                <CardHeader className="flex-row items-start justify-between gap-3">
+                    <div>
+                        <CardTitle className="text-base">Spaces</CardTitle>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                            This account can be used in every space listed below. Each
+                            space keeps its own transactions and allocations; only the
+                            cash balance is shared.
+                        </p>
+                    </div>
+                    <PermissionGate roles={["owner", "editor"]}>
+                        <ShareWithAnotherSpaceDialog
+                            accountId={accountId}
+                            alreadyIn={
+                                spacesQuery.data?.map((s) => s.spaceId) ?? []
+                            }
+                        />
+                    </PermissionGate>
+                </CardHeader>
+                <CardContent className="p-0">
+                    {spacesQuery.isLoading ? (
+                        <div className="p-4">
+                            <Skeleton className="h-14 w-full" />
+                        </div>
+                    ) : (spacesQuery.data ?? []).length === 0 ? (
+                        <div className="p-4 text-sm text-muted-foreground">
+                            No spaces linked.
+                        </div>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Space</TableHead>
+                                    <TableHead>Your role</TableHead>
+                                    <TableHead>Shared since</TableHead>
+                                    <TableHead className="w-28" />
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {(spacesQuery.data ?? []).map((s) => {
+                                    const isCurrent = s.spaceId === currentSpaceId;
+                                    const isOnly = (spacesQuery.data ?? []).length === 1;
+                                    return (
+                                        <TableRow key={s.spaceId}>
+                                            <TableCell>
+                                                <span className="flex items-center gap-2">
+                                                    <Link
+                                                        to={ROUTES.space(s.spaceId)}
+                                                        className="font-medium hover:text-primary"
+                                                    >
+                                                        {s.name}
+                                                    </Link>
+                                                    {isCurrent && (
+                                                        <span className="rounded-sm bg-primary/15 px-1.5 text-[10px] font-medium uppercase tracking-wider text-primary">
+                                                            Current
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            </TableCell>
+                                            <TableCell className="text-sm capitalize text-muted-foreground">
+                                                {s.myRole ?? "—"}
+                                            </TableCell>
+                                            <TableCell className="text-sm text-muted-foreground">
+                                                {format(s.sharedAt, "MMM d, yyyy")}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                                {!isOnly && (
+                                                    <ConfirmDialog
+                                                        trigger={
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="text-destructive"
+                                                            >
+                                                                Unshare
+                                                            </Button>
+                                                        }
+                                                        title={`Unshare from ${s.name}?`}
+                                                        description="Transactions and allocations in that space tied to this account must be removed first."
+                                                        confirmLabel="Unshare"
+                                                        destructive
+                                                        onConfirm={() =>
+                                                            unshare.mutate({
+                                                                accountId,
+                                                                spaceId: s.spaceId,
+                                                            })
+                                                        }
+                                                    />
+                                                )}
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+}
+
+function ShareWithAnotherSpaceDialog({
+    accountId,
+    alreadyIn,
+}: {
+    accountId: string;
+    alreadyIn: string[];
+}) {
+    const [open, setOpen] = useState(false);
+    const [selected, setSelected] = useState<string | null>(null);
+    const utils = trpc.useUtils();
+    const spacesQuery = trpc.space.list.useQuery();
+
+    const share = trpc.account.shareWithSpace.useMutation({
+        onSuccess: async () => {
+            toast.success("Account shared");
+            await Promise.all([
+                utils.account.listSpaces.invalidate({ accountId }),
+                utils.account.listBySpace.invalidate(),
+                utils.account.listByUser.invalidate(),
+            ]);
+            setSelected(null);
+            setOpen(false);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    const alreadySet = new Set(alreadyIn);
+    const candidates = (spacesQuery.data ?? []).filter(
+        (s) => !alreadySet.has(s.id) && (s.myRole === "owner" || s.myRole === "editor")
+    );
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button variant="gradient" size="sm">
+                    <UserPlus />
+                    Share to another space
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Share this account</DialogTitle>
+                    <DialogDescription>
+                        Pick a space where you&apos;re an owner or editor. The account
+                        becomes usable there &mdash; existing transactions stay where
+                        they are.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="max-h-[50vh] overflow-y-auto">
+                    {spacesQuery.isLoading ? (
+                        <Skeleton className="h-24 w-full" />
+                    ) : candidates.length === 0 ? (
+                        <p className="py-6 text-center text-sm text-muted-foreground">
+                            No eligible spaces. The account is already in every space
+                            you can share to.
+                        </p>
+                    ) : (
+                        <div className="grid gap-1.5">
+                            {candidates.map((s) => (
+                                <button
+                                    key={s.id}
+                                    type="button"
+                                    onClick={() => setSelected(s.id)}
+                                    className={`flex w-full items-center justify-between rounded-md border border-border bg-card px-3 py-2 text-left transition-colors hover:border-foreground/30 ${
+                                        selected === s.id
+                                            ? "border-primary/60 bg-primary/5"
+                                            : ""
+                                    }`}
+                                >
+                                    <span className="text-sm font-medium">{s.name}</span>
+                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                        {s.myRole}
+                                    </span>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                <DialogFooter className="gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setOpen(false)}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="gradient"
+                        disabled={!selected || share.isPending}
+                        onClick={() =>
+                            selected &&
+                            share.mutate({ accountId, spaceId: selected })
+                        }
+                    >
+                        {share.isPending ? "Sharing…" : "Share"}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

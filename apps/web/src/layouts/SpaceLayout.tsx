@@ -166,6 +166,11 @@ function Sidebar({
                             <Settings className="size-4" />
                             Security
                         </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onSelect={() => navigate(ROUTES.myAccounts)}>
+                            <Wallet className="size-4" />
+                            My accounts
+                        </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => navigate(ROUTES.spaces)}>
                             <ArrowLeftRight className="size-4" />
                             Switch space

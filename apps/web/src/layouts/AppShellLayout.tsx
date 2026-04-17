@@ -1,6 +1,6 @@
 import { Link, Outlet, useNavigate } from "react-router-dom";
 import { observer } from "mobx-react-lite";
-import { LogOut, Settings, User } from "lucide-react";
+import { LogOut, Settings, User, Wallet } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
     DropdownMenu,
@@ -57,6 +57,11 @@ export const AppShellLayout = observer(function AppShellLayout() {
                             <DropdownMenuItem onSelect={() => navigate(ROUTES.security)}>
                                 <Settings className="size-4" />
                                 Security
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onSelect={() => navigate(ROUTES.myAccounts)}>
+                                <Wallet className="size-4" />
+                                My accounts
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

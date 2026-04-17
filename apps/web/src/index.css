@@ -150,6 +150,21 @@
     [aria-disabled="true"] {
         cursor: not-allowed;
     }
+    /* Recharts renders interactive SVG paths (<g>, <path>, <rect>) that gain
+       a native focus outline on click — shows up as a white border around
+       the whole chart. Kill outlines on every element inside a recharts
+       wrapper; we still keep focus outlines on real buttons via the
+       focus-visible: variants elsewhere. */
+    .recharts-wrapper,
+    .recharts-wrapper *,
+    .recharts-surface,
+    .recharts-surface * {
+        outline: none !important;
+    }
+    .recharts-wrapper *:focus,
+    .recharts-surface *:focus {
+        outline: none !important;
+    }
     ::-webkit-scrollbar {
         width: 10px;
         height: 10px;

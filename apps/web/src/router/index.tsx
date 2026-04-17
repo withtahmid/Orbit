@@ -18,6 +18,7 @@ const ForgotPasswordPage = lazy(() => import("@/pages/auth/forgot-password/index
 const SpaceSelectorPage = lazy(() => import("@/pages/app/SpaceSelectorPage"));
 const ProfilePage = lazy(() => import("@/pages/app/ProfilePage"));
 const SecurityPage = lazy(() => import("@/pages/app/SecurityPage"));
+const MyAccountsPage = lazy(() => import("@/pages/app/MyAccountsPage"));
 
 const SpaceOverviewPage = lazy(() => import("@/pages/space/OverviewPage"));
 const AccountsPage = lazy(() => import("@/pages/space/accounts/AccountsPage"));
@@ -99,6 +100,10 @@ export const router = createBrowserRouter([
                             {
                                 path: "/settings/security",
                                 element: withSuspense(<SecurityPage />),
+                            },
+                            {
+                                path: "/accounts",
+                                element: withSuspense(<MyAccountsPage />),
                             },
                         ],
                     },

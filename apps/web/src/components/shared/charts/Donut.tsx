@@ -97,6 +97,18 @@ export function Donut({
         );
     }
 
+    // recharts' activeIndex triggers activeShape for that index. Some
+    // versions hide the non-active slice when an activeIndex is set, so only
+    // wire activeIndex/activeShape when the user is actively hovering —
+    // otherwise pass nothing and let recharts render plain sectors.
+    const pieActiveProps =
+        activeIndex !== null
+            ? {
+                  activeIndex,
+                  activeShape: renderActiveShape,
+              }
+            : {};
+
     return (
         <div
             className={cn(
@@ -106,7 +118,7 @@ export function Donut({
             )}
         >
             <div
-                className="relative"
+                className="relative min-w-0"
                 style={{ height }}
                 onMouseLeave={() => setActiveIndex(null)}
             >
@@ -122,8 +134,7 @@ export function Donut({
                             cornerRadius={6}
                             stroke="none"
                             strokeWidth={0}
-                            activeIndex={activeIndex ?? -1}
-                            activeShape={renderActiveShape}
+                            {...pieActiveProps}
                             onMouseEnter={(_, i) => setActiveIndex(i)}
                             onClick={(_, i) => onSelect?.(normalized[i])}
                             isAnimationActive={true}

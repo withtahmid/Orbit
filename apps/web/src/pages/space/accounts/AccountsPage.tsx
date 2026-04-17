@@ -11,6 +11,7 @@ import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { CreateAccountDialog } from "@/features/accounts/CreateAccountDialog";
+import { AddExistingAccountDialog } from "@/features/accounts/AddExistingAccountDialog";
 import { ROUTES } from "@/router/routes";
 
 export default function AccountsPage() {
@@ -30,8 +31,13 @@ export default function AccountsPage() {
                 title="Accounts"
                 description="All accounts in this space"
                 actions={
-                    <PermissionGate roles={["owner"]}>
-                        <CreateAccountDialog />
+                    <PermissionGate roles={["owner", "editor"]}>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <AddExistingAccountDialog />
+                            <PermissionGate roles={["owner"]}>
+                                <CreateAccountDialog />
+                            </PermissionGate>
+                        </div>
                     </PermissionGate>
                 }
             />

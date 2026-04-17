@@ -6,6 +6,7 @@ export const ROUTES = {
     spaces: "/spaces",
     profile: "/settings/profile",
     security: "/settings/security",
+    myAccounts: "/accounts",
     space: (id: string) => `/s/${id}`,
     spaceOverview: (id: string) => `/s/${id}`,
     spaceAccounts: (id: string) => `/s/${id}/accounts`,
