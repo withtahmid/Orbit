@@ -7,41 +7,31 @@ import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mj
 
 export const listPlanAllocationsBySpace = authorizedProcedure
     .input(z.object({ spaceId: z.string().uuid() }))
-    .output(
-        z.array(
-            z.object({
-                id: z.string().uuid(),
-                plan_id: z.string().uuid(),
-                amount: z.string(),
-                created_at: z.date(),
-                created_by: z.string().uuid(),
-            })
-        )
-    )
     .query(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
+            (async () => {
                 await resolveSpaceMembership({
-                    trx,
+                    trx: ctx.services.qb,
                     spaceId: input.spaceId,
                     userId: ctx.auth.user.id,
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                return trx
+                return ctx.services.qb
                     .selectFrom("plan_allocations")
                     .innerJoin("plans", "plans.id", "plan_allocations.plan_id")
                     .select([
                         "plan_allocations.id",
                         "plan_allocations.plan_id",
                         "plan_allocations.amount",
+                        "plan_allocations.account_id",
                         "plan_allocations.created_at",
                         "plan_allocations.created_by",
                     ])
                     .where("plans.space_id", "=", input.spaceId)
                     .orderBy("plan_allocations.created_at", "desc")
                     .execute();
-            })
+            })()
         );
         if (error) {
             if (error instanceof TRPCError) throw error;
@@ -50,5 +40,5 @@ export const listPlanAllocationsBySpace = authorizedProcedure
                 message: error.message || "Failed to list plan allocations",
             });
         }
-        return result;
+        return result ?? [];
     });

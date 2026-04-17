@@ -5,11 +5,37 @@ import type { DB, SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+import { resolveEnvelopePeriodBalance } from "../envelop/utils/resolveEnvelopePeriodBalance.mjs";
+import { resolvePlanBalance } from "../plan/utils/resolvePlanBalance.mjs";
+import {
+    effectivePeriodStart,
+    type Cadence,
+} from "../envelop/utils/periodWindow.mjs";
 
-const targetSchema = z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("envelop"), envelopId: z.string().uuid() }),
-    z.object({ kind: z.literal("plan"), planId: z.string().uuid() }),
-]);
+/**
+ * Transfer allocation between any two (envelope|plan, optional-account)
+ * partitions in the same space. Used for:
+ *   - Rebalancing drift (same envelope, cross-account)
+ *   - Moving funds between envelopes / plans
+ *   - Converting unassigned-pool allocations into account-pinned ones
+ *
+ * Both source and destination carry an optional `accountId`. null means
+ * "unassigned pool." For envelope targets, the period is current-period of
+ * the envelope's cadence (callers can't retarget historical periods —
+ * auditable history matters more than flexibility here).
+ */
+
+const envelopTarget = z.object({
+    kind: z.literal("envelop"),
+    envelopId: z.string().uuid(),
+    accountId: z.string().uuid().nullable().optional(),
+});
+const planTarget = z.object({
+    kind: z.literal("plan"),
+    planId: z.string().uuid(),
+    accountId: z.string().uuid().nullable().optional(),
+});
+const targetSchema = z.discriminatedUnion("kind", [envelopTarget, planTarget]);
 
 type Target = z.infer<typeof targetSchema>;
 
@@ -35,18 +61,10 @@ export const transferAllocation = authorizedProcedure
                     });
                 }
 
-                if (
-                    input.from.kind === input.to.kind &&
-                    ((input.from.kind === "envelop" &&
-                        input.to.kind === "envelop" &&
-                        input.from.envelopId === input.to.envelopId) ||
-                        (input.from.kind === "plan" &&
-                            input.to.kind === "plan" &&
-                            input.from.planId === input.to.planId))
-                ) {
+                if (sameTarget(input.from, input.to)) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",
-                        message: "Source and destination cannot be the same",
+                        message: "Source and destination cannot be the same partition",
                     });
                 }
 
@@ -57,7 +75,28 @@ export const transferAllocation = authorizedProcedure
                     roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
                 });
 
-                // Source must have enough to give
+                // Verify any pinned account belongs to the space
+                for (const accountId of [
+                    (input.from as any).accountId as string | null | undefined,
+                    (input.to as any).accountId as string | null | undefined,
+                ]) {
+                    if (accountId) {
+                        const sa = await trx
+                            .selectFrom("space_accounts")
+                            .select("account_id")
+                            .where("account_id", "=", accountId)
+                            .where("space_id", "=", fromInfo.spaceId)
+                            .executeTakeFirst();
+                        if (!sa) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message: "Account does not belong to this space",
+                            });
+                        }
+                    }
+                }
+
+                // Source partition must have enough to give
                 if (fromInfo.available < input.amount) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",
@@ -65,6 +104,7 @@ export const transferAllocation = authorizedProcedure
                     });
                 }
 
+                // Debit source
                 if (input.from.kind === "envelop") {
                     await trx
                         .insertInto("envelop_allocations")
@@ -72,6 +112,8 @@ export const transferAllocation = authorizedProcedure
                             envelop_id: input.from.envelopId,
                             amount: -input.amount,
                             created_by: ctx.auth.user.id,
+                            account_id: input.from.accountId ?? null,
+                            period_start: fromInfo.periodStart ?? null,
                         })
                         .execute();
                 } else {
@@ -81,10 +123,12 @@ export const transferAllocation = authorizedProcedure
                             plan_id: input.from.planId,
                             amount: -input.amount,
                             created_by: ctx.auth.user.id,
+                            account_id: input.from.accountId ?? null,
                         })
                         .execute();
                 }
 
+                // Credit destination
                 if (input.to.kind === "envelop") {
                     await trx
                         .insertInto("envelop_allocations")
@@ -92,6 +136,8 @@ export const transferAllocation = authorizedProcedure
                             envelop_id: input.to.envelopId,
                             amount: input.amount,
                             created_by: ctx.auth.user.id,
+                            account_id: input.to.accountId ?? null,
+                            period_start: toInfo.periodStart ?? null,
                         })
                         .execute();
                 } else {
@@ -101,6 +147,7 @@ export const transferAllocation = authorizedProcedure
                             plan_id: input.to.planId,
                             amount: input.amount,
                             created_by: ctx.auth.user.id,
+                            account_id: input.to.accountId ?? null,
                         })
                         .execute();
                 }
@@ -119,33 +166,63 @@ export const transferAllocation = authorizedProcedure
 async function resolveTargetInfo(
     trx: Kysely<DB>,
     target: Target
-): Promise<{ spaceId: string; available: number }> {
+): Promise<{
+    spaceId: string;
+    available: number;
+    periodStart: Date | null;
+}> {
     if (target.kind === "envelop") {
-        const row = await trx
+        const envelope = await trx
             .selectFrom("envelops")
-            .leftJoin("envelop_balances", "envelop_balances.envelop_id", "envelops.id")
-            .select(["envelops.space_id", "envelop_balances.remaining"])
-            .where("envelops.id", "=", target.envelopId)
+            .select(["space_id", "cadence"])
+            .where("id", "=", target.envelopId)
             .executeTakeFirst();
-        if (!row) {
+        if (!envelope) {
             throw new TRPCError({ code: "NOT_FOUND", message: "Envelope not found" });
         }
+        const cadence = envelope.cadence as Cadence;
+        const now = new Date();
+        const periodStart =
+            cadence === "none" ? null : effectivePeriodStart(cadence, null, now);
+
+        const bal = await resolveEnvelopePeriodBalance({
+            trx,
+            envelopId: target.envelopId,
+            accountId: target.accountId ?? null,
+            at: now,
+        });
         return {
-            spaceId: row.space_id,
-            available: Number(row.remaining ?? 0),
+            spaceId: envelope.space_id,
+            available: bal.remaining,
+            periodStart,
         };
     }
-    const row = await trx
+
+    const plan = await trx
         .selectFrom("plans")
-        .leftJoin("plan_balances", "plan_balances.plan_id", "plans.id")
-        .select(["plans.space_id", "plan_balances.allocated"])
-        .where("plans.id", "=", target.planId)
+        .select("space_id")
+        .where("id", "=", target.planId)
         .executeTakeFirst();
-    if (!row) {
+    if (!plan) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Plan not found" });
     }
-    return {
-        spaceId: row.space_id,
-        available: Number(row.allocated ?? 0),
-    };
+    const bal = await resolvePlanBalance({
+        trx,
+        planId: target.planId,
+        accountId: target.accountId ?? null,
+    });
+    return { spaceId: plan.space_id, available: bal.allocated, periodStart: null };
+}
+
+function sameTarget(a: Target, b: Target): boolean {
+    if (a.kind !== b.kind) return false;
+    const aAcct = a.accountId ?? null;
+    const bAcct = b.accountId ?? null;
+    if (a.kind === "envelop" && b.kind === "envelop") {
+        return a.envelopId === b.envelopId && aAcct === bAcct;
+    }
+    if (a.kind === "plan" && b.kind === "plan") {
+        return a.planId === b.planId && aAcct === bAcct;
+    }
+    return false;
 }

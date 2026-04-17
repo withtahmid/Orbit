@@ -1,3 +1,4 @@
+import { accountAllocation } from "../procedures/analytics/accountAllocation.mjs";
 import { accountDistribution } from "../procedures/analytics/accountDistribution.mjs";
 import { balanceHistory } from "../procedures/analytics/balanceHistory.mjs";
 import { cashFlow } from "../procedures/analytics/cashFlow.mjs";
@@ -19,6 +20,7 @@ export const analyticsRouter = router({
     planProgress,
     topCategories,
     accountDistribution,
+    accountAllocation,
     balanceHistory,
     spendingHeatmap,
 });

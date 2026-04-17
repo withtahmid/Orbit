@@ -15,6 +15,8 @@ export const createEnvelop = authorizedProcedure
             color: z.string().regex(HEX).optional(),
             icon: z.string().min(1).max(48).optional(),
             description: z.string().max(2000).optional(),
+            cadence: z.enum(["none", "monthly"]).default("none"),
+            carryOver: z.boolean().default(false),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -35,6 +37,8 @@ export const createEnvelop = authorizedProcedure
                         color: input.color,
                         icon: input.icon,
                         description: input.description ?? null,
+                        cadence: input.cadence,
+                        carry_over: input.carryOver,
                     })
                     .returning([
                         "id",
@@ -43,6 +47,8 @@ export const createEnvelop = authorizedProcedure
                         "color",
                         "icon",
                         "description",
+                        "cadence",
+                        "carry_over",
                         "created_at",
                         "updated_at",
                     ])

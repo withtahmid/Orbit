@@ -11,41 +11,32 @@ export const listEnvelopAllocationsBySpace = authorizedProcedure
             spaceId: z.string().uuid(),
         })
     )
-    .output(
-        z.array(
-            z.object({
-                id: z.string().uuid(),
-                envelop_id: z.string().uuid(),
-                amount: z.string(),
-                created_at: z.date(),
-                created_by: z.string().uuid(),
-            })
-        )
-    )
     .query(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
+            (async () => {
                 await resolveSpaceMembership({
-                    trx,
+                    trx: ctx.services.qb,
                     spaceId: input.spaceId,
                     userId: ctx.auth.user.id,
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                return trx
+                return ctx.services.qb
                     .selectFrom("envelop_allocations")
                     .innerJoin("envelops", "envelops.id", "envelop_allocations.envelop_id")
                     .select([
                         "envelop_allocations.id",
                         "envelop_allocations.envelop_id",
                         "envelop_allocations.amount",
+                        "envelop_allocations.account_id",
+                        "envelop_allocations.period_start",
                         "envelop_allocations.created_at",
                         "envelop_allocations.created_by",
                     ])
                     .where("envelops.space_id", "=", input.spaceId)
                     .orderBy("envelop_allocations.created_at", "desc")
                     .execute();
-            })
+            })()
         );
 
         if (error) {
@@ -58,5 +49,5 @@ export const listEnvelopAllocationsBySpace = authorizedProcedure
             });
         }
 
-        return result;
+        return result ?? [];
     });

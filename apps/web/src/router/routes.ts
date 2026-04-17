@@ -18,5 +18,6 @@ export const ROUTES = {
     spaceCategories: (id: string) => `/s/${id}/categories`,
     spaceEvents: (id: string) => `/s/${id}/events`,
     spaceAnalytics: (id: string) => `/s/${id}/analytics`,
+    spaceAnalyticsDetail: (id: string, view: string) => `/s/${id}/analytics/${view}`,
     spaceSettings: (id: string) => `/s/${id}/settings`,
 } as const;

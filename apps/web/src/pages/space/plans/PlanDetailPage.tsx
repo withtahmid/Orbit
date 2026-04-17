@@ -46,8 +46,10 @@ export default function PlanDetailPage() {
         onError: (e) => toast.error(e.message),
     });
 
-    const daysLeft = plan?.targetDate
-        ? differenceInCalendarDays(plan.targetDate, new Date())
+    // tRPC serializes Date → ISO string over HTTP; rehydrate before date-fns.
+    const targetDate = plan?.targetDate ? new Date(plan.targetDate) : null;
+    const daysLeft = targetDate
+        ? differenceInCalendarDays(targetDate, new Date())
         : null;
 
     return (
@@ -102,14 +104,14 @@ export default function PlanDetailPage() {
                             }
                         />
                     )}
-                    {plan.targetDate && (
+                    {targetDate && (
                         <Metric
                             label="Target date"
                             value={
                                 <span className="flex items-center gap-2 text-sm font-semibold sm:text-base">
                                     <CalendarDays className="size-4" />
                                     <span>
-                                        {format(plan.targetDate, "MMM d, yyyy")}
+                                        {format(targetDate, "MMM d, yyyy")}
                                         <span className="block text-xs font-normal text-muted-foreground">
                                             {daysLeft !== null && daysLeft < 0
                                                 ? `${Math.abs(daysLeft)}d overdue`

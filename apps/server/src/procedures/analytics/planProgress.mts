@@ -6,6 +6,11 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 
+/**
+ * Per-plan progress with per-account breakdown. Plans are rolling (no
+ * cadence), so allocation amounts are simply the signed sum over all
+ * plan_allocations. `account_id IS NULL` rows are the unassigned pool.
+ */
 export const planProgress = authorizedProcedure
     .input(z.object({ spaceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
@@ -18,7 +23,7 @@ export const planProgress = authorizedProcedure
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                const query = sql<{
+                const totals = await sql<{
                     plan_id: string;
                     name: string;
                     color: string;
@@ -38,16 +43,45 @@ export const planProgress = authorizedProcedure
                         p.description,
                         p.target_amount::text AS target_amount,
                         p.target_date,
-                        COALESCE(pb.allocated, 0)::text AS allocated,
+                        COALESCE((
+                            SELECT SUM(pa.amount) FROM plan_allocations pa WHERE pa.plan_id = p.id
+                        ), 0)::text AS allocated,
                         (SELECT MIN(pa.created_at) FROM plan_allocations pa WHERE pa.plan_id = p.id) AS first_allocated_at,
                         (SELECT MAX(pa.created_at) FROM plan_allocations pa WHERE pa.plan_id = p.id) AS last_allocated_at
                     FROM plans p
-                    LEFT JOIN plan_balances pb ON pb.plan_id = p.id
                     WHERE p.space_id = ${input.spaceId}
                     ORDER BY p.created_at ASC
-                `;
-                const res = await query.execute(trx);
-                return res.rows.map((r) => {
+                `.execute(trx);
+
+                const breakdown = await sql<{
+                    plan_id: string;
+                    account_id: string | null;
+                    allocated: string;
+                }>`
+                    SELECT
+                        pa.plan_id::text AS plan_id,
+                        pa.account_id::text AS account_id,
+                        SUM(pa.amount)::text AS allocated
+                    FROM plan_allocations pa
+                    JOIN plans p ON p.id = pa.plan_id
+                    WHERE p.space_id = ${input.spaceId}
+                    GROUP BY pa.plan_id, pa.account_id
+                `.execute(trx);
+
+                const breakdownByPlan = new Map<
+                    string,
+                    Array<{ accountId: string | null; allocated: number }>
+                >();
+                for (const r of breakdown.rows) {
+                    const arr = breakdownByPlan.get(r.plan_id) ?? [];
+                    arr.push({
+                        accountId: r.account_id,
+                        allocated: Number(r.allocated),
+                    });
+                    breakdownByPlan.set(r.plan_id, arr);
+                }
+
+                return totals.rows.map((r) => {
                     const target = r.target_amount ? Number(r.target_amount) : null;
                     const allocated = Number(r.allocated);
                     return {
@@ -65,6 +99,7 @@ export const planProgress = authorizedProcedure
                                 : null,
                         firstAllocatedAt: r.first_allocated_at ? new Date(r.first_allocated_at) : null,
                         lastAllocatedAt: r.last_allocated_at ? new Date(r.last_allocated_at) : null,
+                        breakdown: breakdownByPlan.get(r.plan_id) ?? [],
                     };
                 });
             })

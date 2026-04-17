@@ -4,8 +4,6 @@ import {
     Target,
     Plus,
     Trash2,
-    ArrowUp,
-    ArrowDown,
     Pencil,
     CalendarDays,
 } from "lucide-react";
@@ -34,6 +32,7 @@ import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { EntityStyleFields } from "@/components/shared/EntityStyleFields";
+import { PlanAllocateDialog } from "@/features/allocations/PlanAllocateDialog";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
@@ -76,8 +75,11 @@ export default function PlansPage() {
             ) : (
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {plansQuery.data.map((p) => {
-                        const daysLeft = p.targetDate
-                            ? differenceInCalendarDays(p.targetDate, new Date())
+                        // tRPC serializes Date over HTTP as an ISO string, so
+                        // rehydrate before passing to date-fns.
+                        const targetDate = p.targetDate ? new Date(p.targetDate) : null;
+                        const daysLeft = targetDate
+                            ? differenceInCalendarDays(targetDate, new Date())
                             : null;
                         const hasTarget = p.targetAmount && p.targetAmount > 0;
                         return (
@@ -143,14 +145,14 @@ export default function PlansPage() {
                                                     {(p.pctComplete ?? 0).toFixed(0)}% funded
                                                 </span>
                                             )}
-                                            {p.targetDate && (
+                                            {targetDate && (
                                                 <span className="flex items-center gap-1">
                                                     <CalendarDays className="size-3" />
                                                     {daysLeft !== null && daysLeft < 0
                                                         ? `${Math.abs(daysLeft)}d overdue`
                                                         : `${daysLeft}d left`}{" "}
                                                     ·{" "}
-                                                    {format(p.targetDate, "MMM d, yyyy")}
+                                                    {format(targetDate, "MMM d, yyyy")}
                                                 </span>
                                             )}
                                         </div>
@@ -158,11 +160,11 @@ export default function PlansPage() {
 
                                     <PermissionGate roles={["owner", "editor"]}>
                                         <div className="flex gap-2">
-                                            <AllocatePlanDialog
+                                            <PlanAllocateDialog
                                                 planId={p.planId}
                                                 direction="allocate"
                                             />
-                                            <AllocatePlanDialog
+                                            <PlanAllocateDialog
                                                 planId={p.planId}
                                                 direction="deallocate"
                                             />
@@ -202,7 +204,9 @@ function CreateOrEditPlanDialog({
     const [targetAmount, setTargetAmount] = useState(
         plan?.targetAmount != null ? String(plan.targetAmount) : ""
     );
-    const [targetDate, setTargetDate] = useState(toInputDate(plan?.targetDate ?? null));
+    const [targetDate, setTargetDate] = useState(
+        toInputDate(plan?.targetDate ? new Date(plan.targetDate) : null)
+    );
 
     const invalidate = async () => {
         await utils.plan.listBySpace.invalidate({ spaceId: space.id });
@@ -348,97 +352,6 @@ function CreateOrEditPlanDialog({
                             disabled={!name.trim() || pending}
                         >
                             {pending ? "Saving…" : editing ? "Save" : "Create"}
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-function AllocatePlanDialog({
-    planId,
-    direction,
-}: {
-    planId: string;
-    direction: "allocate" | "deallocate";
-}) {
-    const { space } = useCurrentSpace();
-    const [open, setOpen] = useState(false);
-    const [amount, setAmount] = useState("");
-    const utils = trpc.useUtils();
-    const mutate = trpc.plan.allocationCreate.useMutation({
-        onSuccess: async () => {
-            toast.success(direction === "allocate" ? "Allocated" : "Deallocated");
-            await utils.plan.allocationListBySpace.invalidate({ spaceId: space.id });
-            await utils.analytics.planProgress.invalidate({ spaceId: space.id });
-            await utils.analytics.spaceSummary.invalidate();
-            setAmount("");
-            setOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
-    });
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="flex-1">
-                    {direction === "allocate" ? (
-                        <>
-                            <ArrowUp className="size-3.5" />
-                            Allocate
-                        </>
-                    ) : (
-                        <>
-                            <ArrowDown className="size-3.5" />
-                            Deallocate
-                        </>
-                    )}
-                </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>
-                        {direction === "allocate" ? "Allocate" : "Deallocate"} amount
-                    </DialogTitle>
-                </DialogHeader>
-                <form
-                    className="grid gap-3"
-                    onSubmit={(e) => {
-                        e.preventDefault();
-                        const n = Number(amount);
-                        if (!(n > 0)) {
-                            toast.error("Enter a positive amount");
-                            return;
-                        }
-                        mutate.mutate({
-                            planId,
-                            amount: direction === "allocate" ? n : -n,
-                        });
-                    }}
-                >
-                    <Label htmlFor="plan-alloc">Amount</Label>
-                    <Input
-                        id="plan-alloc"
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.01"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        placeholder="0.00"
-                        autoFocus
-                        required
-                    />
-                    <DialogFooter className="gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setOpen(false)}
-                        >
-                            Cancel
-                        </Button>
-                        <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                            {mutate.isPending ? "Saving…" : "Confirm"}
                         </Button>
                     </DialogFooter>
                 </form>

@@ -17,13 +17,17 @@ export const updateEnvelop = authorizedProcedure
                 color: z.string().regex(HEX).optional(),
                 icon: z.string().min(1).max(48).optional(),
                 description: z.string().max(2000).nullable().optional(),
+                cadence: z.enum(["none", "monthly"]).optional(),
+                carryOver: z.boolean().optional(),
             })
             .refine(
                 (d) =>
                     d.name !== undefined ||
                     d.color !== undefined ||
                     d.icon !== undefined ||
-                    d.description !== undefined,
+                    d.description !== undefined ||
+                    d.cadence !== undefined ||
+                    d.carryOver !== undefined,
                 { message: "At least one field must be provided" }
             )
     )
@@ -57,6 +61,8 @@ export const updateEnvelop = authorizedProcedure
                         color: input.color,
                         icon: input.icon,
                         description: input.description,
+                        cadence: input.cadence,
+                        carry_over: input.carryOver,
                         updated_at: sql`now()`,
                     })
                     .where("envelops.id", "=", input.envelopId)
@@ -67,6 +73,8 @@ export const updateEnvelop = authorizedProcedure
                         "color",
                         "icon",
                         "description",
+                        "cadence",
+                        "carry_over",
                         "created_at",
                         "updated_at",
                     ])

@@ -1,0 +1,251 @@
+import { useMemo, useState } from "react";
+import {
+    Cell,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Sector,
+    Tooltip as RTooltip,
+} from "recharts";
+import { cn } from "@/lib/utils";
+import { formatMoney } from "@/lib/money";
+import { colorForId } from "@/lib/entityStyle";
+
+export interface DonutDatum {
+    id: string;
+    name: string;
+    value: number;
+    /** Hex color. Falls back to a deterministic hash of `id`. */
+    color?: string;
+    /** Optional subtitle shown in the tooltip. */
+    hint?: string;
+}
+
+interface Props {
+    data: DonutDatum[];
+    /** Label shown centered inside the donut when nothing is hovered. */
+    centerLabel?: string;
+    /** Value shown under the center label (falls back to sum of values). */
+    centerValue?: number;
+    /** Height of the chart area in pixels. */
+    height?: number;
+    /** Inner:outer ring ratio — 0.62 is a modern thick donut. */
+    ringRatio?: number;
+    /** Hide the side legend (e.g., on very small cards). */
+    hideLegend?: boolean;
+    /** Format a numeric value for display. */
+    format?: (n: number) => string;
+    className?: string;
+    /** Called with datum when user clicks a slice or legend row. */
+    onSelect?: (d: DonutDatum) => void;
+    emptyLabel?: string;
+}
+
+/**
+ * Modern donut chart.
+ *   - No white stroke between segments (hollow look gone).
+ *   - Center shows a label + total by default; hovering a slice replaces
+ *     the center with that slice's name + value.
+ *   - Hovered slice grows a few pixels for affordance.
+ *   - Side legend with colored dot + name + value + percent. Scrollable
+ *     when there are many segments.
+ *   - Tooltip with name, value, percent, optional hint.
+ */
+export function Donut({
+    data,
+    centerLabel,
+    centerValue,
+    height = 280,
+    ringRatio = 0.62,
+    hideLegend = false,
+    format = formatMoney,
+    className,
+    onSelect,
+    emptyLabel = "No data",
+}: Props) {
+    const normalized = useMemo(
+        () =>
+            data
+                .filter((d) => Number.isFinite(d.value) && d.value > 0)
+                .map((d) => ({
+                    ...d,
+                    color: d.color ?? colorForId(d.id),
+                })),
+        [data]
+    );
+    const total = useMemo(
+        () =>
+            centerValue ??
+            normalized.reduce((acc, d) => acc + d.value, 0),
+        [normalized, centerValue]
+    );
+
+    const [activeIndex, setActiveIndex] = useState<number | null>(null);
+    const activeDatum = activeIndex !== null ? normalized[activeIndex] : null;
+
+    if (normalized.length === 0) {
+        return (
+            <div
+                className={cn(
+                    "flex items-center justify-center text-sm text-muted-foreground",
+                    className
+                )}
+                style={{ height }}
+            >
+                {emptyLabel}
+            </div>
+        );
+    }
+
+    return (
+        <div
+            className={cn(
+                "grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]",
+                hideLegend && "sm:grid-cols-1",
+                className
+            )}
+        >
+            <div
+                className="relative"
+                style={{ height }}
+                onMouseLeave={() => setActiveIndex(null)}
+            >
+                <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                        <Pie
+                            data={normalized}
+                            dataKey="value"
+                            nameKey="name"
+                            innerRadius={`${Math.round(ringRatio * 100)}%`}
+                            outerRadius="92%"
+                            paddingAngle={1.5}
+                            cornerRadius={6}
+                            stroke="none"
+                            strokeWidth={0}
+                            activeIndex={activeIndex ?? -1}
+                            activeShape={renderActiveShape}
+                            onMouseEnter={(_, i) => setActiveIndex(i)}
+                            onClick={(_, i) => onSelect?.(normalized[i])}
+                            isAnimationActive={true}
+                            animationDuration={400}
+                        >
+                            {normalized.map((d) => (
+                                <Cell key={d.id} fill={d.color} stroke="none" />
+                            ))}
+                        </Pie>
+                        <RTooltip
+                            cursor={false}
+                            content={({ active, payload }) => {
+                                if (!active || !payload?.length) return null;
+                                const item = payload[0].payload as DonutDatum;
+                                const pct = total > 0 ? (item.value / total) * 100 : 0;
+                                return (
+                                    <div className="rounded-md border border-border bg-popover p-2 text-xs shadow-lg">
+                                        <div className="flex items-center gap-2 font-medium">
+                                            <span
+                                                className="inline-block size-2.5 rounded-sm"
+                                                style={{ backgroundColor: item.color }}
+                                            />
+                                            {item.name}
+                                        </div>
+                                        <div className="mt-1 tabular-nums">
+                                            {format(item.value)}
+                                            <span className="ml-2 text-muted-foreground">
+                                                {pct.toFixed(1)}%
+                                            </span>
+                                        </div>
+                                        {item.hint && (
+                                            <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                                {item.hint}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            }}
+                        />
+                    </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {activeDatum ? activeDatum.name : centerLabel ?? "Total"}
+                    </p>
+                    <p className="mt-0.5 text-xl font-bold tabular-nums sm:text-2xl">
+                        {format(activeDatum ? activeDatum.value : total)}
+                    </p>
+                    {activeDatum && total > 0 && (
+                        <p className="text-[11px] text-muted-foreground">
+                            {((activeDatum.value / total) * 100).toFixed(1)}% of total
+                        </p>
+                    )}
+                </div>
+            </div>
+
+            {!hideLegend && (
+                <ul className="flex max-h-[280px] flex-col gap-1 overflow-y-auto pr-1 text-sm">
+                    {normalized.map((d, i) => {
+                        const pct = total > 0 ? (d.value / total) * 100 : 0;
+                        const isActive = activeIndex === i;
+                        return (
+                            <li key={d.id}>
+                                <button
+                                    type="button"
+                                    onMouseEnter={() => setActiveIndex(i)}
+                                    onClick={() => onSelect?.(d)}
+                                    className={cn(
+                                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                                        isActive && "bg-accent/50"
+                                    )}
+                                >
+                                    <span
+                                        className="inline-block size-3 shrink-0 rounded-sm"
+                                        style={{ backgroundColor: d.color }}
+                                    />
+                                    <span className="min-w-0 flex-1 truncate font-medium">
+                                        {d.name}
+                                    </span>
+                                    <span className="shrink-0 text-right tabular-nums">
+                                        {format(d.value)}
+                                    </span>
+                                    <span className="w-10 shrink-0 text-right text-xs text-muted-foreground">
+                                        {pct.toFixed(0)}%
+                                    </span>
+                                </button>
+                            </li>
+                        );
+                    })}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+/**
+ * Recharts active-shape renderer — renders a slightly enlarged slice under
+ * the cursor, same color, no stroke. Bypasses recharts' default white outline
+ * that was making the chart look "bordered."
+ */
+function renderActiveShape(props: any) {
+    const {
+        cx,
+        cy,
+        innerRadius,
+        outerRadius,
+        startAngle,
+        endAngle,
+        fill,
+        cornerRadius,
+    } = props;
+    return (
+        <Sector
+            cx={cx}
+            cy={cy}
+            innerRadius={innerRadius}
+            outerRadius={outerRadius + 6}
+            startAngle={startAngle}
+            endAngle={endAngle}
+            fill={fill}
+            cornerRadius={cornerRadius}
+            stroke="none"
+        />
+    );
+}

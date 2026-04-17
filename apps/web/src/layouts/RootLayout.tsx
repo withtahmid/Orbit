@@ -7,7 +7,7 @@ export function RootLayout() {
         <TooltipProvider delayDuration={200}>
             <ScrollRestoration />
             <Outlet />
-            <Toaster position="top-right" richColors closeButton />
+            <Toaster position="bottom-right" richColors closeButton />
         </TooltipProvider>
     );
 }

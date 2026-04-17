@@ -13,8 +13,6 @@ export type ArrayTypeImpl<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S[], I[], U[]>
   : T[];
 
-export type AccountType = "asset" | "liability" | "locked";
-
 export type EmailVerificationCodePurpose = "change_email" | "password_reset" | "signup";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
@@ -33,7 +31,7 @@ export interface AccountBalances {
 }
 
 export interface Accounts {
-  account_type: ArrayType<AccountType>;
+  account_type: ArrayType<"asset" | "liability" | "locked">;
   color: Generated<string>;
   icon: Generated<string>;
   id: Generated<string>;
@@ -52,21 +50,18 @@ export interface EmailVerificationCodes {
 }
 
 export interface EnvelopAllocations {
+  account_id: string | null;
   amount: Numeric;
   created_at: Generated<Timestamp>;
   created_by: string;
   envelop_id: string;
   id: Generated<string>;
-}
-
-export interface EnvelopBalances {
-  allocated: Generated<Numeric>;
-  consumed: Generated<Numeric>;
-  envelop_id: string;
-  remaining: Generated<Numeric>;
+  period_start: Timestamp | null;
 }
 
 export interface Envelops {
+  cadence: Generated<string>;
+  carry_over: Generated<boolean>;
   color: Generated<string>;
   created_at: Generated<Timestamp>;
   description: string | null;
@@ -102,15 +97,11 @@ export interface ExpenseCategories {
 }
 
 export interface PlanAllocations {
+  account_id: string | null;
   amount: Numeric;
   created_at: Generated<Timestamp>;
   created_by: string;
   id: Generated<string>;
-  plan_id: string;
-}
-
-export interface PlanBalances {
-  allocated: Generated<Numeric>;
   plan_id: string;
 }
 
@@ -194,12 +185,10 @@ export interface DB {
   accounts: Accounts;
   email_verification_codes: EmailVerificationCodes;
   envelop_allocations: EnvelopAllocations;
-  envelop_balances: EnvelopBalances;
   envelops: Envelops;
   events: Events;
   expense_categories: ExpenseCategories;
   plan_allocations: PlanAllocations;
-  plan_balances: PlanBalances;
   plans: Plans;
   space_accounts: SpaceAccounts;
   space_members: SpaceMembers;

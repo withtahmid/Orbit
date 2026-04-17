@@ -8,6 +8,7 @@ import {
     TrendingUp,
     TrendingDown,
     AlertTriangle,
+    Network,
 } from "lucide-react";
 import {
     Bar,
@@ -17,18 +18,17 @@ import {
     Tooltip as RTooltip,
     XAxis,
     YAxis,
-    Cell,
-    PieChart,
-    Pie,
 } from "recharts";
 import { format } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
+import { Donut } from "@/components/shared/charts/Donut";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
@@ -62,7 +62,7 @@ export default function OverviewPage() {
         spaceId: space.id,
         periodStart,
         periodEnd,
-        limit: 5,
+        limit: 6,
     });
     const recentTx = trpc.transaction.listBySpace.useQuery({
         spaceId: space.id,
@@ -87,13 +87,32 @@ export default function OverviewPage() {
         [events.data]
     );
 
+    const topCatsDonut = useMemo(
+        () =>
+            (topCats.data ?? []).map((c) => ({
+                id: c.id,
+                name: c.name,
+                value: c.total,
+                color: c.color,
+            })),
+        [topCats.data]
+    );
+
     const overAllocated = summary.data?.isOverAllocated ?? false;
 
     return (
         <div className="grid gap-5 sm:gap-6">
             <PageHeader
                 title={`Welcome to ${space.name}`}
-                description="Your finances at a glance"
+                description="Your finances at a glance · this month"
+                actions={
+                    <Button asChild variant="outline" size="sm">
+                        <Link to={ROUTES.spaceAnalytics(space.id)}>
+                            <Network className="size-4" />
+                            All analytics
+                        </Link>
+                    </Button>
+                }
             />
 
             {overAllocated && summary.data && (
@@ -109,8 +128,8 @@ export default function OverviewPage() {
                                 />
                             </p>
                             <p className="text-xs text-muted-foreground">
-                                You've allocated more spendable money to envelopes and plans
-                                than you have. Deallocate somewhere or record income to
+                                You&apos;ve allocated more spendable money to envelopes and
+                                plans than you have. Deallocate somewhere or record income to
                                 balance.
                             </p>
                         </div>
@@ -147,7 +166,7 @@ export default function OverviewPage() {
                         overAllocated
                             ? "Over-allocated"
                             : summary.data && summary.data.lockedBalance > 0
-                              ? "Free to allocate (locked excluded)"
+                              ? "Locked accounts excluded"
                               : "Free to allocate"
                     }
                 />
@@ -155,11 +174,14 @@ export default function OverviewPage() {
 
             <div className="grid gap-4 md:grid-cols-12">
                 <Card className="md:col-span-8">
-                    <CardHeader>
-                        <CardTitle>Cash flow</CardTitle>
-                        <CardDescription>
-                            Weekly income vs expense, last 3 months
-                        </CardDescription>
+                    <CardHeader className="flex-row items-center justify-between">
+                        <div>
+                            <CardTitle>Cash flow</CardTitle>
+                            <CardDescription>
+                                Weekly income vs expense, last 3 months
+                            </CardDescription>
+                        </div>
+                        <DrillLink to={ROUTES.spaceAnalyticsDetail(space.id, "cash-flow")} />
                     </CardHeader>
                     <CardContent className="h-[260px] px-1 sm:h-[280px] sm:px-6">
                         {cashFlow.isLoading ? (
@@ -196,12 +218,12 @@ export default function OverviewPage() {
                                     <Bar
                                         dataKey="income"
                                         fill="var(--income)"
-                                        radius={[4, 4, 0, 0]}
+                                        radius={[6, 6, 0, 0]}
                                     />
                                     <Bar
                                         dataKey="expense"
                                         fill="var(--expense)"
-                                        radius={[4, 4, 0, 0]}
+                                        radius={[6, 6, 0, 0]}
                                     />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -210,41 +232,29 @@ export default function OverviewPage() {
                 </Card>
 
                 <Card className="md:col-span-4">
-                    <CardHeader>
-                        <CardTitle>Top categories</CardTitle>
-                        <CardDescription>This month&apos;s biggest spends</CardDescription>
+                    <CardHeader className="flex-row items-center justify-between">
+                        <div>
+                            <CardTitle>Top categories</CardTitle>
+                            <CardDescription>
+                                This month&apos;s biggest spends
+                            </CardDescription>
+                        </div>
+                        <DrillLink
+                            to={ROUTES.spaceAnalyticsDetail(space.id, "categories")}
+                        />
                     </CardHeader>
-                    <CardContent className="h-[260px] sm:h-[280px]">
+                    <CardContent>
                         {topCats.isLoading ? (
-                            <Skeleton className="h-full w-full" />
-                        ) : !topCats.data || topCats.data.length === 0 ? (
-                            <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                                No spending yet
-                            </p>
+                            <Skeleton className="h-[240px] w-full" />
                         ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie
-                                        data={topCats.data}
-                                        dataKey="total"
-                                        nameKey="name"
-                                        innerRadius={40}
-                                        outerRadius={80}
-                                        paddingAngle={2}
-                                    >
-                                        {topCats.data.map((c) => (
-                                            <Cell key={c.id} fill={c.color} />
-                                        ))}
-                                    </Pie>
-                                    <RTooltip
-                                        contentStyle={{
-                                            background: "var(--popover)",
-                                            border: "1px solid var(--border)",
-                                            borderRadius: 8,
-                                        }}
-                                    />
-                                </PieChart>
-                            </ResponsiveContainer>
+                            <Donut
+                                data={topCatsDonut}
+                                centerLabel="Total spent"
+                                height={240}
+                                ringRatio={0.58}
+                                hideLegend
+                                emptyLabel="No spending yet"
+                            />
                         )}
                     </CardContent>
                 </Card>
@@ -258,13 +268,9 @@ export default function OverviewPage() {
                             </CardTitle>
                             <CardDescription>This month&apos;s consumption</CardDescription>
                         </div>
-                        <Link
-                            to={ROUTES.spaceEnvelopes(space.id)}
-                            className="text-sm text-muted-foreground hover:text-primary"
-                        >
-                            View all
-                            <ArrowRight className="ml-1 inline size-3.5" />
-                        </Link>
+                        <DrillLink
+                            to={ROUTES.spaceAnalyticsDetail(space.id, "envelopes")}
+                        />
                     </CardHeader>
                     <CardContent className="grid gap-3">
                         {utilization.isLoading ? (
@@ -277,13 +283,17 @@ export default function OverviewPage() {
                             utilization.data.slice(0, 5).map((e) => {
                                 const rawPct =
                                     e.allocated > 0
-                                        ? (e.periodConsumed / e.allocated) * 100
-                                        : e.periodConsumed > 0
+                                        ? (e.consumed / e.allocated) * 100
+                                        : e.consumed > 0
                                           ? Infinity
                                           : 0;
                                 const pct = Math.min(100, rawPct);
                                 return (
-                                    <div key={e.envelopId}>
+                                    <Link
+                                        key={e.envelopId}
+                                        to={ROUTES.spaceEnvelopeDetail(space.id, e.envelopId)}
+                                        className="rounded-md px-1 py-1 -mx-1 hover:bg-accent/30"
+                                    >
                                         <div className="mb-1 flex items-center justify-between gap-2 text-sm">
                                             <span className="flex min-w-0 items-center gap-2 font-medium">
                                                 <EntityAvatar
@@ -294,7 +304,7 @@ export default function OverviewPage() {
                                                 <span className="truncate">{e.name}</span>
                                             </span>
                                             <span className="whitespace-nowrap text-xs text-muted-foreground">
-                                                <MoneyDisplay amount={e.periodConsumed} /> /{" "}
+                                                <MoneyDisplay amount={e.consumed} /> /{" "}
                                                 <MoneyDisplay amount={e.allocated} />
                                             </span>
                                         </div>
@@ -310,7 +320,7 @@ export default function OverviewPage() {
                                                         : e.color
                                             }
                                         />
-                                    </div>
+                                    </Link>
                                 );
                             })
                         )}
@@ -326,13 +336,7 @@ export default function OverviewPage() {
                             </CardTitle>
                             <CardDescription>Long-term goal progress</CardDescription>
                         </div>
-                        <Link
-                            to={ROUTES.spacePlans(space.id)}
-                            className="text-sm text-muted-foreground hover:text-primary"
-                        >
-                            View all
-                            <ArrowRight className="ml-1 inline size-3.5" />
-                        </Link>
+                        <DrillLink to={ROUTES.spacePlans(space.id)} label="View all" />
                     </CardHeader>
                     <CardContent className="grid gap-3">
                         {plans.isLoading ? (
@@ -343,7 +347,11 @@ export default function OverviewPage() {
                             <p className="text-sm text-muted-foreground">No plans yet</p>
                         ) : (
                             plans.data.slice(0, 5).map((p) => (
-                                <div key={p.planId}>
+                                <Link
+                                    key={p.planId}
+                                    to={ROUTES.spacePlanDetail(space.id, p.planId)}
+                                    className="rounded-md px-1 py-1 -mx-1 hover:bg-accent/30"
+                                >
                                     <div className="mb-1 flex items-center justify-between gap-2 text-sm">
                                         <span className="flex min-w-0 items-center gap-2 font-medium">
                                             <EntityAvatar
@@ -356,7 +364,13 @@ export default function OverviewPage() {
                                         <span className="whitespace-nowrap text-xs text-muted-foreground">
                                             <MoneyDisplay amount={p.allocated} />
                                             {p.targetAmount
-                                                ? ` / ${p.targetAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                                                ? ` / ${p.targetAmount.toLocaleString(
+                                                      undefined,
+                                                      {
+                                                          minimumFractionDigits: 2,
+                                                          maximumFractionDigits: 2,
+                                                      }
+                                                  )}`
                                                 : ""}
                                         </span>
                                     </div>
@@ -366,7 +380,7 @@ export default function OverviewPage() {
                                             indicatorColor={p.color}
                                         />
                                     )}
-                                </div>
+                                </Link>
                             ))
                         )}
                     </CardContent>
@@ -380,13 +394,10 @@ export default function OverviewPage() {
                                 Recent transactions
                             </CardTitle>
                         </div>
-                        <Link
+                        <DrillLink
                             to={ROUTES.spaceTransactions(space.id)}
-                            className="text-sm text-muted-foreground hover:text-primary"
-                        >
-                            View all
-                            <ArrowRight className="ml-1 inline size-3.5" />
-                        </Link>
+                            label="View all"
+                        />
                     </CardHeader>
                     <CardContent className="grid gap-2">
                         {recentTx.isLoading ? (
@@ -426,7 +437,8 @@ export default function OverviewPage() {
                                             variant={
                                                 (t.type as unknown as string) === "income"
                                                     ? "income"
-                                                    : (t.type as unknown as string) === "expense"
+                                                    : (t.type as unknown as string) ===
+                                                        "expense"
                                                       ? "expense"
                                                       : "transfer"
                                             }
@@ -439,8 +451,9 @@ export default function OverviewPage() {
                 </Card>
 
                 <Card className="md:col-span-5">
-                    <CardHeader>
+                    <CardHeader className="flex-row items-center justify-between">
                         <CardTitle>Upcoming events</CardTitle>
+                        <DrillLink to={ROUTES.spaceEvents(space.id)} label="View all" />
                     </CardHeader>
                     <CardContent className="grid gap-2">
                         {events.isLoading ? (
@@ -475,6 +488,18 @@ export default function OverviewPage() {
                 </Card>
             </div>
         </div>
+    );
+}
+
+function DrillLink({ to, label = "Details" }: { to: string; label?: string }) {
+    return (
+        <Link
+            to={to}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+        >
+            {label}
+            <ArrowRight className="size-3" />
+        </Link>
     );
 }
 

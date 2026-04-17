@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { sql } from "kysely";
 import { z } from "zod";
 import type { SpaceMembers, Transactions } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
@@ -23,10 +24,6 @@ export const spaceSummary = authorizedProcedure
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                // Break down balances by account type so we can distinguish
-                // "net worth" (assets − liabilities, any type) from
-                // "spendable" (net worth minus locked — what's actually
-                // available to allocate or spend).
                 const balanceRow = await trx
                     .selectFrom("account_balances")
                     .innerJoin(
@@ -37,7 +34,6 @@ export const spaceSummary = authorizedProcedure
                     .innerJoin("accounts", "accounts.id", "space_accounts.account_id")
                     .where("space_accounts.space_id", "=", input.spaceId)
                     .select((eb) => [
-                        // Net worth across all account types
                         eb.fn
                             .sum<string>(
                                 eb
@@ -48,7 +44,6 @@ export const spaceSummary = authorizedProcedure
                                     .end()
                             )
                             .as("total_balance"),
-                        // Spendable: asset + (-liability), ignoring locked
                         eb.fn
                             .sum<string>(
                                 eb
@@ -61,7 +56,6 @@ export const spaceSummary = authorizedProcedure
                                     .end()
                             )
                             .as("spendable_balance"),
-                        // Money parked in locked accounts
                         eb.fn
                             .sum<string>(
                                 eb
@@ -75,23 +69,69 @@ export const spaceSummary = authorizedProcedure
                     ])
                     .executeTakeFirst();
 
-                const envelopeRow = await trx
-                    .selectFrom("envelop_balances")
-                    .innerJoin("envelops", "envelops.id", "envelop_balances.envelop_id")
-                    .where("envelops.space_id", "=", input.spaceId)
-                    .select((eb) => [
-                        eb.fn.sum<string>("envelop_balances.allocated").as("allocated"),
-                        eb.fn.sum<string>("envelop_balances.consumed").as("consumed"),
-                        eb.fn.sum<string>("envelop_balances.remaining").as("remaining"),
-                    ])
-                    .executeTakeFirst();
+                // On-read envelope aggregates (lifetime allocated + consumed
+                // + current-period-remaining-clamped via a CTE).
+                const envelopeRow = await sql<{
+                    allocated: string;
+                    consumed: string;
+                    remaining: string;
+                }>`
+                    WITH period AS (
+                        SELECT
+                            e.id AS envelop_id,
+                            e.cadence,
+                            CASE e.cadence
+                                WHEN 'none' THEN DATE '1970-01-01'
+                                WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
+                            END AS p_start,
+                            CASE e.cadence
+                                WHEN 'none' THEN DATE '9999-12-31'
+                                WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
+                            END AS p_end
+                        FROM envelops e
+                        WHERE e.space_id = ${input.spaceId}
+                    ),
+                    per_env AS (
+                        SELECT
+                            p.envelop_id,
+                            COALESCE((
+                                SELECT SUM(a.amount)
+                                FROM envelop_allocations a
+                                WHERE a.envelop_id = p.envelop_id
+                                  AND (
+                                      p.cadence = 'none'
+                                      OR (
+                                          COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.p_start
+                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.p_end
+                                      )
+                                  )
+                            ), 0) AS p_allocated,
+                            COALESCE((
+                                SELECT SUM(t.amount)
+                                FROM transactions t
+                                JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                WHERE ec.envelop_id = p.envelop_id
+                                  AND t.type = 'expense'
+                                  AND t.transaction_datetime >= p.p_start
+                                  AND t.transaction_datetime < p.p_end
+                            ), 0) AS p_consumed
+                        FROM period p
+                    )
+                    SELECT
+                        COALESCE(SUM(p_allocated), 0)::text AS allocated,
+                        COALESCE(SUM(p_consumed), 0)::text AS consumed,
+                        COALESCE(SUM(GREATEST(0, p_allocated - p_consumed)), 0)::text AS remaining
+                    FROM per_env
+                `
+                    .execute(trx)
+                    .then((r) => r.rows[0]);
 
                 const planRow = await trx
-                    .selectFrom("plan_balances")
-                    .innerJoin("plans", "plans.id", "plan_balances.plan_id")
+                    .selectFrom("plan_allocations")
+                    .innerJoin("plans", "plans.id", "plan_allocations.plan_id")
                     .where("plans.space_id", "=", input.spaceId)
                     .select((eb) => [
-                        eb.fn.sum<string>("plan_balances.allocated").as("allocated"),
+                        eb.fn.sum<string>("plan_allocations.amount").as("allocated"),
                     ])
                     .executeTakeFirst();
 
@@ -142,9 +182,6 @@ export const spaceSummary = authorizedProcedure
                 const income = Number(incomeExpenseRow?.income ?? 0);
                 const expense = Number(incomeExpenseRow?.expense ?? 0);
 
-                // Unallocated is signed — negative means over-allocation.
-                // Envelopes hold money until consumed, so "held" uses remaining.
-                // Locked accounts are excluded from the spendable pool.
                 const unallocated = spendableBalance - envelopeRemaining - planAllocated;
 
                 return {

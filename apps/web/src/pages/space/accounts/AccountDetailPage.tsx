@@ -1,5 +1,5 @@
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Loader2, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Loader2, Trash2, UserPlus, Target, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -21,6 +21,13 @@ import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { EntityAvatar } from "@/components/shared/EntityAvatar";
+import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateDialog";
+import { PlanAllocateDialog } from "@/features/allocations/PlanAllocateDialog";
+import { Donut } from "@/components/shared/charts/Donut";
 import {
     Select,
     SelectContent,
@@ -112,14 +119,19 @@ export default function AccountDetailPage() {
                 }
             />
 
-            <Tabs defaultValue="transactions">
+            <Tabs defaultValue="allocations">
                 <TabsList>
+                    <TabsTrigger value="allocations">Allocations</TabsTrigger>
                     <TabsTrigger value="transactions">Transactions</TabsTrigger>
                     <TabsTrigger value="members">Members</TabsTrigger>
                     <PermissionGate roles={["owner"]}>
                         <TabsTrigger value="settings">Settings</TabsTrigger>
                     </PermissionGate>
                 </TabsList>
+
+                <TabsContent value="allocations">
+                    <AccountAllocationsTab spaceId={space.id} accountId={account.id} />
+                </TabsContent>
 
                 <TabsContent value="transactions">
                     <Card className="p-0">
@@ -357,6 +369,302 @@ function AddAccountMember({ accountId }: { accountId: string }) {
                 <UserPlus />
                 Add
             </Button>
+        </div>
+    );
+}
+
+function AccountAllocationsTab({
+    spaceId,
+    accountId,
+}: {
+    spaceId: string;
+    accountId: string;
+}) {
+    const q = trpc.analytics.accountAllocation.useQuery({ spaceId, accountId });
+
+    if (q.isLoading) {
+        return (
+            <div className="grid gap-3">
+                <Skeleton className="h-24 w-full rounded-xl" />
+                <Skeleton className="h-40 w-full rounded-xl" />
+            </div>
+        );
+    }
+
+    if (!q.data) {
+        return null;
+    }
+
+    const { balance, allocated, unallocated, envelopes, plans } = q.data;
+    const allocationPct = balance > 0 ? Math.min(100, (allocated / balance) * 100) : 0;
+
+    // Donut slices: one per envelope partition (remaining), one per plan
+    // partition (allocated), plus an "Unallocated" slice when positive.
+    // Spent money has already left the account, so it doesn't appear here —
+    // this chart shows where the *current balance* is mentally parked.
+    const UNALLOCATED_COLOR = "#64748b";
+    const allocationDonut = [
+        ...envelopes
+            .filter((e) => e.remaining > 0)
+            .map((e) => ({
+                id: "env-" + e.envelopId,
+                name: e.name,
+                value: e.remaining,
+                color: e.color,
+                hint: `Envelope · ${e.cadence === "monthly" ? "monthly" : "rolling"}`,
+            })),
+        ...plans
+            .filter((p) => p.allocated > 0)
+            .map((p) => ({
+                id: "plan-" + p.planId,
+                name: p.name,
+                value: p.allocated,
+                color: p.color,
+                hint: "Plan",
+            })),
+        ...(unallocated > 0
+            ? [
+                  {
+                      id: "unallocated",
+                      name: "Unallocated",
+                      value: unallocated,
+                      color: UNALLOCATED_COLOR,
+                      hint: "Free to allocate to an envelope or plan",
+                  },
+              ]
+            : []),
+    ];
+
+    return (
+        <div className="grid gap-5">
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base">
+                        How this account&apos;s money is earmarked
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                    <div className="grid grid-cols-3 gap-3 text-center">
+                        <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Balance
+                            </p>
+                            <MoneyDisplay
+                                amount={balance}
+                                className="block text-lg font-bold"
+                            />
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Earmarked
+                            </p>
+                            <MoneyDisplay
+                                amount={allocated}
+                                className="block text-lg font-bold"
+                            />
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                Unallocated
+                            </p>
+                            <MoneyDisplay
+                                amount={unallocated}
+                                variant={unallocated < 0 ? "expense" : "neutral"}
+                                className="block text-lg font-bold"
+                            />
+                        </div>
+                    </div>
+                    <Progress value={allocationPct} />
+                    <p className="text-xs text-muted-foreground">
+                        {allocationPct.toFixed(0)}% of this account&apos;s balance is
+                        committed to envelopes or plans.
+                    </p>
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base">Allocation map</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <Donut
+                        data={allocationDonut}
+                        centerLabel="Balance"
+                        centerValue={balance}
+                        height={300}
+                        emptyLabel="This account has no balance or allocations yet."
+                    />
+                    {unallocated < 0 && (
+                        <p className="mt-3 text-xs text-destructive">
+                            This account is over-allocated by{" "}
+                            <MoneyDisplay
+                                amount={Math.abs(unallocated)}
+                                className="font-semibold text-destructive"
+                            />
+                            . Deallocate from an envelope or plan to rebalance.
+                        </p>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card className="p-0">
+                <CardHeader className="flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Mail className="size-4" />
+                        Envelopes at this account
+                    </CardTitle>
+                </CardHeader>
+                {envelopes.length === 0 ? (
+                    <CardContent>
+                        <EmptyState
+                            icon={Mail}
+                            title="No envelope activity"
+                            description="Allocate from this account on an envelope, or record an expense using a category routed to an envelope."
+                        />
+                    </CardContent>
+                ) : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Envelope</TableHead>
+                                <TableHead className="text-right">Allocated</TableHead>
+                                <TableHead className="text-right">Spent</TableHead>
+                                <TableHead className="text-right">Remaining</TableHead>
+                                <PermissionGate roles={["owner", "editor"]}>
+                                    <TableHead className="w-24" />
+                                </PermissionGate>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {envelopes.map((e) => (
+                                <TableRow key={e.envelopId}>
+                                    <TableCell>
+                                        <Link
+                                            to={ROUTES.spaceEnvelopeDetail(spaceId, e.envelopId)}
+                                            className="inline-flex items-center gap-2 hover:text-primary"
+                                        >
+                                            <EntityAvatar
+                                                size="sm"
+                                                color={e.color}
+                                                icon={e.icon}
+                                            />
+                                            <span className="text-sm font-medium">
+                                                {e.name}
+                                            </span>
+                                            {e.isDrift && (
+                                                <span className="inline-flex items-center gap-1 rounded-md bg-destructive/10 px-1.5 py-0.5 text-[10px] font-semibold text-destructive">
+                                                    <AlertTriangle className="size-3" />
+                                                    Drift
+                                                </span>
+                                            )}
+                                            {e.cadence === "monthly" && (
+                                                <span className="rounded-sm bg-secondary px-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                                                    Monthly
+                                                </span>
+                                            )}
+                                        </Link>
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <MoneyDisplay amount={e.allocated} />
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <MoneyDisplay amount={e.consumed} variant="expense" />
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <MoneyDisplay
+                                            amount={e.remaining}
+                                            variant={e.remaining < 0 ? "expense" : "neutral"}
+                                        />
+                                    </TableCell>
+                                    <PermissionGate roles={["owner", "editor"]}>
+                                        <TableCell>
+                                            <EnvelopeAllocateDialog
+                                                envelopId={e.envelopId}
+                                                envelopCadence={e.cadence}
+                                                defaultAccountId={accountId}
+                                                direction="allocate"
+                                                trigger={
+                                                    <Button size="sm" variant="ghost">
+                                                        Allocate
+                                                    </Button>
+                                                }
+                                            />
+                                        </TableCell>
+                                    </PermissionGate>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                )}
+            </Card>
+
+            <Card className="p-0">
+                <CardHeader className="flex-row items-center justify-between">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                        <Target className="size-4" />
+                        Plans at this account
+                    </CardTitle>
+                </CardHeader>
+                {plans.length === 0 ? (
+                    <CardContent>
+                        <EmptyState
+                            icon={Target}
+                            title="No plan activity"
+                            description="Allocate from this account to a plan to see it here."
+                        />
+                    </CardContent>
+                ) : (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Plan</TableHead>
+                                <TableHead className="text-right">Allocated</TableHead>
+                                <PermissionGate roles={["owner", "editor"]}>
+                                    <TableHead className="w-24" />
+                                </PermissionGate>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {plans.map((p) => (
+                                <TableRow key={p.planId}>
+                                    <TableCell>
+                                        <Link
+                                            to={ROUTES.spacePlanDetail(spaceId, p.planId)}
+                                            className="inline-flex items-center gap-2 hover:text-primary"
+                                        >
+                                            <EntityAvatar
+                                                size="sm"
+                                                color={p.color}
+                                                icon={p.icon}
+                                            />
+                                            <span className="text-sm font-medium">
+                                                {p.name}
+                                            </span>
+                                        </Link>
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                        <MoneyDisplay amount={p.allocated} />
+                                    </TableCell>
+                                    <PermissionGate roles={["owner", "editor"]}>
+                                        <TableCell>
+                                            <PlanAllocateDialog
+                                                planId={p.planId}
+                                                defaultAccountId={accountId}
+                                                direction="allocate"
+                                                trigger={
+                                                    <Button size="sm" variant="ghost">
+                                                        Allocate
+                                                    </Button>
+                                                }
+                                            />
+                                        </TableCell>
+                                    </PermissionGate>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                )}
+            </Card>
         </div>
     );
 }

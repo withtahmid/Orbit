@@ -30,6 +30,27 @@ const PlanDetailPage = lazy(() => import("@/pages/space/plans/PlanDetailPage"));
 const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
 const EventsPage = lazy(() => import("@/pages/space/events/EventsPage"));
 const AnalyticsPage = lazy(() => import("@/pages/space/analytics/AnalyticsPage"));
+const AnalyticsCashFlowView = lazy(
+    () => import("@/pages/space/analytics/views/CashFlowView")
+);
+const AnalyticsCategoriesView = lazy(
+    () => import("@/pages/space/analytics/views/CategoriesView")
+);
+const AnalyticsEnvelopesView = lazy(
+    () => import("@/pages/space/analytics/views/EnvelopesView")
+);
+const AnalyticsBalanceView = lazy(
+    () => import("@/pages/space/analytics/views/BalanceHistoryView")
+);
+const AnalyticsAccountsView = lazy(
+    () => import("@/pages/space/analytics/views/AccountsView")
+);
+const AnalyticsHeatmapView = lazy(
+    () => import("@/pages/space/analytics/views/HeatmapView")
+);
+const AnalyticsAllocationsView = lazy(
+    () => import("@/pages/space/analytics/views/AllocationsView")
+);
 const SpaceSettingsPage = lazy(() => import("@/pages/space/settings/SpaceSettingsPage"));
 
 const withSuspense = (children: React.ReactNode) => (
@@ -128,6 +149,34 @@ export const router = createBrowserRouter([
                                     {
                                         path: "analytics",
                                         element: withSuspense(<AnalyticsPage />),
+                                    },
+                                    {
+                                        path: "analytics/cash-flow",
+                                        element: withSuspense(<AnalyticsCashFlowView />),
+                                    },
+                                    {
+                                        path: "analytics/categories",
+                                        element: withSuspense(<AnalyticsCategoriesView />),
+                                    },
+                                    {
+                                        path: "analytics/envelopes",
+                                        element: withSuspense(<AnalyticsEnvelopesView />),
+                                    },
+                                    {
+                                        path: "analytics/balance",
+                                        element: withSuspense(<AnalyticsBalanceView />),
+                                    },
+                                    {
+                                        path: "analytics/accounts",
+                                        element: withSuspense(<AnalyticsAccountsView />),
+                                    },
+                                    {
+                                        path: "analytics/heatmap",
+                                        element: withSuspense(<AnalyticsHeatmapView />),
+                                    },
+                                    {
+                                        path: "analytics/allocations",
+                                        element: withSuspense(<AnalyticsAllocationsView />),
                                     },
                                     {
                                         path: "settings",
