@@ -43,17 +43,24 @@ export const envelopeUtilization = authorizedProcedure
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                const periodStart = input.periodStart ?? new Date("1970-01-01");
+                const EPOCH = new Date("1970-01-01");
+                const periodStart = input.periodStart ?? EPOCH;
                 const periodEnd = input.periodEnd ?? new Date("9999-12-31");
                 // Previous-period window = same duration immediately before
                 // periodStart. For the usual month-wide query this is the
                 // previous month; for arbitrary ranges it's the preceding
-                // range of equal length.
+                // range of equal length. Clamp `prevStart` to epoch: when
+                // the caller didn't pass bounds, the "current" window is
+                // already all-time, so the previous window collapses to
+                // [epoch, epoch) and carryIn is 0 — a Postgres date out of
+                // range would otherwise crash the query.
                 const durationMs = Math.max(
                     0,
                     periodEnd.getTime() - periodStart.getTime()
                 );
-                const prevStart = new Date(periodStart.getTime() - durationMs);
+                const prevStart = new Date(
+                    Math.max(EPOCH.getTime(), periodStart.getTime() - durationMs)
+                );
                 const prevEnd = periodStart;
 
                 // Envelope totals for the window (+ carryIn from prev period)
