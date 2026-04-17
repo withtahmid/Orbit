@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
-import { Transactions } from "../../db/kysely/types.mjs";
+import type { Transactions } from "../../db/kysely/types.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
+import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 
 export const createExpenseTransaction = authorizedProcedure
     .input(
@@ -17,6 +18,7 @@ export const createExpenseTransaction = authorizedProcedure
             location: z.string().optional(),
             sourceAccountId: z.string().uuid(),
             expense_category_id: z.string().uuid(),
+            eventId: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -34,6 +36,14 @@ export const createExpenseTransaction = authorizedProcedure
                     expenseCategoryId: input.expense_category_id,
                     spaceId: input.spaceId,
                 });
+
+                if (input.eventId) {
+                    await resolveEventBelongsToSpace({
+                        trx,
+                        eventId: input.eventId,
+                        spaceId: input.spaceId,
+                    });
+                }
 
                 await resolveAvailableBalance({
                     trx,
@@ -54,6 +64,7 @@ export const createExpenseTransaction = authorizedProcedure
                         description: input.description || null,
                         location: input.location || null,
                         transaction_datetime: input.datetime || new Date(),
+                        event_id: input.eventId ?? null,
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();

@@ -3,7 +3,6 @@ import { TRPCError } from "@trpc/server";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import type { SpaceMembers } from "../../db/kysely/types.mjs";
-import { resolve } from "path";
 import { resolveSpaceMembership } from "./utils/resolveSpaceMembership.mjs";
 
 export const addMembersToSpace = authorizedProcedure

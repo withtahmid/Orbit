@@ -1,9 +1,8 @@
 import { z } from "zod";
-import { sql } from "kysely";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 
 export const createSpace = authorizedProcedure
     .input(

@@ -3,7 +3,7 @@ import publicProcedure from "../../../trpc/middlewares/public.mjs";
 import VerificationCodeEmail from "../../../services/mail/templates/VerificationCodeEmail.js";
 import { logger } from "../../../utils/logger.mjs";
 import { z } from "zod";
-import { authorizeTmpJWT, signTmpJWT } from "./helper.mjs";
+import { authorizeTmpJWT } from "./helper.mjs";
 import { CONFIG } from "../../../config/config.mjs";
 import { safeAwait } from "../../../utils/safeAwait.mjs";
 import { generateOTP } from "../utils/generateOTP.mjs";

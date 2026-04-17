@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
@@ -11,30 +11,17 @@ export const listExpenseCategoriesBySpace = authorizedProcedure
             spaceId: z.string().uuid(),
         })
     )
-    .output(
-        z.array(
-            z.object({
-                id: z.string().uuid(),
-                space_id: z.string().uuid(),
-                parent_id: z.string().uuid().nullable(),
-                envelop_id: z.string().uuid(),
-                name: z.string(),
-                created_at: z.date(),
-                updated_at: z.date().nullable(),
-            })
-        )
-    )
     .query(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
+            (async () => {
                 await resolveSpaceMembership({
-                    trx,
+                    trx: ctx.services.qb,
                     spaceId: input.spaceId,
                     userId: ctx.auth.user.id,
-                    roles: ["owner"] as unknown as SpaceMembers["role"][],
+                    roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                return trx
+                return ctx.services.qb
                     .selectFrom("expense_categories")
                     .select([
                         "id",
@@ -42,13 +29,15 @@ export const listExpenseCategoriesBySpace = authorizedProcedure
                         "parent_id",
                         "envelop_id",
                         "name",
+                        "color",
+                        "icon",
                         "created_at",
                         "updated_at",
                     ])
                     .where("expense_categories.space_id", "=", input.spaceId)
                     .orderBy("expense_categories.created_at", "asc")
                     .execute();
-            })
+            })()
         );
 
         if (error) {
@@ -61,5 +50,5 @@ export const listExpenseCategoriesBySpace = authorizedProcedure
             });
         }
 
-        return result;
+        return result ?? [];
     });

@@ -17,7 +17,7 @@ export const mutationLoggerMiddleware = t.middleware(async (opts) => {
         const error_code = result.ok ? null : result.error.code;
         const error_stack = result.ok ? null : result.error.stack;
 
-        const insert = {
+        void {
             user_id: userId,
             path,
             input: input !== null ? JSON.stringify(input) : null,

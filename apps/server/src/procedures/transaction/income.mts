@@ -1,10 +1,10 @@
-import { sql } from "kysely";
 import { z } from "zod";
-import { Transactions } from "../../db/kysely/types.mjs";
+import type { Transactions } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
+import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 
 export const createIncomeTransaction = authorizedProcedure
     .input(
@@ -15,7 +15,7 @@ export const createIncomeTransaction = authorizedProcedure
             description: z.string().optional(),
             location: z.string().optional(),
             accountId: z.string().uuid(),
-            categoryId: z.string().uuid().optional(),
+            eventId: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -29,6 +29,14 @@ export const createIncomeTransaction = authorizedProcedure
                     type: "income" as unknown as Transactions["type"],
                 });
 
+                if (input.eventId) {
+                    await resolveEventBelongsToSpace({
+                        trx,
+                        eventId: input.eventId,
+                        spaceId: input.spaceId,
+                    });
+                }
+
                 const transaction = await trx
                     .insertInto("transactions")
                     .values({
@@ -41,6 +49,7 @@ export const createIncomeTransaction = authorizedProcedure
                         description: input.description || null,
                         location: input.location || null,
                         transaction_datetime: input.datetime || new Date(),
+                        event_id: input.eventId ?? null,
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();

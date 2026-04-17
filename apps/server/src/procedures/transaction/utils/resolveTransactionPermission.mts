@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Kysely } from "kysely";
-import { DB, Transactions, UserAccounts } from "../../../db/kysely/types.mjs";
+import type { DB, Transactions, UserAccounts } from "../../../db/kysely/types.mjs";
 import { resolveAccountPermission } from "../../account/utils/resolveAccountPermission.mjs";
 
 type TransactionType = Transactions["type"];
@@ -77,6 +77,8 @@ export const resolveTransactionPermission = async ({
             userId,
             roles: ["owner"] as unknown as UserAccounts["role"][],
         });
+
+        await rejectIfLocked({ trx, accountId: sourceAccountId });
         return;
     }
 
@@ -94,6 +96,8 @@ export const resolveTransactionPermission = async ({
             userId,
             roles: ["owner"] as unknown as UserAccounts["role"][],
         });
+
+        await rejectIfLocked({ trx, accountId: sourceAccountId });
 
         const destinationOwnerMembership = await trx
             .selectFrom("user_accounts")
@@ -140,4 +144,25 @@ export const resolveTransactionPermission = async ({
         code: "BAD_REQUEST",
         message: "Unsupported transaction type",
     });
+};
+
+const rejectIfLocked = async ({
+    trx,
+    accountId,
+}: {
+    trx: Kysely<DB>;
+    accountId: string;
+}) => {
+    const acct = await trx
+        .selectFrom("accounts")
+        .select("account_type")
+        .where("id", "=", accountId)
+        .executeTakeFirst();
+    if (!acct) return;
+    if ((acct.account_type as unknown as string) === "locked") {
+        throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cannot spend or transfer out of a locked account",
+        });
+    }
 };

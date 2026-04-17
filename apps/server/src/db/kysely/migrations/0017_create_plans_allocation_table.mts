@@ -12,7 +12,6 @@ export const up = async (db: Kysely<any>): Promise<void> => {
         .addColumn("created_by", "uuid", (col) =>
             col.notNull().references("users.id").onDelete("restrict")
         )
-        .addCheckConstraint("plan_allocations_amount_check", sql`amount > 0`)
         .execute();
 };
 export const down = async (db: Kysely<any>): Promise<void> => {

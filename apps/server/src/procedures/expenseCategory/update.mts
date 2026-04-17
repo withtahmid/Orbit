@@ -1,9 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
 
 export const updateExpenseCategory = authorizedProcedure
     .input(
@@ -11,22 +13,13 @@ export const updateExpenseCategory = authorizedProcedure
             .object({
                 categoryId: z.string().uuid(),
                 name: z.string().min(1).max(255).optional(),
-                envelopId: z.string().uuid().optional(),
+                color: z.string().regex(HEX).optional(),
+                icon: z.string().min(1).max(48).optional(),
             })
-            .refine((data) => data.name !== undefined || data.envelopId !== undefined, {
-                message: "At least one field must be provided",
-            })
-    )
-    .output(
-        z.object({
-            id: z.string().uuid(),
-            space_id: z.string().uuid(),
-            parent_id: z.string().uuid().nullable(),
-            envelop_id: z.string().uuid(),
-            name: z.string(),
-            created_at: z.date(),
-            updated_at: z.date().nullable(),
-        })
+            .refine(
+                (d) => d.name !== undefined || d.color !== undefined || d.icon !== undefined,
+                { message: "At least one field must be provided" }
+            )
     )
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
@@ -51,26 +44,12 @@ export const updateExpenseCategory = authorizedProcedure
                     roles: ["owner"] as unknown as SpaceMembers["role"][],
                 });
 
-                if (input.envelopId) {
-                    const envelop = await trx
-                        .selectFrom("envelops")
-                        .select(["id", "space_id"])
-                        .where("envelops.id", "=", input.envelopId)
-                        .executeTakeFirst();
-
-                    if (!envelop || envelop.space_id !== current.space_id) {
-                        throw new TRPCError({
-                            code: "BAD_REQUEST",
-                            message: "Invalid envelop for this space",
-                        });
-                    }
-                }
-
                 return trx
                     .updateTable("expense_categories")
                     .set({
                         name: input.name,
-                        envelop_id: input.envelopId,
+                        color: input.color,
+                        icon: input.icon,
                         updated_at: new Date(),
                     })
                     .where("expense_categories.id", "=", input.categoryId)
@@ -80,6 +59,8 @@ export const updateExpenseCategory = authorizedProcedure
                         "parent_id",
                         "envelop_id",
                         "name",
+                        "color",
+                        "icon",
                         "created_at",
                         "updated_at",
                     ])

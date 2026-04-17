@@ -1,26 +1,31 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 import { sql } from "kysely";
 
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
 export const updateEnvelop = authorizedProcedure
     .input(
-        z.object({
-            envelopId: z.string().uuid(),
-            name: z.string().min(1).max(255),
-        })
-    )
-    .output(
-        z.object({
-            id: z.string().uuid(),
-            space_id: z.string().uuid(),
-            name: z.string(),
-            created_at: z.date(),
-            updated_at: z.date().nullable(),
-        })
+        z
+            .object({
+                envelopId: z.string().uuid(),
+                name: z.string().min(1).max(255).optional(),
+                color: z.string().regex(HEX).optional(),
+                icon: z.string().min(1).max(48).optional(),
+                description: z.string().max(2000).nullable().optional(),
+            })
+            .refine(
+                (d) =>
+                    d.name !== undefined ||
+                    d.color !== undefined ||
+                    d.icon !== undefined ||
+                    d.description !== undefined,
+                { message: "At least one field must be provided" }
+            )
     )
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
@@ -49,10 +54,22 @@ export const updateEnvelop = authorizedProcedure
                     .updateTable("envelops")
                     .set({
                         name: input.name,
+                        color: input.color,
+                        icon: input.icon,
+                        description: input.description,
                         updated_at: sql`now()`,
                     })
                     .where("envelops.id", "=", input.envelopId)
-                    .returning(["id", "space_id", "name", "created_at", "updated_at"])
+                    .returning([
+                        "id",
+                        "space_id",
+                        "name",
+                        "color",
+                        "icon",
+                        "description",
+                        "created_at",
+                        "updated_at",
+                    ])
                     .executeTakeFirstOrThrow();
             })
         );

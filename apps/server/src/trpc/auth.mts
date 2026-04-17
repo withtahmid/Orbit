@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import { Kysely } from "kysely";
-import { DB } from "../db/kysely/types.mjs";
+import type { DB } from "../db/kysely/types.mjs";
 import { ENV } from "../env.mjs";
 import { logger } from "../utils/logger.mjs";
 
@@ -37,7 +37,7 @@ export interface AuthenticatedUser {
 
 export const fetchUserFromJWT = async (
     payload: JWTPayload | null,
-    qb: Kysely<DB>
+    _qb: Kysely<DB>
 ): Promise<AuthenticatedUser | null> => {
     if (!payload) return null;
 

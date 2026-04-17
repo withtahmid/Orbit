@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
@@ -11,35 +11,33 @@ export const listEventsBySpace = authorizedProcedure
             spaceId: z.string().uuid(),
         })
     )
-    .output(
-        z.array(
-            z.object({
-                id: z.string().uuid(),
-                space_id: z.string().uuid(),
-                name: z.string(),
-                start_time: z.date(),
-                end_time: z.date(),
-                created_at: z.date(),
-            })
-        )
-    )
     .query(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
+            (async () => {
                 await resolveSpaceMembership({
-                    trx,
+                    trx: ctx.services.qb,
                     spaceId: input.spaceId,
                     userId: ctx.auth.user.id,
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                return trx
+                return ctx.services.qb
                     .selectFrom("events")
-                    .select(["id", "space_id", "name", "start_time", "end_time", "created_at"])
+                    .select([
+                        "id",
+                        "space_id",
+                        "name",
+                        "start_time",
+                        "end_time",
+                        "color",
+                        "icon",
+                        "description",
+                        "created_at",
+                    ])
                     .where("events.space_id", "=", input.spaceId)
-                    .orderBy("events.start_time", "asc")
+                    .orderBy("events.start_time", "desc")
                     .execute();
-            })
+            })()
         );
 
         if (error) {
@@ -52,5 +50,5 @@ export const listEventsBySpace = authorizedProcedure
             });
         }
 
-        return result;
+        return result ?? [];
     });

@@ -13,6 +13,8 @@ export type ArrayTypeImpl<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S[], I[], U[]>
   : T[];
 
+export type AccountType = "asset" | "liability" | "locked";
+
 export type EmailVerificationCodePurpose = "change_email" | "password_reset" | "signup";
 
 export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
@@ -31,6 +33,9 @@ export interface AccountBalances {
 }
 
 export interface Accounts {
+  account_type: ArrayType<AccountType>;
+  color: Generated<string>;
+  icon: Generated<string>;
   id: Generated<string>;
   name: string;
   updated_at: Generated<Timestamp | null>;
@@ -44,15 +49,6 @@ export interface EmailVerificationCodes {
   purpose: EmailVerificationCodePurpose;
   tmp_user_id: string | null;
   user_id: string | null;
-}
-
-export interface EnvelopAllocationConsumptions {
-  amount: Numeric;
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  envelop_allocation_id: string;
-  id: Generated<string>;
-  transaction_id: string;
 }
 
 export interface EnvelopAllocations {
@@ -71,7 +67,10 @@ export interface EnvelopBalances {
 }
 
 export interface Envelops {
+  color: Generated<string>;
   created_at: Generated<Timestamp>;
+  description: string | null;
+  icon: Generated<string>;
   id: Generated<string>;
   name: string;
   space_id: string;
@@ -79,8 +78,11 @@ export interface Envelops {
 }
 
 export interface Events {
+  color: Generated<string>;
   created_at: Generated<Timestamp>;
+  description: string | null;
   end_time: Timestamp;
+  icon: Generated<string>;
   id: Generated<string>;
   name: string;
   space_id: string;
@@ -88,8 +90,10 @@ export interface Events {
 }
 
 export interface ExpenseCategories {
+  color: Generated<string>;
   created_at: Generated<Timestamp>;
   envelop_id: string;
+  icon: Generated<string>;
   id: Generated<string>;
   name: string;
   parent_id: string | null;
@@ -105,11 +109,21 @@ export interface PlanAllocations {
   plan_id: string;
 }
 
+export interface PlanBalances {
+  allocated: Generated<Numeric>;
+  plan_id: string;
+}
+
 export interface Plans {
+  color: Generated<string>;
   created_at: Generated<Timestamp>;
+  description: string | null;
+  icon: Generated<string>;
   id: Generated<string>;
   name: string;
   space_id: string;
+  target_amount: Numeric | null;
+  target_date: Timestamp | null;
   updated_at: Generated<Timestamp | null>;
 }
 
@@ -148,9 +162,9 @@ export interface Transactions {
   created_by: string;
   description: string | null;
   destination_account_id: string | null;
+  event_id: string | null;
   expense_category_id: string | null;
   id: Generated<string>;
-  is_deleted: Generated<boolean>;
   location: string | null;
   source_account_id: string | null;
   space_id: string;
@@ -179,13 +193,13 @@ export interface DB {
   account_balances: AccountBalances;
   accounts: Accounts;
   email_verification_codes: EmailVerificationCodes;
-  envelop_allocation_consumptions: EnvelopAllocationConsumptions;
   envelop_allocations: EnvelopAllocations;
   envelop_balances: EnvelopBalances;
   envelops: Envelops;
   events: Events;
   expense_categories: ExpenseCategories;
   plan_allocations: PlanAllocations;
+  plan_balances: PlanBalances;
   plans: Plans;
   space_accounts: SpaceAccounts;
   space_members: SpaceMembers;

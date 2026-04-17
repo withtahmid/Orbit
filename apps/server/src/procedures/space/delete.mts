@@ -3,14 +3,14 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 import { resolveSpaceMembership } from "./utils/resolveSpaceMembership.mjs";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 
 export const deleteSpace = authorizedProcedure
     .input(z.object({ spaceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
         const [error] = await safeAwait(
             ctx.services.qb.transaction().execute(async (trx) => {
-                const { membership } = await resolveSpaceMembership({
+                await resolveSpaceMembership({
                     trx,
                     spaceId: input.spaceId,
                     userId: ctx.auth.user.id,

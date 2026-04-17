@@ -1,9 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
 
 export const updateEvent = authorizedProcedure
     .input(
@@ -13,20 +15,20 @@ export const updateEvent = authorizedProcedure
                 name: z.string().min(1).max(255).optional(),
                 startTime: z.coerce.date().optional(),
                 endTime: z.coerce.date().optional(),
+                color: z.string().regex(HEX).optional(),
+                icon: z.string().min(1).max(48).optional(),
+                description: z.string().max(2000).nullable().optional(),
             })
-            .refine((data) => data.name || data.startTime || data.endTime, {
-                message: "At least one field must be provided",
-            })
-    )
-    .output(
-        z.object({
-            id: z.string().uuid(),
-            space_id: z.string().uuid(),
-            name: z.string(),
-            start_time: z.date(),
-            end_time: z.date(),
-            created_at: z.date(),
-        })
+            .refine(
+                (data) =>
+                    data.name !== undefined ||
+                    data.startTime !== undefined ||
+                    data.endTime !== undefined ||
+                    data.color !== undefined ||
+                    data.icon !== undefined ||
+                    data.description !== undefined,
+                { message: "At least one field must be provided" }
+            )
     )
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
@@ -67,9 +69,22 @@ export const updateEvent = authorizedProcedure
                         name: input.name,
                         start_time: input.startTime,
                         end_time: input.endTime,
+                        color: input.color,
+                        icon: input.icon,
+                        description: input.description,
                     })
                     .where("events.id", "=", input.eventId)
-                    .returning(["id", "space_id", "name", "start_time", "end_time", "created_at"])
+                    .returning([
+                        "id",
+                        "space_id",
+                        "name",
+                        "start_time",
+                        "end_time",
+                        "color",
+                        "icon",
+                        "description",
+                        "created_at",
+                    ])
                     .executeTakeFirstOrThrow();
 
                 return event;

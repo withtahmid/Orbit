@@ -8,6 +8,8 @@ import { envelopRouter } from "./envelop.mjs";
 import { planRouter } from "./plan.mjs";
 import { expenseCategoryRouter } from "./expenseCategory.mjs";
 import { transactionRouter } from "./transaction.mjs";
+import { allocationRouter } from "./allocation.mjs";
+import { analyticsRouter } from "./analytics.mjs";
 
 export const appRouter = router({
     health: healthProcedure,
@@ -19,5 +21,7 @@ export const appRouter = router({
     plan: planRouter,
     expenseCategory: expenseCategoryRouter,
     transaction: transactionRouter,
+    allocation: allocationRouter,
+    analytics: analyticsRouter,
 });
 export type AppRouter = typeof appRouter;

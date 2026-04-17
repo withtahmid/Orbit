@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 
-export const listAccountsByUser = authorizedProcedure.query(async ({ ctx, input }) => {
+export const listAccountsByUser = authorizedProcedure.query(async ({ ctx }) => {
     const [error, accounts] = await safeAwait(
         ctx.services.qb
             .selectFrom("accounts")

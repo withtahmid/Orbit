@@ -1,5 +1,5 @@
 import { Kysely } from "kysely";
-import { DB } from "../../../db/kysely/types.mjs";
+import type { DB } from "../../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 
 export const resolveExpenseCategoryBelongsToSpace = async ({

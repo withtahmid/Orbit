@@ -22,6 +22,9 @@ export const up = async (db: Kysely<any>): Promise<void> => {
         .addColumn("created_at", "timestamptz", (col) => col.notNull().defaultTo(sql`NOW()`))
         .addColumn("location", "varchar(255)")
         .addColumn("expense_category_id", "uuid", (col) => col.references("expense_categories.id"))
+        .addColumn("event_id", "uuid", (col) =>
+            col.references("events.id").onDelete("set null")
+        )
         .addCheckConstraint("transactions_amount_check", sql`amount > 0`)
         .addCheckConstraint(
             "transactions_income_check",

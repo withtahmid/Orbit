@@ -1,112 +1,80 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { observer } from "mobx-react-lite";
-import { useStore } from "@/stores/useStore";
+import { KeyRound, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { trpc } from "@/trpc";
+import { useStore } from "@/stores/useStore";
+import { ROUTES } from "@/router/routes";
 
-export const EmailStep = observer(() => {
+export const EmailStep = observer(function EmailStep() {
     const { forgotPasswordStore } = useStore();
     const [email, setEmail] = useState(forgotPasswordStore.email || "");
-    const [error, setError] = useState("");
-    const [message, setMessage] = useState("");
-    const [loading, setLoading] = useState(false);
 
-    const initiatePasswordReset = trpc.auth.resetPassword.initiate.useMutation();
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setError("");
-        setMessage("");
-        setLoading(true);
-
-        try {
-            const result = await initiatePasswordReset.mutateAsync({ email });
+    const initiate = trpc.auth.resetPassword.initiate.useMutation({
+        onSuccess: (data) => {
             forgotPasswordStore.setEmail(email);
-
-            if (result.token) {
-                forgotPasswordStore.setResetToken(result.token);
-                forgotPasswordStore.startResendCooldown(60);
+            if (data.token) {
+                forgotPasswordStore.setResetToken(data.token);
                 forgotPasswordStore.setStep(2);
-            } else {
-                setMessage(result.message);
+                forgotPasswordStore.startResendCooldown(60);
             }
-        } catch (err: any) {
-            setError(err.message || "Something went wrong. Please try again.");
-        } finally {
-            setLoading(false);
-        }
+            toast.success(data.message || "If the account exists, a code was sent.");
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    const onSubmit = (e: FormEvent) => {
+        e.preventDefault();
+        initiate.mutate({ email });
     };
 
     return (
-        <div className="signup-step signup-step--email">
-            <div className="signup-step__icon">
-                <svg
-                    width="48"
-                    height="48"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                >
-                    <rect x="2" y="4" width="20" height="16" rx="2" />
-                    <path d="M22 4L12 13L2 4" />
-                </svg>
+        <div className="grid gap-5 py-2 text-center">
+            <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-brand-gradient-to/20 text-primary">
+                <KeyRound className="size-6" />
             </div>
-            <h2 className="signup-step__title">Reset your password</h2>
-            <p className="signup-step__subtitle">
-                Enter your email address to receive a verification code.
-            </p>
-
-            {error && (
-                <div className="signup-alert signup-alert--error" role="alert">
-                    <svg
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                    >
-                        <circle cx="12" cy="12" r="10" />
-                        <line x1="15" y1="9" x2="9" y2="15" />
-                        <line x1="9" y1="9" x2="15" y2="15" />
-                    </svg>
-                    {error}
-                </div>
-            )}
-
-            {message && (
-                <div className="signup-alert" role="status">
-                    {message}
-                </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="signup-form">
-                <div className="signup-field">
-                    <label htmlFor="forgot-email" className="signup-field__label">
-                        Email address
-                    </label>
-                    <input
-                        id="forgot-email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        required
-                        autoComplete="email"
-                        autoFocus
-                        className="signup-field__input"
-                    />
-                </div>
-                <button
+            <div>
+                <h2 className="text-xl font-bold">Reset your password</h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                    We&apos;ll send a verification code to your email
+                </p>
+            </div>
+            <form onSubmit={onSubmit} className="grid gap-3 text-left">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                    id="email"
+                    type="email"
+                    required
+                    autoFocus
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                />
+                <Button
                     type="submit"
-                    disabled={loading || !email}
-                    className="signup-btn signup-btn--primary"
+                    variant="gradient"
+                    disabled={initiate.isPending || !email}
                 >
-                    {loading ? <span className="signup-btn__spinner" /> : "Send reset code"}
-                </button>
+                    {initiate.isPending ? (
+                        <>
+                            <Loader2 className="animate-spin" />
+                            Sending…
+                        </>
+                    ) : (
+                        "Send code"
+                    )}
+                </Button>
             </form>
+            <Link
+                to={ROUTES.login}
+                className="text-xs text-muted-foreground hover:text-foreground"
+            >
+                ← Back to login
+            </Link>
         </div>
     );
 });

@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { Kysely } from "kysely";
-import { DB, SpaceMembers } from "../../../db/kysely/types.mjs";
+import type { DB, SpaceMembers } from "../../../db/kysely/types.mjs";
 
 export const resolveSpaceMembership = async ({
     trx,

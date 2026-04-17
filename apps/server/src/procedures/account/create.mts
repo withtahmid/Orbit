@@ -2,20 +2,19 @@ import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
-import { UserAccounts } from "../../db/kysely/types.mjs";
+import type { Accounts, UserAccounts } from "../../db/kysely/types.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
 
 export const createAccount = authorizedProcedure
     .input(
         z.object({
             space_id: z.string().uuid(),
             name: z.string().min(1).max(255),
-        })
-    )
-    .output(
-        z.object({
-            id: z.string().uuid(),
-            name: z.string(),
+            account_type: z.enum(["asset", "liability", "locked"]),
+            color: z.string().regex(HEX).optional(),
+            icon: z.string().min(1).max(48).optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -32,8 +31,11 @@ export const createAccount = authorizedProcedure
                     .insertInto("accounts")
                     .values({
                         name: input.name,
+                        account_type: input.account_type as unknown as Accounts["account_type"],
+                        color: input.color,
+                        icon: input.icon,
                     })
-                    .returning(["id", "name"])
+                    .returning(["id", "name", "account_type", "color", "icon"])
                     .executeTakeFirstOrThrow();
 
                 await trx
@@ -60,7 +62,16 @@ export const createAccount = authorizedProcedure
                     })
                     .executeTakeFirstOrThrow();
 
-                return account;
+                return {
+                    id: account.id,
+                    name: account.name,
+                    account_type: account.account_type as unknown as
+                        | "asset"
+                        | "liability"
+                        | "locked",
+                    color: account.color,
+                    icon: account.icon,
+                };
             })
         );
         if (error) {

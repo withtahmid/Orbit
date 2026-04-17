@@ -2,7 +2,7 @@ import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveAccountPermission } from "./utils/resolveAccountPermission.mjs";
-import { UserAccounts } from "../../db/kysely/types.mjs";
+import type { UserAccounts } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 
 export const deleteAccount = authorizedProcedure

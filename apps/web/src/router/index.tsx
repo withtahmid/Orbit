@@ -1,157 +1,137 @@
-import { createBrowserRouter } from "react-router-dom";
-
+import { createBrowserRouter, Navigate } from "react-router-dom";
+import { lazy, Suspense } from "react";
 import { RootLayout } from "@/layouts/RootLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { DashboardLayout } from "@/layouts/DashboardLayout";
-
-// Route guards
-import { PublicRoute } from "@/router/guards/PublicRoute";
-import { ProtectedRoute } from "@/router/guards/ProtectedRoute";
+import { AppShellLayout } from "@/layouts/AppShellLayout";
+import { SpaceLayout } from "@/layouts/SpaceLayout";
 import { GuestOnlyRoute } from "@/router/guards/GuestOnlyRoute";
-
-// Public pages
-import { HomePage } from "@/pages/public/HomePage";
-import { AboutPage } from "@/pages/public/AboutPage";
-import { NotFoundPage } from "@/pages/public/NotFoundPage";
-
-// Auth pages (guest only — redirect if already logged in)
+import { ProtectedRoute } from "@/router/guards/ProtectedRoute";
+import { CurrentSpaceProvider } from "@/providers/CurrentSpaceProvider";
+import { RootRedirect } from "@/pages/RootRedirect";
+import { FullPageSpinner } from "@/components/shared/LoadingScreen";
+import NotFoundPage from "@/pages/NotFoundPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
-import { SignupPage } from "@/pages/auth/signup";
-import { ForgotPasswordPage } from "@/pages/auth/forgot-password";
 
-// Protected pages
-import { DashboardPage } from "@/pages/dashboard/DashboardPage";
-import { ProfilePage } from "@/pages/dashboard/ProfilePage";
-import { SettingsPage } from "@/pages/dashboard/SettingsPage";
-import { SettingsGeneralPage } from "@/pages/dashboard/settings/SettingsGeneralPage";
-import { SettingsSecurityPage } from "@/pages/dashboard/settings/SettingsSecurityPage";
-import { UserDetailPage } from "@/pages/dashboard/UserDetailPage";
-import { SearchPage } from "@/pages/dashboard/SearchPage";
-import { SpacesPage } from "@/pages/dashboard/SpacesPage";
-import { SpaceDetailPage } from "@/pages/dashboard/SpaceDetailPage";
-import { SpaceEditPage } from "@/pages/dashboard/SpaceEditPage";
-import { AccountManagePage } from "@/pages/dashboard/AccountManagePage";
-import { SpaceTransactionsPage } from "@/pages/dashboard/SpaceTransactionsPage";
+const SignupPage = lazy(() => import("@/pages/auth/signup/index"));
+const ForgotPasswordPage = lazy(() => import("@/pages/auth/forgot-password/index"));
+
+const SpaceSelectorPage = lazy(() => import("@/pages/app/SpaceSelectorPage"));
+const ProfilePage = lazy(() => import("@/pages/app/ProfilePage"));
+const SecurityPage = lazy(() => import("@/pages/app/SecurityPage"));
+
+const SpaceOverviewPage = lazy(() => import("@/pages/space/OverviewPage"));
+const AccountsPage = lazy(() => import("@/pages/space/accounts/AccountsPage"));
+const AccountDetailPage = lazy(() => import("@/pages/space/accounts/AccountDetailPage"));
+const TransactionsPage = lazy(() => import("@/pages/space/transactions/TransactionsPage"));
+const EnvelopesPage = lazy(() => import("@/pages/space/envelopes/EnvelopesPage"));
+const EnvelopeDetailPage = lazy(() => import("@/pages/space/envelopes/EnvelopeDetailPage"));
+const PlansPage = lazy(() => import("@/pages/space/plans/PlansPage"));
+const PlanDetailPage = lazy(() => import("@/pages/space/plans/PlanDetailPage"));
+const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
+const EventsPage = lazy(() => import("@/pages/space/events/EventsPage"));
+const AnalyticsPage = lazy(() => import("@/pages/space/analytics/AnalyticsPage"));
+const SpaceSettingsPage = lazy(() => import("@/pages/space/settings/SpaceSettingsPage"));
+
+const withSuspense = (children: React.ReactNode) => (
+    <Suspense fallback={<FullPageSpinner />}>{children}</Suspense>
+);
 
 export const router = createBrowserRouter([
     {
-        // Root layout wraps everything (nav, footer, toasts, etc.)
         element: <RootLayout />,
         children: [
-            // ─────────────────────────────────────────────
-            // PUBLIC ROUTES — accessible by anyone
-            // ─────────────────────────────────────────────
+            { path: "/", element: <RootRedirect /> },
             {
-                element: <PublicRoute />,
+                element: <GuestOnlyRoute />,
                 children: [
                     {
-                        path: "/",
-                        element: <HomePage />,
-                    },
-                    {
-                        path: "/about",
-                        element: <AboutPage />,
-                    },
-                ],
-            },
-
-            // ─────────────────────────────────────────────
-            // GUEST-ONLY ROUTES — redirect to /dashboard if logged in
-            // ─────────────────────────────────────────────
-            {
-                element: <AuthLayout />,
-                children: [
-                    {
-                        element: <GuestOnlyRoute redirectTo="/dashboard" />,
+                        element: <AuthLayout />,
                         children: [
-                            {
-                                path: "/login",
-                                element: <LoginPage />,
-                            },
-                            {
-                                path: "/signup",
-                                element: <SignupPage />,
-                            },
+                            { path: "/login", element: <LoginPage /> },
+                            { path: "/signup", element: withSuspense(<SignupPage />) },
                             {
                                 path: "/forgot-password",
-                                element: <ForgotPasswordPage />,
+                                element: withSuspense(<ForgotPasswordPage />),
                             },
                         ],
                     },
                 ],
             },
-
-            // ─────────────────────────────────────────────
-            // PROTECTED ROUTES — redirect to /login if not logged in
-            // ─────────────────────────────────────────────
             {
-                element: <DashboardLayout />,
+                element: <ProtectedRoute />,
                 children: [
                     {
-                        element: <ProtectedRoute redirectTo="/login" />,
+                        element: <AppShellLayout />,
                         children: [
-                            // /dashboard
-                            {
-                                path: "/dashboard",
-                                element: <DashboardPage />,
-                            },
-
-                            // /profile — simple protected page
-                            {
-                                path: "/profile",
-                                element: <ProfilePage />,
-                            },
-
-                            // /users/:userId — route with URL param
-                            {
-                                path: "/users/:userId",
-                                element: <UserDetailPage />,
-                            },
-
-                            // /search?q=...&page=... — route with query params (read inside component)
-                            {
-                                path: "/search",
-                                element: <SearchPage />,
-                            },
-
                             {
                                 path: "/spaces",
-                                element: <SpacesPage />,
+                                element: withSuspense(<SpaceSelectorPage />),
                             },
-                            {
-                                path: "/spaces/:id",
-                                element: <SpaceDetailPage />,
-                            },
-                            {
-                                path: "/spaces/:id/accounts/:accountId",
-                                element: <AccountManagePage />,
-                            },
-                            {
-                                path: "/spaces/:id/transactions",
-                                element: <SpaceTransactionsPage />,
-                            },
-                            {
-                                path: "/space/:id/edit",
-                                element: <SpaceEditPage />,
-                            },
-
-                            // /settings — nested routes
                             {
                                 path: "/settings",
-                                element: <SettingsPage />,
+                                element: <Navigate to="/settings/profile" replace />,
+                            },
+                            {
+                                path: "/settings/profile",
+                                element: withSuspense(<ProfilePage />),
+                            },
+                            {
+                                path: "/settings/security",
+                                element: withSuspense(<SecurityPage />),
+                            },
+                        ],
+                    },
+                    {
+                        path: "/s/:spaceId",
+                        element: <CurrentSpaceProvider />,
+                        children: [
+                            {
+                                element: <SpaceLayout />,
                                 children: [
+                                    { index: true, element: withSuspense(<SpaceOverviewPage />) },
                                     {
-                                        // default child: /settings → redirects to /settings/general
-                                        index: true,
-                                        element: <SettingsGeneralPage />,
+                                        path: "accounts",
+                                        element: withSuspense(<AccountsPage />),
                                     },
                                     {
-                                        path: "general",
-                                        element: <SettingsGeneralPage />,
+                                        path: "accounts/:accountId",
+                                        element: withSuspense(<AccountDetailPage />),
                                     },
                                     {
-                                        path: "security",
-                                        element: <SettingsSecurityPage />,
+                                        path: "transactions",
+                                        element: withSuspense(<TransactionsPage />),
+                                    },
+                                    {
+                                        path: "envelopes",
+                                        element: withSuspense(<EnvelopesPage />),
+                                    },
+                                    {
+                                        path: "envelopes/:envelopeId",
+                                        element: withSuspense(<EnvelopeDetailPage />),
+                                    },
+                                    {
+                                        path: "plans",
+                                        element: withSuspense(<PlansPage />),
+                                    },
+                                    {
+                                        path: "plans/:planId",
+                                        element: withSuspense(<PlanDetailPage />),
+                                    },
+                                    {
+                                        path: "categories",
+                                        element: withSuspense(<CategoriesPage />),
+                                    },
+                                    {
+                                        path: "events",
+                                        element: withSuspense(<EventsPage />),
+                                    },
+                                    {
+                                        path: "analytics",
+                                        element: withSuspense(<AnalyticsPage />),
+                                    },
+                                    {
+                                        path: "settings",
+                                        element: withSuspense(<SpaceSettingsPage />),
                                     },
                                 ],
                             },
@@ -159,14 +139,7 @@ export const router = createBrowserRouter([
                     },
                 ],
             },
-
-            // ─────────────────────────────────────────────
-            // 404 CATCH-ALL
-            // ─────────────────────────────────────────────
-            {
-                path: "*",
-                element: <NotFoundPage />,
-            },
+            { path: "*", element: <NotFoundPage /> },
         ],
     },
 ]);

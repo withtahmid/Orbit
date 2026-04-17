@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { Transactions } from "../../db/kysely/types.mjs";
+import type { Transactions } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
 import { TRPCError } from "@trpc/server";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
+import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 
 export const createTransferTransaction = authorizedProcedure
     .input(
@@ -16,6 +17,7 @@ export const createTransferTransaction = authorizedProcedure
             location: z.string().optional(),
             sourceAccountId: z.string().uuid(),
             destinationAccountId: z.string().uuid(),
+            eventId: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -28,6 +30,14 @@ export const createTransferTransaction = authorizedProcedure
                     sourceAccountId: input.sourceAccountId,
                     type: "transfer" as unknown as Transactions["type"],
                 });
+
+                if (input.eventId) {
+                    await resolveEventBelongsToSpace({
+                        trx,
+                        eventId: input.eventId,
+                        spaceId: input.spaceId,
+                    });
+                }
 
                 await resolveAvailableBalance({
                     trx,
@@ -47,6 +57,7 @@ export const createTransferTransaction = authorizedProcedure
                         description: input.description || null,
                         location: input.location || null,
                         transaction_datetime: input.datetime || new Date(),
+                        event_id: input.eventId ?? null,
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();

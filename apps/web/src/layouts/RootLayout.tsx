@@ -1,19 +1,13 @@
 import { Outlet, ScrollRestoration } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
-/**
- * RootLayout
- *
- * The outermost shell. Good place for:
- *   - Global nav / header / footer
- *   - Toast / notification portal
- *   - Theme providers
- */
 export function RootLayout() {
     return (
-        <>
+        <TooltipProvider delayDuration={200}>
             <ScrollRestoration />
-            {/* Global Toasts, Modals, etc. go here */}
             <Outlet />
-        </>
+            <Toaster position="top-right" richColors closeButton />
+        </TooltipProvider>
     );
 }

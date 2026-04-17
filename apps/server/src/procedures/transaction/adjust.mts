@@ -2,7 +2,7 @@ import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
-import { Transactions } from "../../db/kysely/types.mjs";
+import type { Transactions } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 
 export const adjustAccountBalance = authorizedProcedure

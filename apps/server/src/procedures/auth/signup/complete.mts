@@ -2,7 +2,6 @@ import { z } from "zod";
 import publicProcedure from "../../../trpc/middlewares/public.mjs";
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcrypt";
-import { sql } from "kysely";
 import { signJWT } from "../../../trpc/auth.mjs";
 import { authorizeTmpJWT } from "./helper.mjs";
 import { CONFIG } from "../../../config/config.mjs";

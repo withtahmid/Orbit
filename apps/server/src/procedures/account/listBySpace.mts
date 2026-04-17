@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 
@@ -12,7 +12,7 @@ export const listAccountsBySpace = authorizedProcedure
         })
     )
     .query(async ({ ctx, input }) => {
-        resolveSpaceMembership({
+        await resolveSpaceMembership({
             trx: ctx.services.qb,
             spaceId: input.spaceId,
             userId: ctx.auth.user.id,
@@ -23,10 +23,26 @@ export const listAccountsBySpace = authorizedProcedure
             ctx.services.qb
                 .selectFrom("accounts")
                 .innerJoin("space_accounts", "space_accounts.account_id", "accounts.id")
-                .leftJoin("user_accounts", "space_accounts.account_id", "user_accounts.account_id")
+                .innerJoin("user_accounts", (join) =>
+                    join
+                        .onRef("user_accounts.account_id", "=", "accounts.id")
+                        .on("user_accounts.user_id", "=", ctx.auth.user.id)
+                )
+                .innerJoin(
+                    "account_balances",
+                    "account_balances.account_id",
+                    "accounts.id"
+                )
                 .where("space_accounts.space_id", "=", input.spaceId)
-                .where("user_accounts.user_id", "=", ctx.auth.user.id)
-                .select(["accounts.id", "accounts.name"])
+                .select([
+                    "accounts.id",
+                    "accounts.name",
+                    "accounts.account_type",
+                    "accounts.color",
+                    "accounts.icon",
+                    "account_balances.balance",
+                    "user_accounts.role as my_role",
+                ])
                 .execute()
         );
         if (error) {
@@ -35,5 +51,13 @@ export const listAccountsBySpace = authorizedProcedure
                 message: error.message || "Failed to fetch accounts for space",
             });
         }
-        return accounts;
+        return (accounts ?? []).map((a) => ({
+            id: a.id,
+            name: a.name,
+            account_type: a.account_type as unknown as "asset" | "liability" | "locked",
+            color: a.color,
+            icon: a.icon,
+            balance: a.balance,
+            myRole: a.my_role as unknown as "owner" | "viewer",
+        }));
     });

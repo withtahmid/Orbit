@@ -2,7 +2,7 @@ import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "./utils/resolveSpaceMembership.mjs";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 
 export const spaceMemberList = authorizedProcedure

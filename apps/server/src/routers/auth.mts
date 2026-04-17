@@ -9,6 +9,7 @@ import { initiateSignup } from "../procedures/auth//signup/initiate.mjs";
 import { resendSignupCode } from "../procedures/auth//signup/resendCode.mjs";
 import { verifyCode } from "../procedures/auth//signup/verifyCode.mjs";
 import { findUserByEmail } from "../procedures/auth/users/findByEmail.mjs";
+import { meProcedure } from "../procedures/auth/me.mjs";
 
 export const authRouter = router({
     signup: router({
@@ -25,4 +26,5 @@ export const authRouter = router({
         complete: completePasswordReset,
     }),
     findUserByEmail,
+    me: meProcedure,
 });

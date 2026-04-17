@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { AuthenticatedUser } from "../auth.mjs";
+import type { AuthenticatedUser } from "../auth.mjs";
 import { t } from "../index.mjs";
 import { mutationLoggerMiddleware } from "./mutationLogger.mjs";
 

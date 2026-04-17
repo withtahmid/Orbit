@@ -1,48 +1,22 @@
-/**
- * ROUTE PATHS — single source of truth.
- *
- * Usage:
- *   import { ROUTES } from "@/router/routes";
- *   navigate(ROUTES.dashboard);
- *   navigate(ROUTES.userDetail("42"));
- *   navigate(ROUTES.search({ q: "react", page: "2" }));
- */
-
 export const ROUTES = {
-    // Public
-    home: "/",
-    about: "/about",
-
-    // Auth (guest-only)
+    root: "/",
     login: "/login",
     signup: "/signup",
     forgotPassword: "/forgot-password",
-
-    // Protected — static
-    dashboard: "/dashboard",
-    profile: "/profile",
-    search: "/search",
     spaces: "/spaces",
-
-    // Protected — settings (nested)
-    settings: "/settings",
-    settingsGeneral: "/settings/general",
-    settingsSecurity: "/settings/security",
-
-    // Protected — dynamic param helper
-    userDetail: (userId: string) => `/users/${userId}`,
-    spaceDetail: (spaceId: string) => `/spaces/${spaceId}`,
-    spaceTransactions: (spaceId: string) => `/spaces/${spaceId}/transactions`,
-    spaceEdit: (spaceId: string) => `/space/${spaceId}/edit`,
-    accountInSpace: (spaceId: string, accountId: string) =>
-        `/spaces/${spaceId}/accounts/${accountId}`,
-
-    // Query-param helper  (returns a full path string)
-    searchWithQuery: (params: { q?: string; page?: string }) => {
-        const sp = new URLSearchParams();
-        if (params.q) sp.set("q", params.q);
-        if (params.page) sp.set("page", params.page);
-        const qs = sp.toString();
-        return qs ? `/search?${qs}` : "/search";
-    },
+    profile: "/settings/profile",
+    security: "/settings/security",
+    space: (id: string) => `/s/${id}`,
+    spaceOverview: (id: string) => `/s/${id}`,
+    spaceAccounts: (id: string) => `/s/${id}/accounts`,
+    spaceAccountDetail: (id: string, accId: string) => `/s/${id}/accounts/${accId}`,
+    spaceTransactions: (id: string) => `/s/${id}/transactions`,
+    spaceEnvelopes: (id: string) => `/s/${id}/envelopes`,
+    spaceEnvelopeDetail: (id: string, envId: string) => `/s/${id}/envelopes/${envId}`,
+    spacePlans: (id: string) => `/s/${id}/plans`,
+    spacePlanDetail: (id: string, planId: string) => `/s/${id}/plans/${planId}`,
+    spaceCategories: (id: string) => `/s/${id}/categories`,
+    spaceEvents: (id: string) => `/s/${id}/events`,
+    spaceAnalytics: (id: string) => `/s/${id}/analytics`,
+    spaceSettings: (id: string) => `/s/${id}/settings`,
 } as const;

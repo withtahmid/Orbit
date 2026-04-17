@@ -1,5 +1,5 @@
 import { Kysely } from "kysely";
-import { DB, UserAccounts } from "../../../db/kysely/types.mjs";
+import type { DB, UserAccounts } from "../../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 
 export const resolveAccountPermission = async ({

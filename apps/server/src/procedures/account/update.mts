@@ -1,16 +1,25 @@
 import { TRPCError } from "@trpc/server";
-import { UserAccounts } from "../../db/kysely/types.mjs";
+import type { UserAccounts } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveAccountPermission } from "./utils/resolveAccountPermission.mjs";
 import { z } from "zod";
 
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
 export const updateAccount = authorizedProcedure
     .input(
-        z.object({
-            accountId: z.string().uuid(),
-            name: z.string().min(1).max(255),
-        })
+        z
+            .object({
+                accountId: z.string().uuid(),
+                name: z.string().min(1).max(255).optional(),
+                color: z.string().regex(HEX).optional(),
+                icon: z.string().min(1).max(48).optional(),
+            })
+            .refine(
+                (d) => d.name !== undefined || d.color !== undefined || d.icon !== undefined,
+                { message: "At least one field must be provided" }
+            )
     )
     .mutation(async ({ ctx, input }) => {
         await resolveAccountPermission({
@@ -25,8 +34,11 @@ export const updateAccount = authorizedProcedure
                 .updateTable("accounts")
                 .set({
                     name: input.name,
+                    color: input.color,
+                    icon: input.icon,
+                    updated_at: new Date(),
                 })
-                .returning(["id", "name"])
+                .returning(["id", "name", "color", "icon"])
                 .where("id", "=", input.accountId)
                 .executeTakeFirstOrThrow()
         );

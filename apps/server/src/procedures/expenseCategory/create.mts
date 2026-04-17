@@ -1,9 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
 
 export const createExpenseCategory = authorizedProcedure
     .input(
@@ -12,17 +14,8 @@ export const createExpenseCategory = authorizedProcedure
             name: z.string().min(1).max(255),
             parentId: z.string().uuid().nullable().optional(),
             envelopId: z.string().uuid(),
-        })
-    )
-    .output(
-        z.object({
-            id: z.string().uuid(),
-            space_id: z.string().uuid(),
-            parent_id: z.string().uuid().nullable(),
-            envelop_id: z.string().uuid(),
-            name: z.string(),
-            created_at: z.date(),
-            updated_at: z.date().nullable(),
+            color: z.string().regex(HEX).optional(),
+            icon: z.string().min(1).max(48).optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -38,7 +31,7 @@ export const createExpenseCategory = authorizedProcedure
                 if (input.parentId) {
                     const parent = await trx
                         .selectFrom("expense_categories")
-                        .select(["id", "space_id"])
+                        .select(["id", "space_id", "envelop_id"])
                         .where("expense_categories.id", "=", input.parentId)
                         .executeTakeFirst();
 
@@ -46,6 +39,13 @@ export const createExpenseCategory = authorizedProcedure
                         throw new TRPCError({
                             code: "BAD_REQUEST",
                             message: "Invalid parent category for this space",
+                        });
+                    }
+                    if (parent.envelop_id !== input.envelopId) {
+                        throw new TRPCError({
+                            code: "BAD_REQUEST",
+                            message:
+                                "Sub-categories must share the parent's envelope. Move the parent first if you want a different envelope.",
                         });
                     }
                 }
@@ -70,6 +70,8 @@ export const createExpenseCategory = authorizedProcedure
                         name: input.name,
                         parent_id: input.parentId ?? null,
                         envelop_id: input.envelopId,
+                        color: input.color,
+                        icon: input.icon,
                     })
                     .returning([
                         "id",
@@ -77,6 +79,8 @@ export const createExpenseCategory = authorizedProcedure
                         "parent_id",
                         "envelop_id",
                         "name",
+                        "color",
+                        "icon",
                         "created_at",
                         "updated_at",
                     ])
