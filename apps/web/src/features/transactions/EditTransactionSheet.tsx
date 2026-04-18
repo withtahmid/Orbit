@@ -27,10 +27,16 @@ import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 
 type TxType = "income" | "expense" | "transfer" | "adjustment";
 
+/**
+ * Shape returned by `transaction.listBySpace` that this sheet needs.
+ * `type` is `unknown` because kysely's enum codegen surfaces it as
+ * `ArrayType<"income" | ...>` — see spec §14.1. We narrow at read time
+ * via `transaction.type as unknown as TxType` inside the component.
+ */
 export interface EditableTransaction {
     id: string;
     space_id: string;
-    type: string;
+    type: unknown;
     amount: string | number;
     source_account_id: string | null;
     destination_account_id: string | null;
@@ -53,7 +59,7 @@ export interface EditableTransaction {
  */
 export function EditTransactionSheet({ transaction }: { transaction: EditableTransaction }) {
     const [open, setOpen] = useState(false);
-    const type = transaction.type as TxType;
+    const type = transaction.type as unknown as TxType;
 
     return (
         <Sheet open={open} onOpenChange={setOpen}>
@@ -92,7 +98,7 @@ function EditForm({
     onDone: () => void;
 }) {
     const spaceId = transaction.space_id;
-    const type = transaction.type as TxType;
+    const type = transaction.type as unknown as TxType;
     const utils = trpc.useUtils();
 
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });

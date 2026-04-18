@@ -39,10 +39,10 @@ import { ROUTES } from "@/router/routes";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import { cn } from "@/lib/utils";
 
+import type { RouterOutput } from "@/trpc";
+
 type Cadence = "none" | "monthly";
-type EnvelopeRow = NonNullable<
-    ReturnType<typeof trpc.analytics.envelopeUtilization.useQuery>["data"]
->[number];
+type EnvelopeRow = RouterOutput["analytics"]["envelopeUtilization"][number];
 
 export default function EnvelopesPage() {
     const { space } = useCurrentSpace();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     ArrowRight,
@@ -952,7 +952,6 @@ function RoleCard({
 }
 
 function FaqItem({ q, a }: { q: string; a: string }) {
-    const _id = useMemo(() => q.toLowerCase().replace(/\W+/g, "-"), [q]);
     return (
         <details className="group rounded-xl border border-border bg-card p-4">
             <summary className="flex cursor-pointer items-center gap-2 font-medium">

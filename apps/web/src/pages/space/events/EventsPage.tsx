@@ -28,10 +28,9 @@ import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 import { formatInAppTz } from "@/lib/formatDate";
+import type { RouterOutput } from "@/trpc";
 
-type RawEventTotal = NonNullable<
-    ReturnType<typeof trpc.analytics.eventTotals.useQuery>["data"]
->[number];
+type RawEventTotal = RouterOutput["analytics"]["eventTotals"][number];
 type EventTotal = Omit<RawEventTotal, "startTime" | "endTime"> & {
     startTime: Date;
     endTime: Date;

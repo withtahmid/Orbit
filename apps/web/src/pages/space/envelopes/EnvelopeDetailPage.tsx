@@ -441,7 +441,6 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
  */
 function RebalanceDialog({
     envelopeId,
-    envelopCadence,
     targetAccountId,
     breakdown,
     accountsById,

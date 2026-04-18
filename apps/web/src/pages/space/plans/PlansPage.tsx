@@ -191,7 +191,9 @@ function CreateOrEditPlanDialog({
         icon: string;
         description: string | null;
         targetAmount: number | null;
-        targetDate: Date | null;
+        // tRPC serializes Date → ISO string over HTTP. Accept both so
+        // call sites that pass a server row don't need to pre-hydrate.
+        targetDate: Date | string | null;
     };
 }) {
     const { space } = useCurrentSpace();

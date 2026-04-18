@@ -257,7 +257,7 @@ function CreateCategoryDialog({
     const [name, setName] = useState("");
     const [envelopId, setEnvelopId] = useState("");
     const [parentId, setParentId] = useState("");
-    const [color, setColor] = useState(DEFAULT_COLOR);
+    const [color, setColor] = useState<string>(DEFAULT_COLOR);
     const [icon, setIcon] = useState("folder");
     const utils = trpc.useUtils();
     const create = trpc.expenseCategory.create.useMutation({

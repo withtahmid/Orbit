@@ -9,6 +9,7 @@
         "COOLDOWN",
         "kysely",
         "maildev",
+        "metabase",
         "pg_uuidv7",
         "pkey",
         "plpgsql",
@@ -16,6 +17,7 @@
         "sslmode",
         "timestamptz",
         "uuidv",
+        "vite",
         "withtahmid"
     ]
 }

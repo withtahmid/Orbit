@@ -27,12 +27,13 @@ export default function CategoriesView() {
     );
 
     const childrenByParent = useMemo(() => {
-        const m = new Map<string, typeof q.data extends readonly (infer U)[] ? U[] : never>();
+        type Row = NonNullable<typeof q.data>[number];
+        const m = new Map<string, Row[]>();
         for (const c of q.data ?? []) {
             if (c.parentId) {
-                const arr = (m.get(c.parentId) as any) ?? [];
+                const arr = m.get(c.parentId) ?? [];
                 arr.push(c);
-                m.set(c.parentId, arr as any);
+                m.set(c.parentId, arr);
             }
         }
         return m;

@@ -38,7 +38,7 @@ export function CreateAccountDialog() {
     const [open, setOpen] = useState(false);
     const [name, setName] = useState("");
     const [accountType, setAccountType] = useState<AccountType>("asset");
-    const [color, setColor] = useState(DEFAULT_COLOR);
+    const [color, setColor] = useState<string>(DEFAULT_COLOR);
     const [icon, setIcon] = useState(DEFAULT_ICON_BY_TYPE.asset);
     const [iconTouched, setIconTouched] = useState(false);
     const utils = trpc.useUtils();
