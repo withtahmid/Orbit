@@ -9,7 +9,7 @@ import {
     Trash2,
     X,
 } from "lucide-react";
-import { format } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PermissionGate } from "@/components/shared/PermissionGate";
@@ -51,6 +51,7 @@ import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { usePeriod } from "@/hooks/usePeriod";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { NewTransactionSheet } from "@/features/transactions/NewTransactionSheet";
+import { EditTransactionSheet } from "@/features/transactions/EditTransactionSheet";
 import { ROUTES } from "@/router/routes";
 import { useStore } from "@/stores/useStore";
 import { colorTint, UNALLOCATED_COLOR } from "@/lib/entityStyle";
@@ -131,6 +132,17 @@ export default function TransactionsPage() {
             m.set(ev.id, { name: ev.name, color: ev.color, icon: ev.icon });
         return m;
     }, [eventsQuery.data]);
+
+    // "Spent by" column needs display names — space members come back with
+    // first/last/email, so build a composite label once.
+    const membersById = useMemo(() => {
+        const m = new Map<string, { name: string; email: string }>();
+        for (const mem of membersQuery.data ?? []) {
+            const full = [mem.first_name, mem.last_name].filter(Boolean).join(" ");
+            m.set(mem.id, { name: full || mem.email, email: mem.email });
+        }
+        return m;
+    }, [membersQuery.data]);
 
     const utils = trpc.useUtils();
     const del = trpc.transaction.delete.useMutation({
@@ -309,8 +321,9 @@ export default function TransactionsPage() {
                                         <TableHead>Category</TableHead>
                                         <TableHead>Event</TableHead>
                                         <TableHead>Description</TableHead>
+                                        <TableHead>Spent by</TableHead>
                                         <TableHead className="text-right">Amount</TableHead>
-                                        <TableHead className="w-10" />
+                                        <TableHead className="w-20" />
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -333,8 +346,8 @@ export default function TransactionsPage() {
                                         return (
                                             <TableRow key={t.id}>
                                                 <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                                                    {format(
-                                                        new Date(t.transaction_datetime),
+                                                    {formatInAppTz(
+                                                        t.transaction_datetime,
                                                         "MMM d, HH:mm"
                                                     )}
                                                 </TableCell>
@@ -390,6 +403,9 @@ export default function TransactionsPage() {
                                                 <TableCell className="text-sm text-muted-foreground max-w-64 truncate">
                                                     {t.description ?? ""}
                                                 </TableCell>
+                                                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                                                    {membersById.get(t.created_by)?.name ?? "—"}
+                                                </TableCell>
                                                 <TableCell className="text-right">
                                                     <MoneyDisplay
                                                         amount={t.amount}
@@ -397,28 +413,35 @@ export default function TransactionsPage() {
                                                     />
                                                 </TableCell>
                                                 <TableCell>
-                                                    {canDelete && (
-                                                        <ConfirmDialog
-                                                            trigger={
-                                                                <Button
-                                                                    size="icon"
-                                                                    variant="ghost"
-                                                                    className="size-7"
-                                                                >
-                                                                    <Trash2 className="size-3.5 text-destructive" />
-                                                                </Button>
-                                                            }
-                                                            title="Delete transaction?"
-                                                            description="Balances will update automatically."
-                                                            confirmLabel="Delete"
-                                                            destructive
-                                                            onConfirm={() =>
-                                                                del.mutate({
-                                                                    transactionId: t.id,
-                                                                })
-                                                            }
-                                                        />
-                                                    )}
+                                                    <div className="flex items-center justify-end gap-0.5">
+                                                        {canDelete && (
+                                                            <EditTransactionSheet
+                                                                transaction={t}
+                                                            />
+                                                        )}
+                                                        {canDelete && (
+                                                            <ConfirmDialog
+                                                                trigger={
+                                                                    <Button
+                                                                        size="icon"
+                                                                        variant="ghost"
+                                                                        className="size-7"
+                                                                    >
+                                                                        <Trash2 className="size-3.5 text-destructive" />
+                                                                    </Button>
+                                                                }
+                                                                title="Delete transaction?"
+                                                                description="Balances will update automatically."
+                                                                confirmLabel="Delete"
+                                                                destructive
+                                                                onConfirm={() =>
+                                                                    del.mutate({
+                                                                        transactionId: t.id,
+                                                                    })
+                                                                }
+                                                            />
+                                                        )}
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         );
@@ -460,8 +483,8 @@ export default function TransactionsPage() {
                                             <div className="flex items-center gap-2">
                                                 <TransactionTypeBadge type={tType} />
                                                 <span className="text-xs text-muted-foreground">
-                                                    {format(
-                                                        new Date(t.transaction_datetime),
+                                                    {formatInAppTz(
+                                                        t.transaction_datetime,
                                                         "MMM d"
                                                     )}
                                                 </span>
@@ -474,6 +497,9 @@ export default function TransactionsPage() {
                                                     {t.description}
                                                 </p>
                                             )}
+                                            <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                                by {membersById.get(t.created_by)?.name ?? "—"}
+                                            </p>
                                         </div>
                                         <div className="flex flex-col items-end gap-1">
                                             <MoneyDisplay
@@ -481,25 +507,30 @@ export default function TransactionsPage() {
                                                 variant={variant as any}
                                             />
                                             {canDelete && (
-                                                <ConfirmDialog
-                                                    trigger={
-                                                        <Button
-                                                            size="icon"
-                                                            variant="ghost"
-                                                            className="size-6"
-                                                        >
-                                                            <Trash2 className="size-3 text-destructive" />
-                                                        </Button>
-                                                    }
-                                                    title="Delete transaction?"
-                                                    confirmLabel="Delete"
-                                                    destructive
-                                                    onConfirm={() =>
-                                                        del.mutate({
-                                                            transactionId: t.id,
-                                                        })
-                                                    }
-                                                />
+                                                <div className="flex">
+                                                    <EditTransactionSheet
+                                                        transaction={t}
+                                                    />
+                                                    <ConfirmDialog
+                                                        trigger={
+                                                            <Button
+                                                                size="icon"
+                                                                variant="ghost"
+                                                                className="size-6"
+                                                            >
+                                                                <Trash2 className="size-3 text-destructive" />
+                                                            </Button>
+                                                        }
+                                                        title="Delete transaction?"
+                                                        confirmLabel="Delete"
+                                                        destructive
+                                                        onConfirm={() =>
+                                                            del.mutate({
+                                                                transactionId: t.id,
+                                                            })
+                                                        }
+                                                    />
+                                                </div>
                                             )}
                                         </div>
                                     </div>

@@ -7,7 +7,8 @@ import {
     Pencil,
     CalendarDays,
 } from "lucide-react";
-import { format, differenceInCalendarDays } from "date-fns";
+import { differenceInCalendarDays } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PermissionGate } from "@/components/shared/PermissionGate";
@@ -152,7 +153,7 @@ export default function PlansPage() {
                                                         ? `${Math.abs(daysLeft)}d overdue`
                                                         : `${daysLeft}d left`}{" "}
                                                     ·{" "}
-                                                    {format(targetDate, "MMM d, yyyy")}
+                                                    {formatInAppTz(targetDate, "MMM d, yyyy")}
                                                 </span>
                                             )}
                                         </div>

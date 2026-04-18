@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateDialog";
 import { PlanAllocateDialog } from "@/features/allocations/PlanAllocateDialog";
 import { Donut } from "@/components/shared/charts/Donut";
+import { EntityStyleFields } from "@/components/shared/EntityStyleFields";
 import {
     Dialog,
     DialogContent,
@@ -47,7 +48,7 @@ import {
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
-import { format } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
 export default function AccountDetailPage() {
@@ -69,15 +70,6 @@ export default function AccountDetailPage() {
         { enabled: !!accountId }
     );
 
-    const [newName, setNewName] = useState("");
-    const update = trpc.account.update.useMutation({
-        onSuccess: async () => {
-            toast.success("Account updated");
-            await utils.account.listBySpace.invalidate({ spaceId: space.id });
-            setNewName("");
-        },
-        onError: (e) => toast.error(e.message),
-    });
     const del = trpc.account.delete.useMutation({
         onSuccess: async () => {
             toast.success("Account deleted");
@@ -176,8 +168,8 @@ export default function AccountDetailPage() {
                                         return (
                                             <TableRow key={t.id}>
                                                 <TableCell className="text-muted-foreground">
-                                                    {format(
-                                                        new Date(t.transaction_datetime),
+                                                    {formatInAppTz(
+                                                        t.transaction_datetime,
                                                         "MMM d"
                                                     )}
                                                 </TableCell>
@@ -251,29 +243,15 @@ export default function AccountDetailPage() {
                 <TabsContent value="settings">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Rename account</CardTitle>
+                            <CardTitle>Account settings</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            <form
-                                className="flex gap-2"
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    if (!newName.trim()) return;
-                                    update.mutate({
-                                        accountId: account.id,
-                                        name: newName.trim(),
-                                    });
-                                }}
-                            >
-                                <Input
-                                    placeholder={account.name}
-                                    value={newName}
-                                    onChange={(e) => setNewName(e.target.value)}
-                                />
-                                <Button type="submit" disabled={!newName.trim() || update.isPending}>
-                                    Save
-                                </Button>
-                            </form>
+                            <AccountAppearanceForm
+                                accountId={account.id}
+                                currentName={account.name}
+                                currentColor={account.color}
+                                currentIcon={account.icon}
+                            />
                         </CardContent>
                     </Card>
                     <Card className="mt-6 border-destructive/40">
@@ -300,6 +278,74 @@ export default function AccountDetailPage() {
                 </TabsContent>
             </Tabs>
         </div>
+    );
+}
+
+function AccountAppearanceForm({
+    accountId,
+    currentName,
+    currentColor,
+    currentIcon,
+}: {
+    accountId: string;
+    currentName: string;
+    currentColor: string;
+    currentIcon: string;
+}) {
+    const utils = trpc.useUtils();
+    const [name, setName] = useState(currentName);
+    const [color, setColor] = useState(currentColor);
+    const [icon, setIcon] = useState(currentIcon);
+
+    const update = trpc.account.update.useMutation({
+        onSuccess: async () => {
+            toast.success("Account updated");
+            await utils.account.listBySpace.invalidate();
+            await utils.account.listByUser.invalidate();
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    const dirty =
+        name.trim() !== currentName || color !== currentColor || icon !== currentIcon;
+
+    return (
+        <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+                e.preventDefault();
+                if (!dirty || !name.trim()) return;
+                update.mutate({
+                    accountId,
+                    name: name.trim() !== currentName ? name.trim() : undefined,
+                    color: color !== currentColor ? color : undefined,
+                    icon: icon !== currentIcon ? icon : undefined,
+                });
+            }}
+        >
+            <div className="grid gap-1.5">
+                <Label htmlFor="account-name">Name</Label>
+                <Input
+                    id="account-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={currentName}
+                    required
+                />
+            </div>
+            <EntityStyleFields
+                name={name}
+                color={color}
+                setColor={setColor}
+                icon={icon}
+                setIcon={setIcon}
+            />
+            <div className="flex justify-end">
+                <Button type="submit" disabled={!dirty || update.isPending}>
+                    {update.isPending ? "Saving…" : "Save changes"}
+                </Button>
+            </div>
+        </form>
     );
 }
 
@@ -772,7 +818,7 @@ function SharedSpacesTab({
                                                 {s.myRole ?? "—"}
                                             </TableCell>
                                             <TableCell className="text-sm text-muted-foreground">
-                                                {format(s.sharedAt, "MMM d, yyyy")}
+                                                {formatInAppTz(s.sharedAt, "MMM d, yyyy")}
                                             </TableCell>
                                             <TableCell className="text-right">
                                                 {!isOnly && (

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, AlertTriangle, ArrowRightLeft, Trash2 } from "lucide-react";
-import { format } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -346,8 +346,8 @@ export default function EnvelopeDetailPage() {
                                 return (
                                     <TableRow key={a.id}>
                                         <TableCell className="text-sm text-muted-foreground">
-                                            {format(
-                                                new Date(a.created_at),
+                                            {formatInAppTz(
+                                                a.created_at,
                                                 "MMM d, yyyy HH:mm"
                                             )}
                                         </TableCell>
@@ -369,10 +369,10 @@ export default function EnvelopeDetailPage() {
                                         </TableCell>
                                         <TableCell className="text-sm text-muted-foreground">
                                             {a.period_start
-                                                ? format(new Date(a.period_start), "MMM yyyy")
+                                                ? formatInAppTz(a.period_start, "MMM yyyy")
                                                 : envelope?.cadence === "monthly"
-                                                  ? format(
-                                                        new Date(a.created_at),
+                                                  ? formatInAppTz(
+                                                        a.created_at,
                                                         "MMM yyyy"
                                                     )
                                                   : "—"}

@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, CalendarDays, Trash2 } from "lucide-react";
-import { format, differenceInCalendarDays } from "date-fns";
+import { differenceInCalendarDays } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -111,7 +112,7 @@ export default function PlanDetailPage() {
                                 <span className="flex items-center gap-2 text-sm font-semibold sm:text-base">
                                     <CalendarDays className="size-4" />
                                     <span>
-                                        {format(targetDate, "MMM d, yyyy")}
+                                        {formatInAppTz(targetDate, "MMM d, yyyy")}
                                         <span className="block text-xs font-normal text-muted-foreground">
                                             {daysLeft !== null && daysLeft < 0
                                                 ? `${Math.abs(daysLeft)}d overdue`
@@ -159,7 +160,7 @@ export default function PlanDetailPage() {
                             {allocations.map((a) => (
                                 <TableRow key={a.id}>
                                     <TableCell className="text-sm text-muted-foreground">
-                                        {format(new Date(a.created_at), "MMM d, yyyy HH:mm")}
+                                        {formatInAppTz(a.created_at, "MMM d, yyyy HH:mm")}
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <MoneyDisplay

@@ -1,5 +1,5 @@
 import { Calendar } from "lucide-react";
-import { format } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import {
     Select,
     SelectContent,
@@ -18,6 +18,18 @@ import { Button } from "@/components/ui/button";
 import { PERIOD_LABELS, toInputDate, type PeriodPresetId } from "@/lib/dates";
 import { usePeriod } from "@/hooks/usePeriod";
 import { cn } from "@/lib/utils";
+
+/**
+ * Parse a YYYY-MM-DD string (as emitted by `<input type="date">`) into a
+ * local-midnight Date. Using `new Date(str)` would parse it as UTC, which
+ * shifts the date by a day in any timezone west of UTC.
+ */
+function parseLocalDate(v: string): Date | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return Number.isNaN(d.getTime()) ? null : d;
+}
 
 const PRESET_ORDER: PeriodPresetId[] = [
     "this-month",
@@ -41,7 +53,7 @@ export function PeriodSelector({
 
     const label =
         preset === "custom"
-            ? `${format(period.start, "MMM d")} – ${format(
+            ? `${formatInAppTz(period.start, "MMM d")} – ${formatInAppTz(
                   new Date(period.end.getTime() - 1),
                   "MMM d, yyyy"
               )}`
@@ -76,12 +88,15 @@ export function PeriodSelector({
                                 <Input
                                     id="period-from"
                                     type="date"
+                                    // Re-mount when the URL-backed range
+                                    // changes externally; otherwise the
+                                    // uncontrolled input keeps its stale
+                                    // defaultValue.
+                                    key={toInputDate(period.start)}
                                     defaultValue={toInputDate(period.start)}
-                                    onBlur={(e) => {
-                                        const d = new Date(e.target.value);
-                                        if (!Number.isNaN(d.getTime())) {
-                                            setCustom(d, period.end);
-                                        }
+                                    onChange={(e) => {
+                                        const d = parseLocalDate(e.target.value);
+                                        if (d) setCustom(d, period.end);
                                     }}
                                 />
                             </div>
@@ -90,16 +105,18 @@ export function PeriodSelector({
                                 <Input
                                     id="period-to"
                                     type="date"
+                                    key={toInputDate(
+                                        new Date(period.end.getTime() - 1)
+                                    )}
                                     defaultValue={toInputDate(
                                         new Date(period.end.getTime() - 1)
                                     )}
-                                    onBlur={(e) => {
-                                        const d = new Date(e.target.value);
-                                        if (!Number.isNaN(d.getTime())) {
-                                            const exclusive = new Date(d);
-                                            exclusive.setDate(exclusive.getDate() + 1);
-                                            setCustom(period.start, exclusive);
-                                        }
+                                    onChange={(e) => {
+                                        const d = parseLocalDate(e.target.value);
+                                        if (!d) return;
+                                        const exclusive = new Date(d);
+                                        exclusive.setDate(exclusive.getDate() + 1);
+                                        setCustom(period.start, exclusive);
                                     }}
                                 />
                             </div>

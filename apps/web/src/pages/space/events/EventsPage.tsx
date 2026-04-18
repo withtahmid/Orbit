@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, Plus, Trash2, Pencil } from "lucide-react";
-import { format } from "date-fns";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PermissionGate } from "@/components/shared/PermissionGate";
@@ -27,26 +26,42 @@ import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
-import { toInputDateTime } from "@/lib/dates";
+import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
+import { formatInAppTz } from "@/lib/formatDate";
 
-type EventTotal = NonNullable<
+type RawEventTotal = NonNullable<
     ReturnType<typeof trpc.analytics.eventTotals.useQuery>["data"]
 >[number];
+type EventTotal = Omit<RawEventTotal, "startTime" | "endTime"> & {
+    startTime: Date;
+    endTime: Date;
+};
 
 export default function EventsPage() {
     const { space } = useCurrentSpace();
     const eventsQuery = trpc.analytics.eventTotals.useQuery({ spaceId: space.id });
 
+    const events = useMemo<EventTotal[]>(() => {
+        // tRPC serializes Date → ISO string over HTTP even though the
+        // type claims Date. Rehydrate once at the edge so date-fns calls
+        // downstream don't crash with `d.getFullYear is not a function`.
+        return (eventsQuery.data ?? []).map((ev) => ({
+            ...ev,
+            startTime: new Date(ev.startTime),
+            endTime: new Date(ev.endTime),
+        }));
+    }, [eventsQuery.data]);
+
     const groups = useMemo(() => {
         const map = new Map<string, EventTotal[]>();
-        for (const ev of eventsQuery.data ?? []) {
-            const key = format(ev.startTime, "yyyy-MM");
+        for (const ev of events) {
+            const key = formatInAppTz(ev.startTime, "yyyy-MM");
             const arr = map.get(key) ?? [];
             arr.push(ev);
             map.set(key, arr);
         }
         return Array.from(map.entries());
-    }, [eventsQuery.data]);
+    }, [events]);
 
     return (
         <div className="grid gap-5 sm:gap-6">
@@ -82,7 +97,7 @@ export default function EventsPage() {
                     {groups.map(([key, evs]) => (
                         <div key={key}>
                             <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                {format(new Date(key + "-01"), "MMMM yyyy")}
+                                {formatInAppTz(new Date(key + "-01T00:00:00Z"), "MMMM yyyy")}
                             </p>
                             <div className="grid gap-3 sm:grid-cols-2">
                                 {evs.map((ev) => (
@@ -103,9 +118,9 @@ export default function EventsPage() {
                                                         {ev.name}
                                                     </p>
                                                     <p className="mt-0.5 text-xs text-muted-foreground">
-                                                        {format(ev.startTime, "MMM d HH:mm")}{" "}
+                                                        {formatInAppTz(ev.startTime, "MMM d HH:mm")}{" "}
                                                         →{" "}
-                                                        {format(ev.endTime, "MMM d HH:mm")}
+                                                        {formatInAppTz(ev.endTime, "MMM d HH:mm")}
                                                     </p>
                                                     {ev.description && (
                                                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
@@ -238,8 +253,8 @@ function CreateOrEditEventDialog({ event }: { event?: EventTotal }) {
                             update.mutate({
                                 eventId: event!.eventId,
                                 name: name.trim(),
-                                startTime: new Date(start),
-                                endTime: new Date(end),
+                                startTime: fromInputDateTime(start),
+                                endTime: fromInputDateTime(end),
                                 color,
                                 icon,
                                 description: description.trim() || null,
@@ -248,8 +263,8 @@ function CreateOrEditEventDialog({ event }: { event?: EventTotal }) {
                             create.mutate({
                                 spaceId: space.id,
                                 name: name.trim(),
-                                startTime: new Date(start),
-                                endTime: new Date(end),
+                                startTime: fromInputDateTime(start),
+                                endTime: fromInputDateTime(end),
                                 color,
                                 icon,
                                 description: description.trim() || undefined,

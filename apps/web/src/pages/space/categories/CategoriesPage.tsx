@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
-import { FolderTree, Plus, Trash2, ChevronRight, Pencil, Move } from "lucide-react";
+import {
+    FolderTree,
+    Plus,
+    Trash2,
+    ChevronRight,
+    Pencil,
+    Move,
+    FolderInput,
+} from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PermissionGate } from "@/components/shared/PermissionGate";
@@ -123,6 +131,9 @@ export default function CategoriesPage() {
                                 node={node}
                                 depth={0}
                                 envelopes={envelopes}
+                                allCategories={
+                                    (categoriesQuery.data ?? []) as CategoryRaw[]
+                                }
                             />
                         ))}
                     </div>
@@ -136,10 +147,12 @@ function CategoryRow({
     node,
     depth,
     envelopes,
+    allCategories,
 }: {
     node: CategoryNode;
     depth: number;
     envelopes: EnvelopeLite[];
+    allCategories: CategoryRaw[];
 }) {
     const [open, setOpen] = useState(true);
     const envelope = envelopes.find((e) => e.id === node.envelop_id);
@@ -190,6 +203,10 @@ function CategoryRow({
                 <PermissionGate roles={["owner"]}>
                     <div className="ml-auto flex opacity-60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                         <EditCategoryDialog category={node} />
+                        <ChangeParentDialog
+                            category={node}
+                            allCategories={allCategories}
+                        />
                         <MoveEnvelopDialog
                             category={node}
                             envelopes={envelopes}
@@ -221,6 +238,7 @@ function CategoryRow({
                         node={c}
                         depth={depth + 1}
                         envelopes={envelopes}
+                        allCategories={allCategories}
                     />
                 ))}
         </>
@@ -452,6 +470,126 @@ function EditCategoryDialog({ category }: { category: CategoryRaw }) {
                         </Button>
                     </DialogFooter>
                 </form>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function ChangeParentDialog({
+    category,
+    allCategories,
+}: {
+    category: CategoryRaw;
+    allCategories: CategoryRaw[];
+}) {
+    const { space } = useCurrentSpace();
+    const [open, setOpen] = useState(false);
+    const [parentId, setParentId] = useState<string>(category.parent_id ?? "none");
+    const utils = trpc.useUtils();
+    const mutate = trpc.expenseCategory.changeParent.useMutation({
+        onSuccess: async () => {
+            toast.success("Parent updated");
+            await utils.expenseCategory.listBySpace.invalidate({ spaceId: space.id });
+            setOpen(false);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    // Exclude self + descendants so we can't create a cycle.
+    const invalidIds = useMemo(() => {
+        const children = new Map<string, string[]>();
+        for (const c of allCategories) {
+            if (c.parent_id) {
+                const arr = children.get(c.parent_id) ?? [];
+                arr.push(c.id);
+                children.set(c.parent_id, arr);
+            }
+        }
+        const forbidden = new Set<string>([category.id]);
+        const stack = [category.id];
+        while (stack.length) {
+            const id = stack.pop()!;
+            for (const c of children.get(id) ?? []) {
+                if (!forbidden.has(c)) {
+                    forbidden.add(c);
+                    stack.push(c);
+                }
+            }
+        }
+        return forbidden;
+    }, [allCategories, category.id]);
+
+    const candidates = allCategories.filter((c) => !invalidIds.has(c.id));
+    const candidate = candidates.find((c) => c.id === parentId);
+    const envelopeMismatch =
+        candidate != null && candidate.envelop_id !== category.envelop_id;
+    const unchanged = (category.parent_id ?? "none") === parentId;
+
+    return (
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+                <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7"
+                    title="Change parent"
+                >
+                    <FolderInput className="size-3.5" />
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Move "{category.name}" under a different parent</DialogTitle>
+                    <DialogDescription>
+                        Pick a new parent category, or "(top level)" to un-nest it. You
+                        can't pick the category itself or any of its descendants.
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-2">
+                    <Label>Parent</Label>
+                    <Select value={parentId} onValueChange={setParentId}>
+                        <SelectTrigger>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="none">(top level — no parent)</SelectItem>
+                            {candidates.map((c) => (
+                                <SelectItem key={c.id} value={c.id}>
+                                    {c.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    {envelopeMismatch && (
+                        <p className="text-xs text-[color:var(--warning)]">
+                            Heads up: the new parent belongs to a different envelope.
+                            This category will still route transactions to its current
+                            envelope; use "Move to envelope" afterwards if you want the
+                            whole subtree in one place.
+                        </p>
+                    )}
+                </div>
+                <DialogFooter className="gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => setOpen(false)}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="gradient"
+                        disabled={mutate.isPending || unchanged}
+                        onClick={() =>
+                            mutate.mutate({
+                                categoryId: category.id,
+                                parentId: parentId === "none" ? null : parentId,
+                            })
+                        }
+                    >
+                        {mutate.isPending ? "Saving…" : "Save"}
+                    </Button>
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );

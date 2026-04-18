@@ -10,7 +10,12 @@ const DEFAULT_PRESET: PeriodPresetId = "this-month";
 
 function parseDate(v: string | null): Date | undefined {
     if (!v) return undefined;
-    const d = new Date(v);
+    // Expect YYYY-MM-DD as written by `fmt()`. Parse as local midnight
+    // (not UTC — `new Date("2026-04-15")` would be UTC and shift the date
+    // by a day for any timezone west of UTC).
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return undefined;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     return Number.isNaN(d.getTime()) ? undefined : d;
 }
 

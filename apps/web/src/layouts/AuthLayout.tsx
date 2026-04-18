@@ -1,4 +1,6 @@
-import { Outlet } from "react-router-dom";
+import { Link, Outlet } from "react-router-dom";
+import { BookOpen } from "lucide-react";
+import { ROUTES } from "@/router/routes";
 
 export function AuthLayout() {
     return (
@@ -20,8 +22,17 @@ export function AuthLayout() {
                 }}
             />
 
-            <header className="absolute left-6 top-6 z-10">
-                <div className="text-xl font-bold tracking-tight text-gradient-brand">Orbit</div>
+            <header className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-6 py-5">
+                <div className="text-xl font-bold tracking-tight text-gradient-brand">
+                    Orbit
+                </div>
+                <Link
+                    to={ROUTES.docs}
+                    className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                    <BookOpen className="size-3.5" />
+                    Docs
+                </Link>
             </header>
 
             <main className="relative z-10 w-full max-w-md">

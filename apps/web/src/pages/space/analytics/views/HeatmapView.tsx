@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { format } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
@@ -24,7 +24,7 @@ export default function HeatmapView() {
     const byDay = useMemo(() => {
         const m = new Map<string, number>();
         for (const r of q.data ?? []) {
-            m.set(format(new Date(r.day), "yyyy-MM-dd"), r.total);
+            m.set(formatInAppTz(r.day, "yyyy-MM-dd"), r.total);
         }
         return m;
     }, [q.data]);
@@ -98,13 +98,15 @@ export default function HeatmapView() {
                                     <div key={wi} className="flex flex-col gap-[3px]">
                                         {wk.map((d, di) => {
                                             const v =
-                                                byDay.get(format(d, "yyyy-MM-dd")) ?? 0;
+                                                byDay.get(
+                                                    formatInAppTz(d, "yyyy-MM-dd")
+                                                ) ?? 0;
                                             const intensity =
                                                 max > 0 ? Math.min(1, v / max) : 0;
                                             return (
                                                 <div
                                                     key={di}
-                                                    title={`${format(d, "MMM d")} — ${formatMoney(v)}`}
+                                                    title={`${formatInAppTz(d, "MMM d")} — ${formatMoney(v)}`}
                                                     className={cn(
                                                         "size-[12px] rounded-[3px] border border-border/60",
                                                         v === 0 && "bg-muted/30"

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { format } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import {
     Bar,
     BarChart,
@@ -92,7 +92,7 @@ export default function CashFlowView() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                                 <XAxis
                                     dataKey="bucket"
-                                    tickFormatter={(v) => format(new Date(v), "MMM")}
+                                    tickFormatter={(v) => formatInAppTz(v, "MMM")}
                                     stroke="var(--muted-foreground)"
                                     fontSize={11}
                                 />
@@ -108,7 +108,7 @@ export default function CashFlowView() {
                                         borderRadius: 8,
                                     }}
                                     labelFormatter={(v) =>
-                                        format(new Date(v as any), "MMMM yyyy")
+                                        formatInAppTz(v as any, "MMMM yyyy")
                                     }
                                 />
                                 <Bar

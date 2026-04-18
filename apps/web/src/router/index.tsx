@@ -14,6 +14,7 @@ import { LoginPage } from "@/pages/auth/LoginPage";
 
 const SignupPage = lazy(() => import("@/pages/auth/signup/index"));
 const ForgotPasswordPage = lazy(() => import("@/pages/auth/forgot-password/index"));
+const DocsPage = lazy(() => import("@/pages/DocsPage"));
 
 const SpaceSelectorPage = lazy(() => import("@/pages/app/SpaceSelectorPage"));
 const ProfilePage = lazy(() => import("@/pages/app/ProfilePage"));
@@ -63,6 +64,10 @@ export const router = createBrowserRouter([
         element: <RootLayout />,
         children: [
             { path: "/", element: <RootRedirect /> },
+            // Public docs — no auth guard. Prospective users can read
+            // about the product before signing up; logged-in users can
+            // reach it from the app-shell help link.
+            { path: "/docs", element: withSuspense(<DocsPage />) },
             {
                 element: <GuestOnlyRoute />,
                 children: [

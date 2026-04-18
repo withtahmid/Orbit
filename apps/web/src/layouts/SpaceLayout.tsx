@@ -13,6 +13,7 @@ import {
     Menu,
     LogOut,
     User,
+    BookOpen,
 } from "lucide-react";
 import { useState } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -174,6 +175,10 @@ function Sidebar({
                         <DropdownMenuItem onSelect={() => navigate(ROUTES.spaces)}>
                             <ArrowLeftRight className="size-4" />
                             Switch space
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => navigate(ROUTES.docs)}>
+                            <BookOpen className="size-4" />
+                            Help & docs
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem

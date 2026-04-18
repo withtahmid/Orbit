@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import {
     Area,
     AreaChart,
@@ -70,7 +70,7 @@ export default function BalanceHistoryView() {
                                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                                 <XAxis
                                     dataKey="bucket"
-                                    tickFormatter={(v) => format(new Date(v), "MMM d")}
+                                    tickFormatter={(v) => formatInAppTz(v, "MMM d")}
                                     stroke="var(--muted-foreground)"
                                     fontSize={11}
                                 />
@@ -86,7 +86,7 @@ export default function BalanceHistoryView() {
                                         borderRadius: 8,
                                     }}
                                     labelFormatter={(v) =>
-                                        format(new Date(v as any), "MMM d, yyyy")
+                                        formatInAppTz(v as any, "MMM d, yyyy")
                                     }
                                 />
                                 <Area

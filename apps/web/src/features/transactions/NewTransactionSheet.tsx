@@ -24,7 +24,7 @@ import {
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { trpc } from "@/trpc";
 import { useCurrentSpaceId } from "@/hooks/useCurrentSpace";
-import { toInputDateTime } from "@/lib/dates";
+import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 
 export function NewTransactionSheet() {
     const [open, setOpen] = useState(false);
@@ -217,7 +217,7 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                     spaceId,
                     accountId,
                     amount: Number(amount),
-                    datetime: new Date(datetime),
+                    datetime: fromInputDateTime(datetime),
                     description: description || undefined,
                     location: location || undefined,
                     eventId: eventId || undefined,
@@ -304,7 +304,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     sourceAccountId,
                     expense_category_id: categoryId,
                     amount: Number(amount),
-                    datetime: new Date(datetime),
+                    datetime: fromInputDateTime(datetime),
                     description: description || undefined,
                     location: location || undefined,
                     eventId: eventId || undefined,
@@ -401,7 +401,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     sourceAccountId,
                     destinationAccountId,
                     amount: Number(amount),
-                    datetime: new Date(datetime),
+                    datetime: fromInputDateTime(datetime),
                     description: description || undefined,
                     eventId: eventId || undefined,
                 });
@@ -484,7 +484,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     spaceId,
                     accountId,
                     newBalance: Number(newBalance),
-                    datetime: new Date(datetime),
+                    datetime: fromInputDateTime(datetime),
                     description: description || undefined,
                 });
             }}

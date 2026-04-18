@@ -25,7 +25,8 @@ import {
     XAxis,
     YAxis,
 } from "recharts";
-import { format, differenceInCalendarDays } from "date-fns";
+import { differenceInCalendarDays } from "date-fns";
+import { formatInAppTz } from "@/lib/formatDate";
 import {
     Card,
     CardContent,
@@ -243,7 +244,7 @@ export default function OverviewPage() {
         <div className="grid gap-5 sm:gap-6">
             <PageHeader
                 title={`Welcome to ${space.name}`}
-                description={`${format(now, "MMMM d, yyyy")} · day ${monthProgress.elapsed} of ${monthProgress.total}`}
+                description={`${formatInAppTz(now, "MMMM d, yyyy")} · day ${monthProgress.elapsed} of ${monthProgress.total}`}
                 actions={
                     <Button asChild variant="outline" size="sm">
                         <Link to={ROUTES.spaceAnalytics(space.id)}>
@@ -439,7 +440,7 @@ export default function OverviewPage() {
                                     <XAxis
                                         dataKey="bucket"
                                         tickFormatter={(v) =>
-                                            format(new Date(v), "MMM d")
+                                            formatInAppTz(v, "MMM d")
                                         }
                                         stroke="var(--muted-foreground)"
                                         fontSize={11}
@@ -456,7 +457,7 @@ export default function OverviewPage() {
                                             borderRadius: 8,
                                         }}
                                         labelFormatter={(v) =>
-                                            format(new Date(v as any), "MMM d, yyyy")
+                                            formatInAppTz(v as any, "MMM d, yyyy")
                                         }
                                     />
                                     <Area
@@ -569,7 +570,7 @@ export default function OverviewPage() {
                                     />
                                     <XAxis
                                         dataKey="bucket"
-                                        tickFormatter={(v) => format(new Date(v), "MMM d")}
+                                        tickFormatter={(v) => formatInAppTz(v, "MMM d")}
                                         stroke="var(--muted-foreground)"
                                         fontSize={11}
                                     />
@@ -585,7 +586,7 @@ export default function OverviewPage() {
                                             borderRadius: 8,
                                         }}
                                         labelFormatter={(v) =>
-                                            format(new Date(v as any), "MMM d, yyyy")
+                                            formatInAppTz(v as any, "MMM d, yyyy")
                                         }
                                     />
                                     <Bar
@@ -816,8 +817,8 @@ export default function OverviewPage() {
                                         <div className="flex min-w-0 items-center gap-2">
                                             <TransactionTypeBadge type={t.type as any} />
                                             <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                                {format(
-                                                    new Date(t.transaction_datetime),
+                                                {formatInAppTz(
+                                                    t.transaction_datetime,
                                                     "MMM d"
                                                 )}
                                             </span>
@@ -877,7 +878,7 @@ export default function OverviewPage() {
                                         </span>
                                     </span>
                                     <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                        {format(new Date(ev.start_time), "MMM d")}
+                                        {formatInAppTz(ev.start_time, "MMM d")}
                                     </span>
                                 </div>
                             ))
