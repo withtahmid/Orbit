@@ -40,7 +40,7 @@ export const sendEmail = async (
 ) => {
     try {
         const html = renderTemplate(TemplateComponent, variables);
-        const info = await transporter.sendMail({
+        await transporter.sendMail({
             from: buildFromAddress(),
             to,
             subject,
@@ -56,5 +56,4 @@ export const createMailService = () => {
     return {
         sendEmail,
     };
-    logger.info("Mailer service initialized and ready to send emails.");
 };

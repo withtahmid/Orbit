@@ -3,7 +3,6 @@ import bcrypt from "bcrypt";
 import { z } from "zod";
 import { signJWT } from "../../trpc/auth.mjs";
 import publicProcedure from "../../trpc/middlewares/public.mjs";
-import { logger } from "../../utils/logger.mjs";
 
 export const loginProcedure = publicProcedure
     .input(
