@@ -24,6 +24,14 @@ const renderTemplate = (
     return ReactDOMServer.renderToStaticMarkup(React.createElement(TemplateComponent, props));
 };
 
+const buildFromAddress = () => {
+    const raw = ENV.SMTP_FROM.trim();
+    const match = raw.match(/<([^>]+)>/);
+    const address = (match ? match[1] : raw).trim();
+    const domain = address.includes("@") ? address.split("@")[1] : address;
+    return `"Orbit" <noreply@${domain}>`;
+};
+
 export const sendEmail = async (
     to: string,
     subject: string,
@@ -33,12 +41,11 @@ export const sendEmail = async (
     try {
         const html = renderTemplate(TemplateComponent, variables);
         const info = await transporter.sendMail({
-            from: ENV.SMTP_FROM,
+            from: buildFromAddress(),
             to,
             subject,
             html,
         });
-        logger.info(`Email sent to ${to}: ${info.messageId}`);
     } catch (error) {
         logger.error("Error sending email:", error);
         throw error;

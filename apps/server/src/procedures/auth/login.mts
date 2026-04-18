@@ -30,7 +30,6 @@ export const loginProcedure = publicProcedure
     .mutation(async ({ ctx, input }) => {
         const { email, password } = input;
         const { qb } = ctx.services;
-        logger.debug(input);
         const dbUser = await qb
             .selectFrom("users")
             .select(["id", "email", "password_hash", "first_name", "last_name", "avatar_url"])

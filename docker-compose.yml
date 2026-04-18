@@ -54,7 +54,7 @@ services:
 
         restart: unless-stopped
         working_dir: /app
-        command: pnpm dev
+        command: sh -c "pnpm install --frozen-lockfile && pnpm dev"
 
         # Run as the host user so files created inside the bind-mounted
         # workspace (node_modules caches, .vite-temp, dist/) don't end up
@@ -71,7 +71,7 @@ services:
               published: 5173
 
         env_file:
-            - ./.env.local
+            - ./.env
 
         volumes:
             - ./:/app

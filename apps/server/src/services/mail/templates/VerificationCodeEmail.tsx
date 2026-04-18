@@ -5,77 +5,141 @@ interface VerificationCodeEmailProps {
     email: string;
 }
 
+const fontStack =
+    "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
 const VerificationCodeEmail: React.FC<VerificationCodeEmailProps> = ({ code, email }) => (
     <div
         style={{
-            fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
-            maxWidth: "480px",
-            margin: "0 auto",
-            backgroundColor: "#ffffff",
-            borderRadius: "12px",
-            overflow: "hidden",
+            backgroundColor: "#0a1312",
+            padding: "32px 16px",
+            fontFamily: fontStack,
         }}
     >
         <div
             style={{
-                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%)",
-                padding: "32px 24px",
-                textAlign: "center" as const,
+                maxWidth: "480px",
+                margin: "0 auto",
+                backgroundColor: "#121c1b",
+                border: "1px solid #1f2625",
+                borderRadius: "12px",
+                overflow: "hidden",
             }}
         >
-            <h1 style={{ color: "#ffffff", margin: 0, fontSize: "24px", fontWeight: 600 }}>
-                Verify your email
-            </h1>
-        </div>
+            <div
+                style={{
+                    background: "linear-gradient(135deg, #14eb94 0%, #24c5b4 100%)",
+                    padding: "32px 24px",
+                    textAlign: "center" as const,
+                }}
+            >
+                <div
+                    style={{
+                        color: "#05140f",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        letterSpacing: "3px",
+                        textTransform: "uppercase" as const,
+                        marginBottom: "8px",
+                    }}
+                >
+                    Orbit
+                </div>
+                <h1
+                    style={{
+                        color: "#05140f",
+                        margin: 0,
+                        fontSize: "22px",
+                        fontWeight: 600,
+                        letterSpacing: "-0.01em",
+                    }}
+                >
+                    Verify your email
+                </h1>
+            </div>
 
-        <div style={{ padding: "32px 24px" }}>
-            <p style={{ color: "#374151", fontSize: "15px", lineHeight: "1.6", margin: "0 0 8px 0" }}>
-                Hi there,
-            </p>
-            <p style={{ color: "#374151", fontSize: "15px", lineHeight: "1.6", margin: "0 0 24px 0" }}>
-                Use the verification code below to complete your signup for <strong>{email}</strong>:
-            </p>
+            <div style={{ padding: "32px 24px" }}>
+                <p
+                    style={{
+                        color: "#f1f5f4",
+                        fontSize: "15px",
+                        lineHeight: "1.6",
+                        margin: "0 0 8px 0",
+                    }}
+                >
+                    Hi there,
+                </p>
+                <p
+                    style={{
+                        color: "#c5d0ce",
+                        fontSize: "15px",
+                        lineHeight: "1.6",
+                        margin: "0 0 24px 0",
+                    }}
+                >
+                    Use the verification code below to continue with{" "}
+                    <strong style={{ color: "#f1f5f4" }}>{email}</strong>:
+                </p>
+
+                <div
+                    style={{
+                        background: "#0a1312",
+                        border: "1px solid #1f2625",
+                        borderRadius: "12px",
+                        padding: "24px",
+                        textAlign: "center" as const,
+                        margin: "0 0 24px 0",
+                    }}
+                >
+                    <span
+                        style={{
+                            fontSize: "36px",
+                            fontWeight: 700,
+                            letterSpacing: "10px",
+                            color: "#14eb94",
+                            fontFamily:
+                                "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, monospace",
+                        }}
+                    >
+                        {code}
+                    </span>
+                </div>
+
+                <p
+                    style={{
+                        color: "#9caba9",
+                        fontSize: "13px",
+                        lineHeight: "1.5",
+                        margin: "0 0 8px 0",
+                    }}
+                >
+                    This code expires in{" "}
+                    <strong style={{ color: "#c5d0ce" }}>10 minutes</strong>.
+                </p>
+                <p
+                    style={{
+                        color: "#9caba9",
+                        fontSize: "13px",
+                        lineHeight: "1.5",
+                        margin: 0,
+                    }}
+                >
+                    If you didn&apos;t request this code, you can safely ignore this email.
+                </p>
+            </div>
 
             <div
                 style={{
-                    background: "#f3f4f6",
-                    borderRadius: "8px",
-                    padding: "20px",
+                    borderTop: "1px solid #1f2625",
+                    padding: "16px 24px",
                     textAlign: "center" as const,
-                    margin: "0 0 24px 0",
+                    backgroundColor: "#0f1817",
                 }}
             >
-                <span
-                    style={{
-                        fontSize: "36px",
-                        fontWeight: 700,
-                        letterSpacing: "8px",
-                        color: "#6366f1",
-                        fontFamily: "'Courier New', monospace",
-                    }}
-                >
-                    {code}
-                </span>
+                <p style={{ color: "#6b7a78", fontSize: "12px", margin: 0 }}>
+                    © {new Date().getFullYear()} Orbit. All rights reserved.
+                </p>
             </div>
-
-            <p style={{ color: "#6b7280", fontSize: "13px", lineHeight: "1.5", margin: "0 0 8px 0" }}>
-                This code expires in <strong>10 minutes</strong>.
-            </p>
-            <p style={{ color: "#6b7280", fontSize: "13px", lineHeight: "1.5", margin: 0 }}>
-                If you didn't request this code, you can safely ignore this email.
-            </p>
-        </div>
-
-        <div
-            style={{
-                borderTop: "1px solid #e5e7eb",
-                padding: "16px 24px",
-                textAlign: "center" as const,
-            }}
-        >
-            <p style={{ color: "#9ca3af", fontSize: "12px", margin: 0 }}>
-                © {new Date().getFullYear()} Orbit. All rights reserved.
-            </p>
         </div>
     </div>
 );
