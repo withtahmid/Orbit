@@ -11,7 +11,7 @@ import { logger } from "./utils/logger.mjs";
 
 await run_bootstrap();
 
-const app = express();
+const app: express.Application = express();
 
 app.use(cors());
 app.use(express.json());
@@ -44,6 +44,9 @@ if (process.env.NODE_ENV === "development") {
     );
 }
 
-app.listen(ENV.PORT, () => {
-    logger.info(`SERVER STARTED LISTENING ON PORT: ${ENV.PORT}`);
-});
+if (!process.env.VERCEL) {
+    app.listen(ENV.PORT, () => {
+        logger.info(`SERVER STARTED LISTENING ON PORT: ${ENV.PORT}`);
+    });
+}
+export default app;

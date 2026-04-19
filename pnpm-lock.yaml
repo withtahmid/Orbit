@@ -78,9 +78,6 @@ importers:
       pg:
         specifier: ^8.16.2
         version: 8.16.2
-      server:10.45.2:
-        specifier: link:@trpc/server:10.45.2
-        version: link:@trpc/server:10.45.2
       trpc-playground:
         specifier: ^1.0.4
         version: 1.0.4(@trpc/server@11.4.3(typescript@5.8.3))(@types/node@20.19.1)(express@5.1.0)(lightningcss@1.32.0)(typescript@5.8.3)(zod@3.25.67)
@@ -226,18 +223,12 @@ importers:
       react-hook-form:
         specifier: ^7.72.1
         version: 7.72.1(react@19.1.0)
-      react-query:10.45.2:
-        specifier: link:@trpc/react-query:10.45.2
-        version: link:@trpc/react-query:10.45.2
       react-router-dom:
         specifier: ^7.6.3
         version: 7.6.3(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       recharts:
         specifier: ^3.8.1
         version: 3.8.1(@types/react@19.1.8)(react-dom@19.1.0(react@19.1.0))(react-is@16.13.1)(react@19.1.0)(redux@5.0.1)
-      server:10.45.2:
-        specifier: link:@trpc/server:10.45.2
-        version: link:@trpc/server:10.45.2
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
