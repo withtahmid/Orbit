@@ -17,6 +17,7 @@
         "sslmode",
         "timestamptz",
         "uuidv",
+        "VERCEL",
         "vite",
         "withtahmid"
     ]

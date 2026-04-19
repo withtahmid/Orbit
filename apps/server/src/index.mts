@@ -19,7 +19,7 @@ app.use(express.json());
 app.get("/", async (req, res) => {
     return res.status(200).json({
         hostname: req.hostname,
-        message: "HELLO FROM BACKEND",
+        message: "Hello hacker!",
         unix: Date.now(),
         time: new Date().toISOString(),
     });
