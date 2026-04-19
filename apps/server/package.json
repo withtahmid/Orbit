@@ -23,6 +23,8 @@
         "@types/jsonwebtoken": "^9.0.6",
         "@types/node": "^20.12.2",
         "@types/nodemailer": "^7.0.11",
+        "@types/react": "^19.1.0",
+        "@types/react-dom": "^19.1.0",
         "linkemon": "^0.2.0",
         "ts-node": "^10.9.2",
         "typescript": "^5.4.3"
@@ -43,6 +45,8 @@
         "nodemailer": "^8.0.4",
         "nodemon": "^3.1.0",
         "pg": "^8.16.2",
+        "react": "^19.1.0",
+        "react-dom": "^19.1.0",
         "trpc-playground": "^1.0.4",
         "tsx": "^4.20.3",
         "winston": "^3.17.0",

@@ -21,9 +21,9 @@ export const healthProcedure = publicProcedure.query(async ({ ctx }) => {
             );
         };
 
-        sendEmail("test@example.com", "Test Email", TestEmailComponent, { name: "John Doe" })
-            .then(() => console.log("Test email sent successfully"))
-            .catch(console.error);
+        // sendEmail("test@example.com", "Test Email", TestEmailComponent, { name: "John Doe" })
+        //     .then(() => console.log("Test email sent successfully"))
+        //     .catch(console.error);
         mailStatus = {
             status: "UP",
             message: "Mail service is operational",
