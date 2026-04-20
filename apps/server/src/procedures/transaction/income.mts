@@ -5,6 +5,7 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
+import { attachFilesToTransaction } from "../file/attach.mjs";
 
 export const createIncomeTransaction = authorizedProcedure
     .input(
@@ -16,6 +17,7 @@ export const createIncomeTransaction = authorizedProcedure
             location: z.string().optional(),
             accountId: z.string().uuid(),
             eventId: z.string().uuid().optional(),
+            attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -53,6 +55,13 @@ export const createIncomeTransaction = authorizedProcedure
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();
+
+                await attachFilesToTransaction({
+                    trx,
+                    transactionId: transaction.id,
+                    fileIds: input.attachmentFileIds ?? [],
+                    userId: ctx.auth.user.id,
+                });
 
                 return transaction;
             })

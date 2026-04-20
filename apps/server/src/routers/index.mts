@@ -10,6 +10,8 @@ import { expenseCategoryRouter } from "./expenseCategory.mjs";
 import { transactionRouter } from "./transaction.mjs";
 import { allocationRouter } from "./allocation.mjs";
 import { analyticsRouter } from "./analytics.mjs";
+import { fileRouter } from "./file.mjs";
+import { userRouter } from "./user.mjs";
 
 export const appRouter = router({
     health: healthProcedure,
@@ -23,5 +25,7 @@ export const appRouter = router({
     transaction: transactionRouter,
     allocation: allocationRouter,
     analytics: analyticsRouter,
+    file: fileRouter,
+    user: userRouter,
 });
 export type AppRouter = typeof appRouter;

@@ -24,7 +24,7 @@ export const spaceMemberList = authorizedProcedure
                     "users.email",
                     "users.first_name",
                     "users.last_name",
-                    "users.avatar_url",
+                    "users.avatar_file_id",
                     "space_members.role",
                 ])
                 .where("space_id", "=", input.spaceId)

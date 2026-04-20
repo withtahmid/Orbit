@@ -22,12 +22,67 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
+import { FileUploadField } from "@/components/file-upload-field";
+import { UserAvatar } from "@/components/shared/UserAvatar";
+import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { trpc } from "@/trpc";
+import type { RouterOutput } from "@/trpc";
+import { cn } from "@/lib/utils";
 import { useCurrentSpaceId } from "@/hooks/useCurrentSpace";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 
+type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
+
+const ownedByMe = (a: SpaceAccount) => a.myRole === "owner";
+
+function AccountOption({ account }: { account: SpaceAccount }) {
+    const first = account.owners?.[0];
+    const extra = (account.owners?.length ?? 0) - 1;
+    return (
+        <span className="inline-flex items-center gap-2">
+            <span>{account.name}</span>
+            {first && (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    ·
+                    <UserAvatar
+                        fileId={first.avatar_file_id}
+                        firstName={first.first_name}
+                        size="xs"
+                    />
+                    {first.first_name}
+                    {extra > 0 && ` +${extra}`}
+                </span>
+            )}
+        </span>
+    );
+}
+
+type TxTab = "income" | "expense" | "transfer" | "adjustment";
+
+const TAB_TITLE: Record<TxTab, string> = {
+    income: "New income",
+    expense: "New expense",
+    transfer: "New transfer",
+    adjustment: "Balance adjustment",
+};
+
+const TAB_TRIGGER_CLASS: Record<TxTab, string> = {
+    income: "data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-600 data-[state=active]:border-emerald-500/40",
+    expense: "data-[state=active]:bg-rose-500/10 data-[state=active]:text-rose-600 data-[state=active]:border-rose-500/40",
+    transfer: "data-[state=active]:bg-sky-500/10 data-[state=active]:text-sky-600 data-[state=active]:border-sky-500/40",
+    adjustment: "data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:border-border",
+};
+
+const TAB_BORDER_CLASS: Record<TxTab, string> = {
+    income: "border-emerald-500/60",
+    expense: "border-rose-500/60",
+    transfer: "border-sky-500/60",
+    adjustment: "border-border",
+};
+
 export function NewTransactionSheet() {
     const [open, setOpen] = useState(false);
+    const [activeType, setActiveType] = useState<TxTab>("expense");
     return (
         <Sheet open={open} onOpenChange={setOpen}>
             <SheetTrigger asChild>
@@ -39,30 +94,87 @@ export function NewTransactionSheet() {
             </SheetTrigger>
             <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
                 <SheetHeader className="border-b border-border p-5">
-                    <SheetTitle>New transaction</SheetTitle>
+                    <SheetTitle className="flex items-center gap-2">
+                        {TAB_TITLE[activeType]}
+                        <TransactionTypeBadge type={activeType} />
+                    </SheetTitle>
                     <SheetDescription>
                         Record income, an expense, a transfer, or a balance adjustment.
                     </SheetDescription>
                 </SheetHeader>
                 <div className="flex-1 overflow-y-auto p-5">
-                    <Tabs defaultValue="expense">
+                    <Tabs
+                        value={activeType}
+                        onValueChange={(v) => setActiveType(v as TxTab)}
+                    >
                         <TabsList className="grid w-full grid-cols-4">
-                            <TabsTrigger value="income">Income</TabsTrigger>
-                            <TabsTrigger value="expense">Expense</TabsTrigger>
-                            <TabsTrigger value="transfer">Transfer</TabsTrigger>
-                            <TabsTrigger value="adjustment">Adjust</TabsTrigger>
+                            <TabsTrigger
+                                value="income"
+                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.income)}
+                            >
+                                Income
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="expense"
+                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.expense)}
+                            >
+                                Expense
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="transfer"
+                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.transfer)}
+                            >
+                                Transfer
+                            </TabsTrigger>
+                            <TabsTrigger
+                                value="adjustment"
+                                className={cn(
+                                    "border border-transparent",
+                                    TAB_TRIGGER_CLASS.adjustment
+                                )}
+                            >
+                                Adjust
+                            </TabsTrigger>
                         </TabsList>
                         <TabsContent value="income">
-                            <IncomeForm onDone={() => setOpen(false)} />
+                            <div
+                                className={cn(
+                                    "border-l-4 pl-3",
+                                    TAB_BORDER_CLASS.income
+                                )}
+                            >
+                                <IncomeForm onDone={() => setOpen(false)} />
+                            </div>
                         </TabsContent>
                         <TabsContent value="expense">
-                            <ExpenseForm onDone={() => setOpen(false)} />
+                            <div
+                                className={cn(
+                                    "border-l-4 pl-3",
+                                    TAB_BORDER_CLASS.expense
+                                )}
+                            >
+                                <ExpenseForm onDone={() => setOpen(false)} />
+                            </div>
                         </TabsContent>
                         <TabsContent value="transfer">
-                            <TransferForm onDone={() => setOpen(false)} />
+                            <div
+                                className={cn(
+                                    "border-l-4 pl-3",
+                                    TAB_BORDER_CLASS.transfer
+                                )}
+                            >
+                                <TransferForm onDone={() => setOpen(false)} />
+                            </div>
                         </TabsContent>
                         <TabsContent value="adjustment">
-                            <AdjustmentForm onDone={() => setOpen(false)} />
+                            <div
+                                className={cn(
+                                    "border-l-4 pl-3",
+                                    TAB_BORDER_CLASS.adjustment
+                                )}
+                            >
+                                <AdjustmentForm onDone={() => setOpen(false)} />
+                            </div>
                         </TabsContent>
                     </Tabs>
                 </div>
@@ -192,6 +304,7 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
     const [datetime, setDatetime] = useState(defaultDateTime());
     const [accountId, setAccountId] = useState("");
     const [eventId, setEventId] = useState("");
+    const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
     const mutate = trpc.transaction.income.useMutation({
         onSuccess: async () => {
@@ -221,6 +334,8 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                     description: description || undefined,
                     location: location || undefined,
                     eventId: eventId || undefined,
+                    attachmentFileIds:
+                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                 });
             }}
         >
@@ -243,15 +358,21 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                         <SelectValue placeholder="Choose account" />
                     </SelectTrigger>
                     <SelectContent>
-                        {(accountsQuery.data ?? []).map((a) => (
+                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
                             <SelectItem key={a.id} value={a.id}>
-                                {a.name}
+                                <AccountOption account={a} />
                             </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
             </div>
             <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
+            <FileUploadField
+                purpose="transaction_receipt"
+                fileIds={attachmentFileIds}
+                onChange={setAttachmentFileIds}
+                label="Receipts"
+            />
             <Button type="submit" variant="gradient" disabled={mutate.isPending}>
                 {mutate.isPending ? "Saving…" : "Record income"}
             </Button>
@@ -272,6 +393,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
     const [sourceAccountId, setSource] = useState("");
     const [categoryId, setCategoryId] = useState<string | null>(null);
     const [eventId, setEventId] = useState("");
+    const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
     const mutate = trpc.transaction.expense.useMutation({
         onSuccess: async () => {
@@ -286,9 +408,9 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
         onError: (e) => toast.error(e.message),
     });
 
-    const availableAccounts = (accountsQuery.data ?? []).filter(
-        (a) => a.account_type !== "locked"
-    );
+    const availableAccounts = (accountsQuery.data ?? [])
+        .filter((a) => a.account_type !== "locked")
+        .filter(ownedByMe);
 
     return (
         <form
@@ -308,6 +430,8 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     description: description || undefined,
                     location: location || undefined,
                     eventId: eventId || undefined,
+                    attachmentFileIds:
+                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                 });
             }}
         >
@@ -332,7 +456,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     <SelectContent>
                         {availableAccounts.map((a) => (
                             <SelectItem key={a.id} value={a.id}>
-                                {a.name}
+                                <AccountOption account={a} />
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -349,6 +473,12 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 />
             </div>
             <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
+            <FileUploadField
+                purpose="transaction_receipt"
+                fileIds={attachmentFileIds}
+                onChange={setAttachmentFileIds}
+                label="Receipts"
+            />
             <Button type="submit" variant="gradient" disabled={mutate.isPending}>
                 {mutate.isPending ? "Saving…" : "Record expense"}
             </Button>
@@ -367,6 +497,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const [sourceAccountId, setSource] = useState("");
     const [destinationAccountId, setDest] = useState("");
     const [eventId, setEventId] = useState("");
+    const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
     const mutate = trpc.transaction.transfer.useMutation({
         onSuccess: async () => {
@@ -379,9 +510,9 @@ function TransferForm({ onDone }: { onDone: () => void }) {
         onError: (e) => toast.error(e.message),
     });
 
-    const spendable = (accountsQuery.data ?? []).filter(
-        (a) => a.account_type !== "locked"
-    );
+    const spendable = (accountsQuery.data ?? [])
+        .filter((a) => a.account_type !== "locked")
+        .filter(ownedByMe);
 
     return (
         <form
@@ -404,6 +535,8 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     datetime: fromInputDateTime(datetime),
                     description: description || undefined,
                     eventId: eventId || undefined,
+                    attachmentFileIds:
+                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                 });
             }}
         >
@@ -419,7 +552,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     <SelectContent>
                         {spendable.map((a) => (
                             <SelectItem key={a.id} value={a.id}>
-                                {a.name}
+                                <AccountOption account={a} />
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -432,15 +565,21 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                         <SelectValue placeholder="Choose account" />
                     </SelectTrigger>
                     <SelectContent>
-                        {(accountsQuery.data ?? []).map((a) => (
+                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
                             <SelectItem key={a.id} value={a.id}>
-                                {a.name}
+                                <AccountOption account={a} />
                             </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
             </div>
             <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
+            <FileUploadField
+                purpose="transaction_receipt"
+                fileIds={attachmentFileIds}
+                onChange={setAttachmentFileIds}
+                label="Receipts"
+            />
             <Button type="submit" variant="gradient" disabled={mutate.isPending}>
                 {mutate.isPending ? "Saving…" : "Record transfer"}
             </Button>
@@ -457,6 +596,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
     const [newBalance, setNewBalance] = useState("");
     const [description, setDescription] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
+    const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
     const mutate = trpc.transaction.adjust.useMutation({
         onSuccess: async () => {
@@ -486,6 +626,8 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     newBalance: Number(newBalance),
                     datetime: fromInputDateTime(datetime),
                     description: description || undefined,
+                    attachmentFileIds:
+                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                 });
             }}
         >
@@ -496,9 +638,9 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                         <SelectValue placeholder="Choose account" />
                     </SelectTrigger>
                     <SelectContent>
-                        {(accountsQuery.data ?? []).map((a) => (
+                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
                             <SelectItem key={a.id} value={a.id}>
-                                {a.name}
+                                <AccountOption account={a} />
                             </SelectItem>
                         ))}
                     </SelectContent>
@@ -541,6 +683,12 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     placeholder="Why did the balance drift?"
                 />
             </div>
+            <FileUploadField
+                purpose="transaction_receipt"
+                fileIds={attachmentFileIds}
+                onChange={setAttachmentFileIds}
+                label="Receipts"
+            />
             <Button type="submit" variant="gradient" disabled={mutate.isPending}>
                 {mutate.isPending ? "Saving…" : "Adjust balance"}
             </Button>

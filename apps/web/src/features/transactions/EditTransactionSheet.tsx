@@ -22,8 +22,35 @@ import {
 } from "@/components/ui/select";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { trpc } from "@/trpc";
+import type { RouterOutput } from "@/trpc";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
+
+type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
+const ownedByMe = (a: SpaceAccount) => a.myRole === "owner";
+
+function AccountOption({ account }: { account: SpaceAccount }) {
+    const first = account.owners?.[0];
+    const extra = (account.owners?.length ?? 0) - 1;
+    return (
+        <span className="inline-flex items-center gap-2">
+            <span>{account.name}</span>
+            {first && (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    ·
+                    <UserAvatar
+                        fileId={first.avatar_file_id}
+                        firstName={first.first_name}
+                        size="xs"
+                    />
+                    {first.first_name}
+                    {extra > 0 && ` +${extra}`}
+                </span>
+            )}
+        </span>
+    );
+}
 
 type TxType = "income" | "expense" | "transfer" | "adjustment";
 
@@ -133,9 +160,9 @@ function EditForm({
         onError: (e) => toast.error(e.message),
     });
 
-    const spendable = (accountsQuery.data ?? []).filter(
-        (a) => a.account_type !== "locked"
-    );
+    const spendable = (accountsQuery.data ?? [])
+        .filter((a) => a.account_type !== "locked")
+        .filter(ownedByMe);
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
@@ -230,9 +257,9 @@ function EditForm({
                                 <SelectValue placeholder="Choose account" />
                             </SelectTrigger>
                             <SelectContent>
-                                {(accountsQuery.data ?? []).map((a) => (
+                                {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
                                     <SelectItem key={a.id} value={a.id}>
-                                        {a.name}
+                                        <AccountOption account={a} />
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -245,7 +272,7 @@ function EditForm({
                             <SelectContent>
                                 {spendable.map((a) => (
                                     <SelectItem key={a.id} value={a.id}>
-                                        {a.name}
+                                        <AccountOption account={a} />
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -266,7 +293,7 @@ function EditForm({
                                     <SelectContent>
                                         {spendable.map((a) => (
                                             <SelectItem key={a.id} value={a.id}>
-                                                {a.name}
+                                                <AccountOption account={a} />
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -284,9 +311,9 @@ function EditForm({
                                         <SelectValue placeholder="Destination" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {(accountsQuery.data ?? []).map((a) => (
+                                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
                                             <SelectItem key={a.id} value={a.id}>
-                                                {a.name}
+                                                <AccountOption account={a} />
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

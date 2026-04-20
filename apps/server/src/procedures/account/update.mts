@@ -26,7 +26,7 @@ export const updateAccount = authorizedProcedure
             trx: ctx.services.qb,
             accountId: input.accountId,
             userId: ctx.auth.user.id,
-            roles: ["owner", "editor"] as unknown as UserAccounts["role"][],
+            roles: ["owner"] as unknown as UserAccounts["role"][],
         });
 
         const [error, result] = await safeAwait(

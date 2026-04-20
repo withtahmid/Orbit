@@ -1,5 +1,3 @@
-import React from "react";
-import { sendEmail } from "../services/mail/mailer.mjs";
 import publicProcedure from "../trpc/middlewares/public.mjs";
 import { safeAwait } from "../utils/safeAwait.mjs";
 
@@ -12,14 +10,14 @@ export const healthProcedure = publicProcedure.query(async ({ ctx }) => {
     // Check mail service
     let mailStatus;
     try {
-        const TestEmailComponent = ({ name }: { name: string }) => {
-            return React.createElement(
-                "div",
-                null,
-                React.createElement("h1", null, `Hello, ${name}!`),
-                React.createElement("p", null, "This is a test email sent from our application.")
-            );
-        };
+        // const TestEmailComponent = ({ name }: { name: string }) => {
+        //     return React.createElement(
+        //         "div",
+        //         null,
+        //         React.createElement("h1", null, `Hello, ${name}!`),
+        //         React.createElement("p", null, "This is a test email sent from our application.")
+        //     );
+        // };
 
         // sendEmail("test@example.com", "Test Email", TestEmailComponent, { name: "John Doe" })
         //     .then(() => console.log("Test email sent successfully"))

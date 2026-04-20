@@ -8,6 +8,7 @@ import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
 import type { SpaceMembers, Transactions } from "../../db/kysely/types.mjs";
+import { attachFilesToTransaction } from "../file/attach.mjs";
 
 export const updateTransaction = authorizedProcedure
     .input(
@@ -21,6 +22,7 @@ export const updateTransaction = authorizedProcedure
             destinationAccountId: z.string().uuid().nullable().optional(),
             expenseCategoryId: z.string().uuid().nullable().optional(),
             eventId: z.string().uuid().nullable().optional(),
+            addAttachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -127,6 +129,13 @@ export const updateTransaction = authorizedProcedure
                     })
                     .where("id", "=", input.transactionId)
                     .execute();
+
+                await attachFilesToTransaction({
+                    trx,
+                    transactionId: input.transactionId,
+                    fileIds: input.addAttachmentFileIds ?? [],
+                    userId: ctx.auth.user.id,
+                });
 
                 return { id: input.transactionId };
             })

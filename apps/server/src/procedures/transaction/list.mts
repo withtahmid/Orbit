@@ -65,6 +65,7 @@ export const listTransactionsBySpace = authorizedProcedure
                         "expense_categories.id",
                         "transactions.expense_category_id"
                     )
+                    .leftJoin("users", "users.id", "transactions.created_by")
                     .select([
                         "transactions.id",
                         "transactions.space_id",
@@ -79,6 +80,9 @@ export const listTransactionsBySpace = authorizedProcedure
                         "transactions.created_at",
                         "transactions.expense_category_id",
                         "transactions.event_id",
+                        "users.first_name as created_by_first_name",
+                        "users.last_name as created_by_last_name",
+                        "users.avatar_file_id as created_by_avatar_file_id",
                     ])
                     .where("transactions.space_id", "=", input.spaceId)
                     .$if(!!input.userId, (qb) =>

@@ -22,4 +22,9 @@ export const ENV = configEnv(process.env, {
      * env requires a full app restart.
      */
     APP_TIMEZONE: e.string().default("Asia/Dhaka"),
+    R2_ACCOUNT_ID: e.string().default(""),
+    R2_ACCESS_KEY_ID: e.string().default(""),
+    R2_SECRET_ACCESS_KEY: e.string().default(""),
+    R2_BUCKET: e.string().default(""),
+    R2_PUBLIC_URL_BASE: e.string().optional(),
 });

@@ -20,6 +20,7 @@ export const listUsersHaveAccessToAccount = authorizedProcedure
                     "users.first_name",
                     "users.last_name",
                     "users.email",
+                    "users.avatar_file_id",
                     "user_accounts.role",
                 ])
                 .execute()

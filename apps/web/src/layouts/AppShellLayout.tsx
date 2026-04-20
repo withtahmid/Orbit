@@ -1,7 +1,7 @@
 import { Link, Outlet, useNavigate } from "react-router-dom";
 import { observer } from "mobx-react-lite";
 import { BookOpen, LogOut, Settings, User, Wallet } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -16,16 +16,8 @@ export const AppShellLayout = observer(function AppShellLayout() {
     const { authStore } = useStore();
     const navigate = useNavigate();
     const user = authStore.user;
-
-    const initials = user?.name
-        ? user.name
-              .split(" ")
-              .map((s) => s[0])
-              .filter(Boolean)
-              .slice(0, 2)
-              .join("")
-              .toUpperCase()
-        : "?";
+    const [firstName, ...rest] = (user?.name ?? "").split(" ");
+    const lastName = rest.join(" ");
 
     return (
         <div className="min-h-screen bg-background">
@@ -36,11 +28,13 @@ export const AppShellLayout = observer(function AppShellLayout() {
                     </Link>
                     <DropdownMenu>
                         <DropdownMenuTrigger className="outline-none">
-                            <Avatar className="size-8 cursor-pointer ring-1 ring-border hover:ring-primary/50">
-                                <AvatarFallback className="bg-gradient-to-br from-primary to-brand-gradient-to text-[11px] font-bold text-white">
-                                    {initials}
-                                </AvatarFallback>
-                            </Avatar>
+                            <UserAvatar
+                                fileId={user?.avatarFileId}
+                                firstName={firstName}
+                                lastName={lastName}
+                                size="sm"
+                                className="cursor-pointer ring-1 ring-border hover:ring-primary/50"
+                            />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
                             <div className="px-2 py-1.5">

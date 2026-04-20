@@ -36,6 +36,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { PeriodSelector } from "@/components/shared/PeriodSelector";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -52,6 +53,7 @@ import { usePeriod } from "@/hooks/usePeriod";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { NewTransactionSheet } from "@/features/transactions/NewTransactionSheet";
 import { EditTransactionSheet } from "@/features/transactions/EditTransactionSheet";
+import { TransactionDetailsSheet } from "@/features/transactions/TransactionDetailsSheet";
 import { ROUTES } from "@/router/routes";
 import { useStore } from "@/stores/useStore";
 import { colorTint, UNALLOCATED_COLOR } from "@/lib/entityStyle";
@@ -95,6 +97,7 @@ export default function TransactionsPage() {
 
     const [pageCursors, setPageCursors] = useState<(string | null)[]>([null]);
     const cursor = pageCursors[pageCursors.length - 1];
+    const [selectedTx, setSelectedTx] = useState<any>(null);
 
     const listQuery = trpc.transaction.listBySpace.useQuery({
         spaceId: space.id,
@@ -132,17 +135,6 @@ export default function TransactionsPage() {
             m.set(ev.id, { name: ev.name, color: ev.color, icon: ev.icon });
         return m;
     }, [eventsQuery.data]);
-
-    // "Spent by" column needs display names — space members come back with
-    // first/last/email, so build a composite label once.
-    const membersById = useMemo(() => {
-        const m = new Map<string, { name: string; email: string }>();
-        for (const mem of membersQuery.data ?? []) {
-            const full = [mem.first_name, mem.last_name].filter(Boolean).join(" ");
-            m.set(mem.id, { name: full || mem.email, email: mem.email });
-        }
-        return m;
-    }, [membersQuery.data]);
 
     const utils = trpc.useUtils();
     const del = trpc.transaction.delete.useMutation({
@@ -344,7 +336,11 @@ export default function TransactionsPage() {
                                         const canDelete =
                                             t.created_by === authStore.user?.id;
                                         return (
-                                            <TableRow key={t.id}>
+                                            <TableRow
+                                                key={t.id}
+                                                className="cursor-pointer"
+                                                onClick={() => setSelectedTx(t)}
+                                            >
                                                 <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                                                     {formatInAppTz(
                                                         t.transaction_datetime,
@@ -404,7 +400,17 @@ export default function TransactionsPage() {
                                                     {t.description ?? ""}
                                                 </TableCell>
                                                 <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                                                    {membersById.get(t.created_by)?.name ?? "—"}
+                                                    <span className="inline-flex items-center gap-1.5">
+                                                        <UserAvatar
+                                                            fileId={t.created_by_avatar_file_id}
+                                                            firstName={t.created_by_first_name}
+                                                            lastName={t.created_by_last_name}
+                                                            size="xs"
+                                                        />
+                                                        <span className="truncate">
+                                                            {t.created_by_first_name ?? "—"}
+                                                        </span>
+                                                    </span>
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <MoneyDisplay
@@ -412,7 +418,7 @@ export default function TransactionsPage() {
                                                         variant={variant as any}
                                                     />
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell onClick={(e) => e.stopPropagation()}>
                                                     <div className="flex items-center justify-end gap-0.5">
                                                         {canDelete && (
                                                             <EditTransactionSheet
@@ -465,7 +471,11 @@ export default function TransactionsPage() {
                                     : null;
                                 const canDelete = t.created_by === authStore.user?.id;
                                 return (
-                                    <div key={t.id} className="flex items-start gap-3 p-3">
+                                    <div
+                                        key={t.id}
+                                        className="flex cursor-pointer items-start gap-3 p-3"
+                                        onClick={() => setSelectedTx(t)}
+                                    >
                                         {cat ? (
                                             <EntityAvatar
                                                 color={cat.color}
@@ -497,8 +507,14 @@ export default function TransactionsPage() {
                                                     {t.description}
                                                 </p>
                                             )}
-                                            <p className="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                                                by {membersById.get(t.created_by)?.name ?? "—"}
+                                            <p className="mt-0.5 flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                                <UserAvatar
+                                                    fileId={t.created_by_avatar_file_id}
+                                                    firstName={t.created_by_first_name}
+                                                    lastName={t.created_by_last_name}
+                                                    size="xs"
+                                                />
+                                                {t.created_by_first_name ?? "—"}
                                             </p>
                                         </div>
                                         <div className="flex flex-col items-end gap-1">
@@ -507,7 +523,10 @@ export default function TransactionsPage() {
                                                 variant={variant as any}
                                             />
                                             {canDelete && (
-                                                <div className="flex">
+                                                <div
+                                                    className="flex"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
                                                     <EditTransactionSheet
                                                         transaction={t}
                                                     />
@@ -567,6 +586,15 @@ export default function TransactionsPage() {
                     </>
                 )}
             </Card>
+            <TransactionDetailsSheet
+                transaction={selectedTx}
+                open={selectedTx !== null}
+                onClose={() => setSelectedTx(null)}
+                accountsById={accountsById}
+                categoriesById={categoriesById}
+                eventsById={eventsById}
+                canEdit={selectedTx?.created_by === authStore.user?.id}
+            />
         </div>
     );
 }
@@ -650,7 +678,12 @@ function MobileFilters({
         icon: string;
     }>;
     events: Array<{ id: string; name: string }>;
-    members: Array<{ id: string; first_name: string; last_name: string }>;
+    members: Array<{
+        id: string;
+        first_name: string;
+        last_name: string;
+        avatar_file_id: string | null;
+    }>;
     activeFilterCount: number;
 }) {
     const [open, setOpen] = useState(false);
@@ -735,7 +768,15 @@ function MobileFilters({
                                 <SelectItem value="all">Anyone</SelectItem>
                                 {members.map((m) => (
                                     <SelectItem key={m.id} value={m.id}>
-                                        {m.first_name} {m.last_name}
+                                        <span className="inline-flex items-center gap-2">
+                                            <UserAvatar
+                                                fileId={m.avatar_file_id}
+                                                firstName={m.first_name}
+                                                lastName={m.last_name}
+                                                size="xs"
+                                            />
+                                            {m.first_name} {m.last_name}
+                                        </span>
                                     </SelectItem>
                                 ))}
                             </SelectContent>

@@ -22,6 +22,7 @@ import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -215,7 +216,15 @@ export default function AccountDetailPage() {
                                     {(usersQuery.data ?? []).map((u: any) => (
                                         <TableRow key={u.id}>
                                             <TableCell className="font-medium">
-                                                {u.first_name} {u.last_name}
+                                                <span className="inline-flex items-center gap-2">
+                                                    <UserAvatar
+                                                        fileId={u.avatar_file_id}
+                                                        firstName={u.first_name}
+                                                        lastName={u.last_name}
+                                                        size="sm"
+                                                    />
+                                                    {u.first_name} {u.last_name}
+                                                </span>
                                             </TableCell>
                                             <TableCell className="text-muted-foreground">
                                                 {u.email}

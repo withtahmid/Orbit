@@ -22,6 +22,7 @@ import {
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { EntityStyleFields } from "@/components/shared/EntityStyleFields";
+import { FileUploadField } from "@/components/file-upload-field";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
@@ -195,6 +196,7 @@ function CreateOrEditEventDialog({ event }: { event?: EventTotal }) {
     const [color, setColor] = useState(event?.color ?? DEFAULT_COLOR);
     const [icon, setIcon] = useState(event?.icon ?? "calendar-days");
     const [description, setDescription] = useState(event?.description ?? "");
+    const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
     const utils = trpc.useUtils();
 
     const invalidate = async () => {
@@ -257,6 +259,10 @@ function CreateOrEditEventDialog({ event }: { event?: EventTotal }) {
                                 color,
                                 icon,
                                 description: description.trim() || null,
+                                addAttachmentFileIds:
+                                    attachmentFileIds.length > 0
+                                        ? attachmentFileIds
+                                        : undefined,
                             });
                         } else {
                             create.mutate({
@@ -267,6 +273,10 @@ function CreateOrEditEventDialog({ event }: { event?: EventTotal }) {
                                 color,
                                 icon,
                                 description: description.trim() || undefined,
+                                attachmentFileIds:
+                                    attachmentFileIds.length > 0
+                                        ? attachmentFileIds
+                                        : undefined,
                             });
                         }
                     }}
@@ -319,6 +329,11 @@ function CreateOrEditEventDialog({ event }: { event?: EventTotal }) {
                         setColor={setColor}
                         icon={icon}
                         setIcon={setIcon}
+                    />
+                    <FileUploadField
+                        purpose="event_attachment"
+                        fileIds={attachmentFileIds}
+                        onChange={setAttachmentFileIds}
                     />
                     <DialogFooter className="gap-2">
                         <Button

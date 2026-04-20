@@ -4,6 +4,7 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+import { attachFilesToEvent } from "../file/attach.mjs";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -18,6 +19,7 @@ export const updateEvent = authorizedProcedure
                 color: z.string().regex(HEX).optional(),
                 icon: z.string().min(1).max(48).optional(),
                 description: z.string().max(2000).nullable().optional(),
+                addAttachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
             })
             .refine(
                 (data) =>
@@ -26,7 +28,9 @@ export const updateEvent = authorizedProcedure
                     data.endTime !== undefined ||
                     data.color !== undefined ||
                     data.icon !== undefined ||
-                    data.description !== undefined,
+                    data.description !== undefined ||
+                    (data.addAttachmentFileIds !== undefined &&
+                        data.addAttachmentFileIds.length > 0),
                 { message: "At least one field must be provided" }
             )
     )
@@ -86,6 +90,13 @@ export const updateEvent = authorizedProcedure
                         "created_at",
                     ])
                     .executeTakeFirstOrThrow();
+
+                await attachFilesToEvent({
+                    trx,
+                    eventId: event.id,
+                    fileIds: input.addAttachmentFileIds ?? [],
+                    userId: ctx.auth.user.id,
+                });
 
                 return event;
             })

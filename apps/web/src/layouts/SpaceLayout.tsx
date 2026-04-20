@@ -16,7 +16,7 @@ import {
     BookOpen,
 } from "lucide-react";
 import { useState } from "react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -103,14 +103,8 @@ function Sidebar({
     const { authStore } = useStore();
     const navigate = useNavigate();
     const user = authStore.user;
-    const initials =
-        user?.name
-            ?.split(" ")
-            .map((s) => s[0])
-            .filter(Boolean)
-            .slice(0, 2)
-            .join("")
-            .toUpperCase() ?? "?";
+    const [firstName, ...rest] = (user?.name ?? "").split(" ");
+    const lastName = rest.join(" ");
 
     return (
         <div className="flex h-full flex-col p-3">
@@ -143,11 +137,12 @@ function Sidebar({
                 <DropdownMenu>
                     <DropdownMenuTrigger className="w-full outline-none">
                         <div className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-sidebar-accent">
-                            <Avatar className="size-8">
-                                <AvatarFallback className="bg-gradient-to-br from-primary to-brand-gradient-to text-[11px] font-bold text-white">
-                                    {initials}
-                                </AvatarFallback>
-                            </Avatar>
+                            <UserAvatar
+                                fileId={user?.avatarFileId}
+                                firstName={firstName}
+                                lastName={lastName}
+                                size="sm"
+                            />
                             <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-medium">
                                     {user?.name ?? "Guest"}

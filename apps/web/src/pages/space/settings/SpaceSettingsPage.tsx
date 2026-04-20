@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { RoleBadge } from "@/components/shared/RoleBadge";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -163,7 +164,15 @@ function MembersCard() {
                     {(membersQuery.data ?? []).map((m: any) => (
                         <TableRow key={m.id}>
                             <TableCell className="font-medium">
-                                {m.first_name} {m.last_name}
+                                <span className="inline-flex items-center gap-2">
+                                    <UserAvatar
+                                        fileId={m.avatar_file_id}
+                                        firstName={m.first_name}
+                                        lastName={m.last_name}
+                                        size="sm"
+                                    />
+                                    {m.first_name} {m.last_name}
+                                </span>
                             </TableCell>
                             <TableCell className="text-muted-foreground">{m.email}</TableCell>
                             <TableCell>
@@ -275,8 +284,15 @@ function AddMember() {
                     placeholder="user@example.com"
                 />
                 {findUser.data && (
-                    <p className="text-xs text-muted-foreground">
-                        Found: {findUser.data.first_name} {findUser.data.last_name}
+                    <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                        Found:
+                        <UserAvatar
+                            fileId={findUser.data.avatar_file_id}
+                            firstName={findUser.data.first_name}
+                            lastName={findUser.data.last_name}
+                            size="sm"
+                        />
+                        {findUser.data.first_name} {findUser.data.last_name}
                     </p>
                 )}
             </div>

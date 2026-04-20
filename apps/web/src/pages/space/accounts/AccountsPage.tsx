@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { AccountTypeBadge } from "@/components/shared/AccountTypeBadge";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { CreateAccountDialog } from "@/features/accounts/CreateAccountDialog";
@@ -108,6 +109,24 @@ export default function AccountsPage() {
                                                                 type={a.account_type}
                                                             />
                                                         </div>
+                                                        {a.owners.length > 0 && (
+                                                            <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                                                                <UserAvatar
+                                                                    fileId={
+                                                                        a.owners[0].avatar_file_id
+                                                                    }
+                                                                    firstName={
+                                                                        a.owners[0].first_name
+                                                                    }
+                                                                    size="xs"
+                                                                />
+                                                                <span className="truncate">
+                                                                    {a.owners[0].first_name}
+                                                                    {a.owners.length > 1 &&
+                                                                        ` +${a.owners.length - 1}`}
+                                                                </span>
+                                                            </div>
+                                                        )}
                                                         <MoneyDisplay
                                                             amount={a.balance}
                                                             variant={

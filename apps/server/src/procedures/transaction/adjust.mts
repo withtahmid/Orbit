@@ -5,6 +5,7 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
 import type { Transactions } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
+import { attachFilesToTransaction } from "../file/attach.mjs";
 
 export const adjustAccountBalance = authorizedProcedure
     .input(
@@ -15,6 +16,7 @@ export const adjustAccountBalance = authorizedProcedure
             datetime: z.coerce.date().optional(),
             description: z.string().optional(),
             location: z.string().optional(),
+            attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
         })
     )
 
@@ -89,6 +91,13 @@ export const adjustAccountBalance = authorizedProcedure
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();
+
+                await attachFilesToTransaction({
+                    trx,
+                    transactionId: transaction.id,
+                    fileIds: input.attachmentFileIds ?? [],
+                    userId: ctx.auth.user.id,
+                });
 
                 return transaction;
             })

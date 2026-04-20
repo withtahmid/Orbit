@@ -7,6 +7,7 @@ import { TRPCError } from "@trpc/server";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
+import { attachFilesToTransaction } from "../file/attach.mjs";
 
 export const createExpenseTransaction = authorizedProcedure
     .input(
@@ -19,6 +20,7 @@ export const createExpenseTransaction = authorizedProcedure
             sourceAccountId: z.string().uuid(),
             expense_category_id: z.string().uuid(),
             eventId: z.string().uuid().optional(),
+            attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -68,6 +70,13 @@ export const createExpenseTransaction = authorizedProcedure
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();
+
+                await attachFilesToTransaction({
+                    trx,
+                    transactionId: transaction.id,
+                    fileIds: input.attachmentFileIds ?? [],
+                    userId: ctx.auth.user.id,
+                });
 
                 return transaction;
             })

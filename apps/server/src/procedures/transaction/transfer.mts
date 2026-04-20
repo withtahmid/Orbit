@@ -6,6 +6,7 @@ import { resolveTransactionPermission } from "./utils/resolveTransactionPermissi
 import { TRPCError } from "@trpc/server";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
+import { attachFilesToTransaction } from "../file/attach.mjs";
 
 export const createTransferTransaction = authorizedProcedure
     .input(
@@ -18,6 +19,7 @@ export const createTransferTransaction = authorizedProcedure
             sourceAccountId: z.string().uuid(),
             destinationAccountId: z.string().uuid(),
             eventId: z.string().uuid().optional(),
+            attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -61,6 +63,13 @@ export const createTransferTransaction = authorizedProcedure
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();
+
+                await attachFilesToTransaction({
+                    trx,
+                    transactionId: transaction.id,
+                    fileIds: input.attachmentFileIds ?? [],
+                    userId: ctx.auth.user.id,
+                });
 
                 return transaction;
             })

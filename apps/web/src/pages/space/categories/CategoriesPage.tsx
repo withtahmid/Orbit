@@ -37,6 +37,7 @@ import {
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { EntityStyleFields } from "@/components/shared/EntityStyleFields";
+import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
@@ -331,24 +332,13 @@ function CreateCategoryDialog({
                     </div>
                     <div className="grid gap-1.5">
                         <Label>Parent category (optional)</Label>
-                        <Select
-                            value={parentId || "none"}
-                            onValueChange={(v) => setParentId(v === "none" ? "" : v)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">
-                                    (none — top level)
-                                </SelectItem>
-                                {categories.map((c) => (
-                                    <SelectItem key={c.id} value={c.id}>
-                                        {c.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <CategoryTreeSelect
+                            categories={categories as any}
+                            value={parentId || null}
+                            onChange={(v) => setParentId(v ?? "")}
+                            placeholder="(none — top level)"
+                            allowAll={false}
+                        />
                     </div>
                     <div className="grid gap-1.5">
                         <Label>Envelope</Label>
@@ -547,19 +537,13 @@ function ChangeParentDialog({
                 </DialogHeader>
                 <div className="grid gap-2">
                     <Label>Parent</Label>
-                    <Select value={parentId} onValueChange={setParentId}>
-                        <SelectTrigger>
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="none">(top level — no parent)</SelectItem>
-                            {candidates.map((c) => (
-                                <SelectItem key={c.id} value={c.id}>
-                                    {c.name}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <CategoryTreeSelect
+                        categories={candidates as any}
+                        value={parentId === "none" ? null : parentId}
+                        onChange={(v) => setParentId(v ?? "none")}
+                        placeholder="(top level — no parent)"
+                        allowAll={false}
+                    />
                     {envelopeMismatch && (
                         <p className="text-xs text-[color:var(--warning)]">
                             Heads up: the new parent belongs to a different envelope.

@@ -4,6 +4,7 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+import { attachFilesToEvent } from "../file/attach.mjs";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -18,6 +19,7 @@ export const createEvent = authorizedProcedure
                 color: z.string().regex(HEX).optional(),
                 icon: z.string().min(1).max(48).optional(),
                 description: z.string().max(2000).optional(),
+                attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
             })
             .refine((data) => data.endTime > data.startTime, {
                 message: "endTime must be after startTime",
@@ -57,6 +59,13 @@ export const createEvent = authorizedProcedure
                         "created_at",
                     ])
                     .executeTakeFirstOrThrow();
+
+                await attachFilesToEvent({
+                    trx,
+                    eventId: event.id,
+                    fileIds: input.attachmentFileIds ?? [],
+                    userId: ctx.auth.user.id,
+                });
 
                 return event;
             })

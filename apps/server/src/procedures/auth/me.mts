@@ -9,13 +9,13 @@ export const meProcedure = authorizedProcedure
             email: z.string().email(),
             first_name: z.string(),
             last_name: z.string(),
-            avatar_url: z.string().nullable(),
+            avatar_file_id: z.string().nullable(),
         })
     )
     .query(async ({ ctx }) => {
         const user = await ctx.services.qb
             .selectFrom("users")
-            .select(["id", "email", "first_name", "last_name", "avatar_url"])
+            .select(["id", "email", "first_name", "last_name", "avatar_file_id"])
             .where("id", "=", ctx.auth.user.id)
             .executeTakeFirst();
         if (!user) {

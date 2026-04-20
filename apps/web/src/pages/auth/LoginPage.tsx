@@ -25,7 +25,7 @@ export const LoginPage = observer(function LoginPage() {
                 id: data.user.id,
                 email: data.user.email,
                 name,
-                avatarUrl: data.user.avatar_url ?? undefined,
+                avatarFileId: data.user.avatar_file_id ?? undefined,
             });
             toast.success("Welcome back!");
             navigate(ROUTES.root, { replace: true });

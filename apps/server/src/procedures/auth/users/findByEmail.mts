@@ -14,14 +14,14 @@ export const findUserByEmail = authorizedProcedure
                 email: z.string().email(),
                 first_name: z.string(),
                 last_name: z.string(),
-                avatar_url: z.string().url().nullable(),
+                avatar_file_id: z.string().nullable(),
             })
             .nullable()
     )
     .query(async ({ ctx, input }) => {
         const user = await ctx.services.qb
             .selectFrom("users")
-            .select(["id", "email", "first_name", "last_name", "avatar_url"])
+            .select(["id", "email", "first_name", "last_name", "avatar_file_id"])
             .where("email", "=", input.email)
             .executeTakeFirst();
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
-import type { SpaceMembers } from "../../db/kysely/types.mjs";
+import type { SpaceMembers, UserAccounts } from "../../db/kysely/types.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 
@@ -63,6 +63,34 @@ export const listAccountsBySpace = authorizedProcedure
                 message: error.message || "Failed to fetch accounts for space",
             });
         }
+        const accountIds = (accounts ?? []).map((a) => a.id);
+        const ownersByAccount = new Map<
+            string,
+            Array<{ id: string; first_name: string; avatar_file_id: string | null }>
+        >();
+        if (accountIds.length > 0) {
+            const ownerRows = await ctx.services.qb
+                .selectFrom("user_accounts as ua")
+                .innerJoin("users as u", "u.id", "ua.user_id")
+                .where("ua.account_id", "in", accountIds)
+                .where("ua.role", "=", "owner" as unknown as UserAccounts["role"])
+                .select([
+                    "ua.account_id",
+                    "u.id",
+                    "u.first_name",
+                    "u.avatar_file_id",
+                ])
+                .execute();
+            for (const row of ownerRows) {
+                const list = ownersByAccount.get(row.account_id) ?? [];
+                list.push({
+                    id: row.id,
+                    first_name: row.first_name,
+                    avatar_file_id: row.avatar_file_id,
+                });
+                ownersByAccount.set(row.account_id, list);
+            }
+        }
         return (accounts ?? []).map((a) => ({
             id: a.id,
             name: a.name,
@@ -71,5 +99,6 @@ export const listAccountsBySpace = authorizedProcedure
             icon: a.icon,
             balance: Number(a.balance ?? 0),
             myRole: (a.my_role ?? null) as "owner" | "viewer" | null,
+            owners: ownersByAccount.get(a.id) ?? [],
         }));
     });

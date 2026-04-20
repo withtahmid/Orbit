@@ -6,7 +6,7 @@ export interface AuthUser {
     id: string;
     email: string;
     name: string;
-    avatarUrl?: string;
+    avatarFileId?: string;
 }
 
 /**
@@ -57,6 +57,13 @@ export class AuthStore {
         this.user = user;
         localStorage.setItem(TOKEN_KEY, token);
         localStorage.setItem("auth_user", JSON.stringify(user));
+    }
+
+    /** Patch the current user's avatar file id in place. */
+    setAvatarFileId(fileId: string | null) {
+        if (!this.user) return;
+        this.user = { ...this.user, avatarFileId: fileId ?? undefined };
+        localStorage.setItem("auth_user", JSON.stringify(this.user));
     }
 
     /** Call this on logout. */

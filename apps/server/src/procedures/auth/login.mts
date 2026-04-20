@@ -22,7 +22,7 @@ export const loginProcedure = publicProcedure
                 email: z.string(),
                 firstName: z.string(),
                 lastName: z.string(),
-                avatar_url: z.string().nullable(),
+                avatar_file_id: z.string().nullable(),
             }),
         })
     )
@@ -31,7 +31,7 @@ export const loginProcedure = publicProcedure
         const { qb } = ctx.services;
         const dbUser = await qb
             .selectFrom("users")
-            .select(["id", "email", "password_hash", "first_name", "last_name", "avatar_url"])
+            .select(["id", "email", "password_hash", "first_name", "last_name", "avatar_file_id"])
             .where("email", "=", email)
             .executeTakeFirst();
 
@@ -59,7 +59,7 @@ export const loginProcedure = publicProcedure
                 email: dbUser.email,
                 firstName: dbUser.first_name,
                 lastName: dbUser.last_name,
-                avatar_url: dbUser.avatar_url,
+                avatar_file_id: dbUser.avatar_file_id,
             },
         };
     });

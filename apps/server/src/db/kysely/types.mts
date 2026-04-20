@@ -19,6 +19,20 @@ export type Generated<T> = T extends ColumnType<infer S, infer I, infer U>
   ? ColumnType<S, I | undefined, U>
   : ColumnType<T, T | undefined, T>;
 
+export type Int8 = ColumnType<string, bigint | number | string, bigint | number | string>;
+
+export type Json = JsonValue;
+
+export type JsonArray = JsonValue[];
+
+export type JsonObject = {
+  [x: string]: JsonValue | undefined;
+};
+
+export type JsonPrimitive = boolean | number | string | null;
+
+export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
+
 export type Numeric = ColumnType<string, number | string, number | string>;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
@@ -72,6 +86,12 @@ export interface Envelops {
   updated_at: Generated<Timestamp | null>;
 }
 
+export interface EventAttachments {
+  created_at: Generated<Timestamp>;
+  event_id: string;
+  file_id: string;
+}
+
 export interface Events {
   color: Generated<string>;
   created_at: Generated<Timestamp>;
@@ -94,6 +114,28 @@ export interface ExpenseCategories {
   parent_id: string | null;
   space_id: string;
   updated_at: Generated<Timestamp | null>;
+}
+
+export interface ExportedReports {
+  file_id: string;
+  generated_at: Generated<Timestamp>;
+  id: Generated<string>;
+  kind: string;
+  params_json: Json | null;
+  user_id: string;
+}
+
+export interface Files {
+  confirmed_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+  id: Generated<string>;
+  mime_type: string;
+  original_name: string;
+  purpose: ArrayType<"avatar" | "event_attachment" | "exported_report" | "transaction_receipt">;
+  r2_key: string;
+  size_bytes: Int8;
+  status: Generated<ArrayType<"confirmed" | "pending">>;
+  uploaded_by: string | null;
 }
 
 export interface PlanAllocations {
@@ -147,6 +189,12 @@ export interface TmpUsers {
   is_email_verified: Generated<boolean>;
 }
 
+export interface TransactionAttachments {
+  created_at: Generated<Timestamp>;
+  file_id: string;
+  transaction_id: string;
+}
+
 export interface Transactions {
   amount: Numeric;
   created_at: Generated<Timestamp>;
@@ -171,7 +219,7 @@ export interface UserAccounts {
 }
 
 export interface Users {
-  avatar_url: string | null;
+  avatar_file_id: string | null;
   created_at: Generated<Timestamp>;
   email: string;
   first_name: string;
@@ -186,14 +234,18 @@ export interface DB {
   email_verification_codes: EmailVerificationCodes;
   envelop_allocations: EnvelopAllocations;
   envelops: Envelops;
+  event_attachments: EventAttachments;
   events: Events;
   expense_categories: ExpenseCategories;
+  exported_reports: ExportedReports;
+  files: Files;
   plan_allocations: PlanAllocations;
   plans: Plans;
   space_accounts: SpaceAccounts;
   space_members: SpaceMembers;
   spaces: Spaces;
   tmp_users: TmpUsers;
+  transaction_attachments: TransactionAttachments;
   transactions: Transactions;
   user_accounts: UserAccounts;
   users: Users;
