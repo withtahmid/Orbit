@@ -71,7 +71,7 @@ services:
               published: 5173
 
         env_file:
-            - ./.env
+            - ./.env.example
 
         volumes:
             - ./:/app

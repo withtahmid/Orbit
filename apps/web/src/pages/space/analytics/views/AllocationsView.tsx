@@ -64,7 +64,7 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
         { enabled: !isPersonal }
     );
     const envelopesPersonalQ = trpc.personal.envelopeUtilization.useQuery(
-        undefined,
+        {},
         { enabled: isPersonal }
     );
     const envelopesQ = isPersonal ? envelopesPersonalQ : envelopesSpaceQ;
@@ -356,7 +356,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
         { enabled: !isPersonal }
     );
     const envelopesPersonalQ = trpc.personal.envelopeUtilization.useQuery(
-        undefined,
+        {},
         { enabled: isPersonal }
     );
     const envelopesQ = isPersonal ? envelopesPersonalQ : envelopesSpaceQ;

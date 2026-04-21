@@ -45,3 +45,4 @@ PR-Markdown.md
 
 
 .env.prod
+.env.stg
