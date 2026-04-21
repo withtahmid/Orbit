@@ -27,6 +27,7 @@ pnpm format           # prettier --write on ts/tsx/md
 # Server-only (from apps/server/)
 pnpm migrate          # tsx src/db/kysely/migrator.mts — runs Kysely migrations up
 pnpm generate-types   # kysely-codegen → src/db/kysely/types.mts (run after schema changes)
+pnpm seed             # tsx src/db/kysely/seed.mts — wipes + seeds local DB with ~800 demo txns
 pnpm build:watch      # tsc --watch (dev uses this + nodemon)
 
 # Web-only (from apps/web/)

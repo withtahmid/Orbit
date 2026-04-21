@@ -16,6 +16,8 @@ import {
     Sparkles,
     HelpCircle,
     ChevronRight,
+    Paperclip,
+    UserCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,10 +54,12 @@ const SECTIONS: Section[] = [
     { id: "categories", title: "Categories", icon: FolderTree },
     { id: "transactions", title: "Transactions", icon: ArrowLeftRight },
     { id: "events", title: "Events", icon: CalendarDays },
+    { id: "attachments", title: "Attachments & receipts", icon: Paperclip },
     { id: "allocations", title: "Allocations (the 2D idea)", icon: Sparkles },
     { id: "drift", title: "Drift & rebalancing", icon: Shield },
     { id: "analytics", title: "Analytics", icon: BarChart3 },
     { id: "permissions", title: "Roles & permissions", icon: Shield },
+    { id: "profile", title: "Your profile", icon: UserCircle },
     { id: "timezone", title: "Time & timezone", icon: Clock },
     { id: "faq", title: "FAQ", icon: HelpCircle },
 ];
@@ -150,10 +154,12 @@ const DocsPage = observer(function DocsPage() {
                         <Categories />
                         <Transactions />
                         <Events />
+                        <Attachments />
                         <Allocations />
                         <Drift />
                         <Analytics />
                         <Permissions />
+                        <Profile />
                         <Timezone />
                         <Faq />
                     </div>
@@ -479,7 +485,15 @@ function Accounts() {
                 remain per-space. Go to the account's detail page → <b>Shared with</b> tab
                 to manage.
             </CalloutCard>
-            <ScreenshotPlaceholder label="Account detail: allocations, transactions, shared spaces, members, settings tabs" />
+            <CalloutCard title="Account members — an ACL of its own">
+                Separate from space membership, each account has its own member list
+                (<b>owner</b> / <b>viewer</b>). Owners can edit the account, share it into
+                other spaces, or delete it; viewers can only see it. Manage from the
+                account detail → <b>Members</b> tab. This is what makes "my personal
+                wallet shared into the household space, visible to my partner as a
+                viewer" possible.
+            </CalloutCard>
+            <ScreenshotPlaceholder label="Account detail tabs: Allocations · Transactions · Shared with · Members · Settings" />
             <Paragraph>
                 The top-level <Link to={ROUTES.myAccounts} className="text-primary underline">
                     My Accounts
@@ -576,7 +590,14 @@ function Transactions() {
                 in the Transactions page. Delete-permission is the creator or a space
                 editor/owner. Balance and envelope numbers recompute automatically.
             </Paragraph>
-            <ScreenshotPlaceholder label="Transactions page with filter bar, edit sheet, spent-by column" />
+            <Paragraph>
+                You can attach image receipts to any transaction. See{" "}
+                <a href="#attachments" className="text-primary underline">
+                    Attachments &amp; receipts
+                </a>{" "}
+                below for how the upload flow works and who can see what.
+            </Paragraph>
+            <ScreenshotPlaceholder label="Transactions page with filter bar, edit sheet, receipt attachments, spent-by column" />
         </section>
     );
 }
@@ -588,9 +609,42 @@ function Events() {
             <Paragraph>
                 Events are named time-bound groupings — a wedding, a trip, a renovation.
                 Attach any transaction to an event and later slice the ledger by it to see
-                the full cost and cashflow of the occasion.
+                the full cost and cashflow of the occasion. You can also attach image
+                files directly to an event (tickets, confirmations, photos) — see{" "}
+                <a href="#attachments" className="text-primary underline">Attachments</a>.
             </Paragraph>
             <ScreenshotPlaceholder label="Events page — card per event with expense / income / transaction count" />
+        </section>
+    );
+}
+
+function Attachments() {
+    return (
+        <section className="grid gap-4">
+            <SectionHeader
+                id="attachments"
+                title="Attachments & receipts"
+                kicker="Files in Orbit"
+                icon={Paperclip}
+            />
+            <Paragraph>
+                You can attach images to transactions (receipts) and to events
+                (tickets, confirmations, photos). Files live in Cloudflare R2 — the
+                browser uploads them directly to the bucket, so nothing slows down
+                the main app. Limits:
+            </Paragraph>
+            <div className="grid gap-3 sm:grid-cols-3">
+                <InfoCard title="Transaction receipts" body="Images up to 10 MB each. Visible to any member of the transaction's space." />
+                <InfoCard title="Event attachments" body="Images up to 10 MB each. Visible to any member of the event's space." />
+                <InfoCard title="Profile avatars" body="Images up to 5 MB. Automatically resized into 256 px and 64 px variants." />
+            </div>
+            <Paragraph>
+                Download links are short-lived (15-minute signed URLs) — the app
+                re-signs them on every view, so a link that leaves the app stops
+                working. Removing an attachment immediately removes it from R2 (best
+                effort).
+            </Paragraph>
+            <ScreenshotPlaceholder label="Transaction detail sheet — receipt thumbnails with add / remove controls" />
         </section>
     );
 }
@@ -710,10 +764,34 @@ function Permissions() {
                 />
             </div>
             <Paragraph>
-                Accounts have their own separate ACL (owner / viewer). Account owners can
-                share, unshare, rename, recolor, and delete the account row; viewers can
-                only see it.
+                Accounts have their own separate ACL (owner / viewer), managed from the
+                account detail → <b>Members</b> tab. Account owners can share the
+                account into spaces, add/remove account members, rename, recolor, and
+                delete; viewers can only see it. Because the account ACL is independent
+                of space membership, you can keep a private wallet visible to you only,
+                even while sharing it into a household space.
             </Paragraph>
+        </section>
+    );
+}
+
+function Profile() {
+    return (
+        <section className="grid gap-4">
+            <SectionHeader id="profile" title="Your profile" icon={UserCircle} />
+            <Paragraph>
+                Your profile — name, email, avatar, password — lives in{" "}
+                <b>Settings → Profile</b> and <b>Settings → Security</b>, reachable
+                from the user avatar menu in the top-right corner. Uploading a new
+                avatar replaces your picture everywhere you appear in Orbit (space
+                member list, transaction creator tags, account members).
+            </Paragraph>
+            <Paragraph>
+                Changing your email triggers a verification code to the new address;
+                the change takes effect once the code is confirmed. Password resets
+                follow the same "code to your inbox" flow as signup.
+            </Paragraph>
+            <ScreenshotPlaceholder label="Profile settings — avatar uploader + personal info form" />
         </section>
     );
 }
@@ -757,6 +835,14 @@ function Faq() {
                 <FaqItem
                     q="Does Orbit support multiple currencies?"
                     a="Not yet — amounts are currency-agnostic and treated as one implicit currency per space. Multi-currency is on the roadmap."
+                />
+                <FaqItem
+                    q="How big can a receipt attachment be?"
+                    a="Images up to 10 MB per transaction or event attachment; profile avatars up to 5 MB. Files live in Cloudflare R2; upload goes direct from your browser, so the app stays snappy."
+                />
+                <FaqItem
+                    q="Who can see a receipt I attach to a transaction?"
+                    a="Any member of the space that the transaction belongs to. Download links expire after 15 minutes — Orbit re-signs them on every view."
                 />
                 <FaqItem
                     q="Where do I report a bug or request a feature?"

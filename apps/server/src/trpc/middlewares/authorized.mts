@@ -1,9 +1,11 @@
 import { TRPCError } from "@trpc/server";
 import type { AuthenticatedUser } from "../auth.mjs";
 import { t } from "../index.mjs";
+import { filterMutationsOnDemoMiddleware } from "./filterMutationsOnDemo.mjs";
 import { mutationLoggerMiddleware } from "./mutationLogger.mjs";
 
 export const authorizedProcedure = t.procedure
+    .use(filterMutationsOnDemoMiddleware)
     .use(mutationLoggerMiddleware)
     .use(async function is_authenticated(opts) {
         if (!opts.ctx.auth.user) {

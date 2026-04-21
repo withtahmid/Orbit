@@ -12,7 +12,8 @@
         "dev": "npm run build && NODE_OPTIONS='--dns-result-order=ipv4first' concurrently npm:build:watch pnpm:start:watch",
         "prod": "npm run build && npm run start",
         "migrate": "tsx ./src/db/kysely/migrator.mts",
-        "generate-types": "kysely-codegen --out-file ./src/db/kysely/types.mts"
+        "generate-types": "kysely-codegen --out-file ./src/db/kysely/types.mts",
+        "seed": "tsx ./src/db/kysely/seed.mts"
     },
     "keywords": [],
     "author": "withtahmid",

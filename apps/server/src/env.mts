@@ -5,7 +5,7 @@ export const ENV = configEnv(process.env, {
     DATABASE_URL: e
         .string()
         .default("postgresql://postgres:password@postgres:5432/postgres?sslmode=disable"),
-    NODE_ENV: e.string(),
+    NODE_ENV: e.string().default("development"),
     SMTP_HOST: e.string().default("maildev"),
     SMTP_PORT: e.number().default(1025),
     SMTP_USER: e.string().optional(),
