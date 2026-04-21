@@ -80,6 +80,8 @@ export const listTransactionsBySpace = authorizedProcedure
                         "transactions.created_at",
                         "transactions.expense_category_id",
                         "transactions.event_id",
+                        "transactions.fee_amount",
+                        "transactions.fee_expense_category_id",
                         "users.first_name as created_by_first_name",
                         "users.last_name as created_by_last_name",
                         "users.avatar_file_id as created_by_avatar_file_id",

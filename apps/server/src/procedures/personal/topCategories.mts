@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
+import { sql } from "kysely";
 import { z } from "zod";
-import type { Transactions } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
@@ -34,45 +34,62 @@ export const personalTopCategories = authorizedProcedure
                 );
                 if (owned.length === 0 || memberSpaces.length === 0) return [];
 
-                const rows = await ctx.services.qb
-                    .selectFrom("transactions")
-                    .innerJoin(
-                        "expense_categories",
-                        "expense_categories.id",
-                        "transactions.expense_category_id"
+                const rows = await sql<{
+                    id: string;
+                    name: string;
+                    color: string;
+                    icon: string;
+                    space_id: string;
+                    space_name: string;
+                    total: string;
+                }>`
+                    WITH spending AS (
+                        SELECT
+                            expense_category_id AS category_id,
+                            space_id,
+                            amount
+                        FROM transactions
+                        WHERE type = 'expense'
+                          AND space_id = ANY(${memberSpaces})
+                          AND source_account_id = ANY(${owned})
+                          AND expense_category_id IS NOT NULL
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                        UNION ALL
+                        -- Transfer fees out of owned accounts count the
+                        -- same as a regular personal expense in the
+                        -- fee's category. Internal (owned→owned)
+                        -- transfers still pay a fee and it's still the
+                        -- user's outflow.
+                        SELECT
+                            fee_expense_category_id AS category_id,
+                            space_id,
+                            fee_amount AS amount
+                        FROM transactions
+                        WHERE type = 'transfer'
+                          AND fee_amount IS NOT NULL
+                          AND space_id = ANY(${memberSpaces})
+                          AND source_account_id = ANY(${owned})
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
                     )
-                    .innerJoin("spaces", "spaces.id", "transactions.space_id")
-                    .where(
-                        "transactions.type",
-                        "=",
-                        "expense" as unknown as Transactions["type"]
-                    )
-                    .where("transactions.space_id", "in", memberSpaces)
-                    .where("transactions.source_account_id", "in", owned)
-                    .where("transactions.transaction_datetime", ">=", input.periodStart)
-                    .where("transactions.transaction_datetime", "<", input.periodEnd)
-                    .groupBy([
-                        "expense_categories.id",
-                        "expense_categories.name",
-                        "expense_categories.color",
-                        "expense_categories.icon",
-                        "spaces.id",
-                        "spaces.name",
-                    ])
-                    .select((eb) => [
-                        eb.ref("expense_categories.id").as("id"),
-                        eb.ref("expense_categories.name").as("name"),
-                        eb.ref("expense_categories.color").as("color"),
-                        eb.ref("expense_categories.icon").as("icon"),
-                        eb.ref("spaces.id").as("space_id"),
-                        eb.ref("spaces.name").as("space_name"),
-                        eb.fn.sum<string>("transactions.amount").as("total"),
-                    ])
-                    .orderBy("total", "desc")
-                    .limit(input.limit)
-                    .execute();
+                    SELECT
+                        ec.id::text AS id,
+                        ec.name,
+                        ec.color,
+                        ec.icon,
+                        s.id::text AS space_id,
+                        s.name AS space_name,
+                        SUM(spending.amount)::text AS total
+                    FROM spending
+                    JOIN expense_categories ec ON ec.id = spending.category_id
+                    JOIN spaces s ON s.id = spending.space_id
+                    GROUP BY ec.id, ec.name, ec.color, ec.icon, s.id, s.name
+                    ORDER BY SUM(spending.amount) DESC
+                    LIMIT ${input.limit}
+                `.execute(ctx.services.qb);
 
-                return rows.map((r) => ({
+                return rows.rows.map((r) => ({
                     id: r.id,
                     name: r.name,
                     color: r.color,

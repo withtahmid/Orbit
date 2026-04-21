@@ -31,17 +31,28 @@ export const personalSpendingHeatmap = authorizedProcedure
                 if (owned.length === 0 || memberSpaces.length === 0) return [];
 
                 const query = sql<{ day: Date; total: string }>`
-                    SELECT
-                        date_trunc('day', transaction_datetime) AS day,
-                        SUM(amount)::text AS total
-                    FROM transactions
-                    WHERE space_id = ANY(${memberSpaces})
-                      AND type = 'expense'
-                      AND source_account_id = ANY(${owned})
-                      AND transaction_datetime >= ${input.periodStart}
-                      AND transaction_datetime < ${input.periodEnd}
-                    GROUP BY 1
-                    ORDER BY 1 ASC
+                    SELECT day, SUM(amount)::text AS total FROM (
+                        SELECT date_trunc('day', transaction_datetime) AS day, amount
+                        FROM transactions
+                        WHERE space_id = ANY(${memberSpaces})
+                          AND type = 'expense'
+                          AND source_account_id = ANY(${owned})
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                        UNION ALL
+                        -- Transfer fees out of owned accounts show up
+                        -- on the personal heatmap the day they happen.
+                        SELECT date_trunc('day', transaction_datetime) AS day, fee_amount AS amount
+                        FROM transactions
+                        WHERE space_id = ANY(${memberSpaces})
+                          AND type = 'transfer'
+                          AND fee_amount IS NOT NULL
+                          AND source_account_id = ANY(${owned})
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                    ) entries
+                    GROUP BY day
+                    ORDER BY day ASC
                 `;
                 const res = await query.execute(ctx.services.qb);
                 return res.rows.map((r) => ({

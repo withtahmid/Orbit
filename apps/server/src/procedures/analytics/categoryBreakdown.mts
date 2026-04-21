@@ -43,15 +43,29 @@ export const categoryBreakdown = authorizedProcedure
                         FROM expense_categories ec
                         JOIN tree t ON ec.parent_id = t.id
                     ),
-                    spends AS (
-                        SELECT expense_category_id AS id, SUM(amount) AS total
+                    spending_rows AS (
+                        SELECT expense_category_id AS id, amount
                         FROM transactions
                         WHERE space_id = ${input.spaceId}
                           AND type = 'expense'
                           AND expense_category_id IS NOT NULL
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        GROUP BY expense_category_id
+                        UNION ALL
+                        -- Transfer fees roll up to their category like a
+                        -- regular expense on the source account.
+                        SELECT fee_expense_category_id AS id, fee_amount AS amount
+                        FROM transactions
+                        WHERE space_id = ${input.spaceId}
+                          AND type = 'transfer'
+                          AND fee_amount IS NOT NULL
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                    ),
+                    spends AS (
+                        SELECT id, SUM(amount) AS total
+                        FROM spending_rows
+                        GROUP BY id
                     )
                     SELECT
                         ec.id::text,

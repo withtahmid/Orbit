@@ -203,6 +203,8 @@ export interface Transactions {
   destination_account_id: string | null;
   event_id: string | null;
   expense_category_id: string | null;
+  fee_amount: Numeric | null;
+  fee_expense_category_id: string | null;
   id: Generated<string>;
   location: string | null;
   source_account_id: string | null;

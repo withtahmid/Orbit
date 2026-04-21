@@ -54,8 +54,8 @@ export const personalCategoryBreakdown = authorizedProcedure
                         JOIN tree t ON ec.parent_id = t.id
                         WHERE ec.space_id = ANY(${memberSpaces})
                     ),
-                    spends AS (
-                        SELECT expense_category_id AS id, SUM(amount) AS total
+                    spending_rows AS (
+                        SELECT expense_category_id AS id, amount
                         FROM transactions
                         WHERE space_id = ANY(${memberSpaces})
                           AND type = 'expense'
@@ -63,7 +63,23 @@ export const personalCategoryBreakdown = authorizedProcedure
                           AND source_account_id = ANY(${owned})
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        GROUP BY expense_category_id
+                        UNION ALL
+                        -- Transfer fees out of owned accounts roll up
+                        -- into the category tree just like a regular
+                        -- personal expense.
+                        SELECT fee_expense_category_id AS id, fee_amount AS amount
+                        FROM transactions
+                        WHERE space_id = ANY(${memberSpaces})
+                          AND type = 'transfer'
+                          AND fee_amount IS NOT NULL
+                          AND source_account_id = ANY(${owned})
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                    ),
+                    spends AS (
+                        SELECT id, SUM(amount) AS total
+                        FROM spending_rows
+                        GROUP BY id
                     )
                     SELECT
                         ec.id::text,

@@ -168,16 +168,17 @@ procedure atomically rewrites an entire subtree's envelope.
   'expense' | 'transfer' | 'adjustment'`, `amount > 0`, `source_account_id`,
   `destination_account_id`, `description`, `location`, `expense_category_id`,
   `event_id`, `transaction_datetime` (when it happened),
-  `created_at` (when it was recorded).
+  `created_at` (when it was recorded), `fee_amount` + `fee_expense_category_id`
+  (optional, transfers only — see §11.6).
 
 CHECK constraints (enforced in the DB):
 
-| type | source | destination | category |
-| --- | --- | --- | --- |
-| income | NULL | set | ignored |
-| expense | set | NULL | REQUIRED |
-| transfer | set | set, ≠ source | ignored |
-| adjustment | exactly one of source/destination | | ignored |
+| type | source | destination | category | fee |
+| --- | --- | --- | --- | --- |
+| income | NULL | set | ignored | — |
+| expense | set | NULL | REQUIRED | — |
+| transfer | set | set, ≠ source | ignored | optional (both or neither of `fee_amount` / `fee_expense_category_id`) |
+| adjustment | exactly one of source/destination | | ignored | — |
 
 ### 3.7 Events (grouping)
 
@@ -695,6 +696,62 @@ category (with `includeDescendants` flag, default true), event, account
 (either side), search (ILIKE on description + location), amount min/max,
 date range, cursor-paginated (limit 1–200, default 50). Returns
 `{items, nextCursor}`.
+
+### 11.6 Transfer fees
+
+Real-world transfers cost money: wire fees, ATM withdrawal fees, FX
+margins, card processor cuts. Orbit models these as **first-class fee
+columns on the transfer row** rather than forcing the user to record
+two transactions (a transfer plus an expense that's easy to forget and
+easy to mis-sign).
+
+**Schema** (migration 030):
+
+- `transactions.fee_amount numeric(12, 2) NULL`
+- `transactions.fee_expense_category_id uuid NULL REFERENCES expense_categories(id) ON DELETE RESTRICT`
+- CHECK constraint `transactions_fee_shape_check`: both columns NULL, or
+  both populated with `fee_amount > 0 AND type = 'transfer'`.
+
+**Balance semantics** — the
+[balance-sync trigger](../apps/server/src/db/kysely/migrations/030_add_transfer_fees.mts)
+is updated so a transfer with a fee debits the source by `amount + fee_amount`
+and credits the destination the plain `amount`. The fee is money
+leaving Orbit's books entirely (it went to the bank / ATM / processor)
+and the ledger stays internally consistent. INSERT / UPDATE / DELETE
+all respect the fee (swap OLD for NEW on updates, reverse on delete).
+
+**Analytics** — every expense-centric analytics procedure folds
+`fee_amount` into its category sums:
+
+| Procedure | Where the fee lands |
+|---|---|
+| `topCategories`, `categoryBreakdown` | added to totals under `fee_expense_category_id` |
+| `envelopeUtilization`, `accountAllocation` | consumed includes fees on the envelope their category rolls up to; carry-over math respects fees on prior periods |
+| `cashFlow`, `spendingHeatmap`, `spaceSummary` (`periodExpense`) | fees count as period expense alongside regular `type='expense'` rows |
+
+**Personal twins** — same additions on every `personal.*` counterpart.
+A transfer fee only counts as the caller's personal outflow if the
+transfer's source account is one they own (including owned → owned
+internal transfers — the bank still took the fee).
+
+**UI** — the Transfer form ([`NewTransactionSheet`](../apps/web/src/features/transactions/NewTransactionSheet.tsx))
+exposes an optional "There's a fee on this transfer" toggle that reveals
+the amount + category inputs and a live preview: "Source debited −1005
+/ Destination credited +1000 / Fee (lost to provider) 5.00". The edit
+form ([`EditTransactionSheet`](../apps/web/src/features/transactions/EditTransactionSheet.tsx))
+hydrates from the existing columns and lets the user clear the fee.
+Details view ([`TransactionDetailsSheet`](../apps/web/src/features/transactions/TransactionDetailsSheet.tsx))
+shows the fee amount + its category and a "Source out" line summing
+amount + fee.
+
+**Source-dropdown rule** — the transaction form's "from" dropdowns
+(expense source, transfer source, adjustment account) only list
+accounts the caller owns (`user_accounts.role = 'owner'`); you can
+only move your own money out. Destination dropdowns list every
+account in the space — income and transfers can land in shared pots
+or other members' accounts.
+[`resolveTransactionPermission`](../apps/server/src/procedures/transaction/utils/resolveTransactionPermission.mts)
+mirrors this on the server: destination needs only space-member access.
 
 ---
 

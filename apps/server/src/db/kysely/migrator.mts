@@ -98,3 +98,16 @@ export const run_migration = async ({ migrateMode }: { migrateMode: "up" | "down
     }
     logger.debug(`Migration in ${migrateMode} mode completed.`);
 };
+
+// When invoked directly (pnpm migrate → tsx ./migrator.mts), run the
+// "up" migration. Without this guard, the script just loaded the
+// module and exited with no output, silently leaving new migrations
+// unapplied.
+const invokedDirectly =
+    import.meta.url === `file://${process.argv[1]}` ||
+    process.argv[1]?.endsWith("migrator.mts") ||
+    process.argv[1]?.endsWith("migrator.mjs");
+if (invokedDirectly) {
+    const mode = (process.argv[2] === "down" ? "down" : "up") as "up" | "down";
+    await run_migration({ migrateMode: mode });
+}

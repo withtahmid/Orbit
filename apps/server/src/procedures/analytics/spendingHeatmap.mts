@@ -25,16 +25,26 @@ export const spendingHeatmap = authorizedProcedure
                 });
 
                 const query = sql<{ day: Date; total: string }>`
-                    SELECT
-                        date_trunc('day', transaction_datetime) AS day,
-                        SUM(amount)::text AS total
-                    FROM transactions
-                    WHERE space_id = ${input.spaceId}
-                      AND type = 'expense'
-                      AND transaction_datetime >= ${input.periodStart}
-                      AND transaction_datetime < ${input.periodEnd}
-                    GROUP BY 1
-                    ORDER BY 1 ASC
+                    SELECT day, SUM(amount)::text AS total FROM (
+                        SELECT date_trunc('day', transaction_datetime) AS day, amount
+                        FROM transactions
+                        WHERE space_id = ${input.spaceId}
+                          AND type = 'expense'
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                        UNION ALL
+                        -- Transfer fees show up on the heatmap as
+                        -- spending on the day they occurred.
+                        SELECT date_trunc('day', transaction_datetime) AS day, fee_amount AS amount
+                        FROM transactions
+                        WHERE space_id = ${input.spaceId}
+                          AND type = 'transfer'
+                          AND fee_amount IS NOT NULL
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                    ) entries
+                    GROUP BY day
+                    ORDER BY day ASC
                 `;
                 const res = await query.execute(trx);
                 return res.rows.map((r) => ({

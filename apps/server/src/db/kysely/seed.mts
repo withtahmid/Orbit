@@ -1322,15 +1322,15 @@ async function seedTransactions(
 
 // // When invoked directly (e.g. via `tsx src/db/kysely/seed.mts`), run.
 // // When imported from bootstrap, the caller drives when to execute.
-// const invokedDirectly =
-//     import.meta.url === `file://${process.argv[1]}` ||
-//     process.argv[1]?.endsWith("/seed.mts") ||
-//     process.argv[1]?.endsWith("/seed.mjs");
+const invokedDirectly =
+    import.meta.url === `file://${process.argv[1]}` ||
+    process.argv[1]?.endsWith("/seed.mts") ||
+    process.argv[1]?.endsWith("/seed.mjs");
 
-// if (invokedDirectly) {
-//     seedDatabase().catch((err: unknown) => {
-//         logger.error("Seed failed");
-//         console.error(err);
-//         process.exit(1);
-//     });
-// }
+if (invokedDirectly) {
+    seedDatabase().catch((err: unknown) => {
+        logger.error("Seed failed");
+        console.error(err);
+        process.exit(1);
+    });
+}

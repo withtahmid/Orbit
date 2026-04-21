@@ -358,13 +358,17 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                         <SelectValue placeholder="Choose account" />
                     </SelectTrigger>
                     <SelectContent>
-                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
+                        {(accountsQuery.data ?? []).map((a) => (
                             <SelectItem key={a.id} value={a.id}>
                                 <AccountOption account={a} />
                             </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                    Income can land in any account in this space — including shared
+                    pots and accounts owned by other members.
+                </p>
             </div>
             <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
             <FileUploadField
@@ -489,6 +493,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
 function TransferForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
+    const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
     const utils = trpc.useUtils();
 
     const [amount, setAmount] = useState("");
@@ -498,13 +503,22 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const [destinationAccountId, setDest] = useState("");
     const [eventId, setEventId] = useState("");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
+    // Optional fee that banks / ATMs / FX providers skim off the top.
+    // When enabled, the source is debited `amount + fee` while the
+    // destination still receives `amount`. The fee shows up in every
+    // analytics view via its category — see project-spec §11.6.
+    const [feeEnabled, setFeeEnabled] = useState(false);
+    const [feeAmount, setFeeAmount] = useState("");
+    const [feeCategoryId, setFeeCategoryId] = useState<string | null>(null);
 
     const mutate = trpc.transaction.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Transfer recorded");
             await utils.transaction.listBySpace.invalidate({ spaceId });
             await utils.account.listBySpace.invalidate({ spaceId });
+            await utils.envelop.listBySpace.invalidate({ spaceId });
             await utils.analytics.spaceSummary.invalidate();
+            await utils.analytics.envelopeUtilization.invalidate({ spaceId });
             onDone();
         },
         onError: (e) => toast.error(e.message),
@@ -513,6 +527,10 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const spendable = (accountsQuery.data ?? [])
         .filter((a) => a.account_type !== "locked")
         .filter(ownedByMe);
+
+    const feeNum = feeEnabled ? Number(feeAmount) : 0;
+    const amountNum = Number(amount);
+    const totalOut = (amountNum || 0) + (Number.isFinite(feeNum) ? feeNum : 0);
 
     return (
         <form
@@ -527,6 +545,16 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     toast.error("Source and destination must differ");
                     return;
                 }
+                if (feeEnabled) {
+                    if (!(feeNum > 0)) {
+                        toast.error("Fee must be greater than 0");
+                        return;
+                    }
+                    if (!feeCategoryId) {
+                        toast.error("Pick a category for the fee");
+                        return;
+                    }
+                }
                 mutate.mutate({
                     spaceId,
                     sourceAccountId,
@@ -537,6 +565,9 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     eventId: eventId || undefined,
                     attachmentFileIds:
                         attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    feeAmount: feeEnabled ? feeNum : undefined,
+                    feeExpenseCategoryId:
+                        feeEnabled && feeCategoryId ? feeCategoryId : undefined,
                 });
             }}
         >
@@ -565,14 +596,90 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                         <SelectValue placeholder="Choose account" />
                     </SelectTrigger>
                     <SelectContent>
-                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                                <AccountOption account={a} />
-                            </SelectItem>
-                        ))}
+                        {(accountsQuery.data ?? [])
+                            .filter((a) => a.id !== sourceAccountId)
+                            .map((a) => (
+                                <SelectItem key={a.id} value={a.id}>
+                                    <AccountOption account={a} />
+                                </SelectItem>
+                            ))}
                     </SelectContent>
                 </Select>
+                <p className="text-[11px] text-muted-foreground">
+                    Transfers out of your money can land in any account — your own,
+                    a shared household pot, or a locked savings account.
+                </p>
             </div>
+
+            {/* Optional fee block */}
+            <div className="rounded-md border border-border bg-card/50 p-3">
+                <label className="flex cursor-pointer items-start gap-3">
+                    <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={feeEnabled}
+                        onChange={(e) => setFeeEnabled(e.target.checked)}
+                    />
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">There's a fee on this transfer</p>
+                        <p className="text-[11px] text-muted-foreground">
+                            Wire fee, ATM fee, FX margin, etc. The fee is deducted
+                            from your source account on top of the transfer amount
+                            and counts as a regular expense in the category you pick.
+                        </p>
+                    </div>
+                </label>
+                {feeEnabled && (
+                    <div className="mt-3 grid gap-3">
+                        <div className="grid gap-1.5">
+                            <Label htmlFor="fee-amount">Fee amount</Label>
+                            <Input
+                                id="fee-amount"
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                value={feeAmount}
+                                onChange={(e) => setFeeAmount(e.target.value)}
+                                placeholder="0.00"
+                            />
+                        </div>
+                        <div className="grid gap-1.5">
+                            <Label>Fee category</Label>
+                            <CategoryTreeSelect
+                                categories={(categoriesQuery.data ?? []) as any}
+                                value={feeCategoryId}
+                                onChange={setFeeCategoryId}
+                                placeholder="Pick a category (e.g. Bank fees)"
+                                allowAll={false}
+                            />
+                        </div>
+                        {amountNum > 0 && feeNum > 0 && (
+                            <div className="grid gap-1 rounded-sm bg-background/60 px-3 py-2 text-[11px]">
+                                <div className="flex items-center justify-between text-muted-foreground">
+                                    <span>Source debited</span>
+                                    <span className="font-semibold text-foreground tabular-nums">
+                                        −{totalOut.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between text-muted-foreground">
+                                    <span>Destination credited</span>
+                                    <span className="text-foreground tabular-nums">
+                                        +{amountNum.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between text-muted-foreground">
+                                    <span>Fee (lost to provider)</span>
+                                    <span className="text-expense tabular-nums">
+                                        {feeNum.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+
             <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
             <FileUploadField
                 purpose="transaction_receipt"

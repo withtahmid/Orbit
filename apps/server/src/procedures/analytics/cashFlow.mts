@@ -48,7 +48,13 @@ export const cashFlow = authorizedProcedure
                         SELECT
                             date_trunc(${input.bucket}, transaction_datetime) AS bucket,
                             SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
-                            SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
+                            -- Transfer fees count as expense (money leaving
+                            -- the space to the bank/processor) alongside
+                            -- regular expense transactions.
+                            SUM(
+                                CASE WHEN type = 'expense' THEN amount ELSE 0 END
+                                + CASE WHEN type = 'transfer' AND fee_amount IS NOT NULL THEN fee_amount ELSE 0 END
+                            ) AS expense
                         FROM transactions
                         WHERE space_id = ${input.spaceId}
                           AND transaction_datetime >= ${input.periodStart}

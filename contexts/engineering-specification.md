@@ -131,11 +131,24 @@ Canonical list of materialized state maintained by the DB:
 
 | Table / column | Maintained by | Migration |
 |---|---|---|
-| `account_balances.balance` | `__trigger_sync_account_balance_from_transactions` on INSERT/UPDATE/DELETE of `transactions` | 018 |
+| `account_balances.balance` | `__trigger_sync_account_balance_from_transactions` on INSERT/UPDATE/DELETE of `transactions` — updated in 030 to also debit `fee_amount` from source on transfers | 018, 030 |
 
 Everything else — envelope periods, plan totals, space unallocated,
 drift, analytics — is computed on-read. **Retired**: `envelop_balances`
 and `plan_balances` (and their triggers) in migration 026.
+
+**Transfer fees** (migration 030) — `transactions.fee_amount` +
+`transactions.fee_expense_category_id` are a first-class column pair
+gated by a `CHECK` constraint (both NULL, or both populated with
+`fee_amount > 0 AND type = 'transfer'`). The balance-sync trigger
+debits the source by `amount + fee_amount` and credits the destination
+the plain `amount`; the fee is money that left the ledger for the
+bank / ATM / processor. Every expense-centric analytics procedure
+(`topCategories`, `categoryBreakdown`, `envelopeUtilization`,
+`accountAllocation`, `cashFlow`, `spendingHeatmap`, `spaceSummary`'s
+`periodExpense`) and their `personal.*` twins `UNION ALL` the fee rows
+into their expense sums, keyed by `fee_expense_category_id`. See
+project spec §11.6 for the full semantics and UX.
 
 ---
 

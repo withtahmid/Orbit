@@ -6,6 +6,7 @@ import { resolveTransactionPermission } from "./utils/resolveTransactionPermissi
 import { TRPCError } from "@trpc/server";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
+import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
 
 export const createTransferTransaction = authorizedProcedure
@@ -20,9 +21,27 @@ export const createTransferTransaction = authorizedProcedure
             destinationAccountId: z.string().uuid(),
             eventId: z.string().uuid().optional(),
             attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
+            // Optional transfer fee: a positive amount deducted from
+            // source on top of `amount`, categorized as an expense so it
+            // flows through the category/envelope analytics. Both
+            // fields move together; DB CHECK enforces this.
+            feeAmount: z.number().positive().optional(),
+            feeExpenseCategoryId: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
+        // Both or neither of the fee fields — client-side guard mirrors
+        // the CHECK constraint.
+        if (
+            (input.feeAmount !== undefined) !==
+            (input.feeExpenseCategoryId !== undefined)
+        ) {
+            throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: "Fee amount and fee category must both be provided",
+            });
+        }
+
         const [error, result] = await safeAwait(
             ctx.services.qb.transaction().execute(async (trx) => {
                 await resolveTransactionPermission({
@@ -41,10 +60,21 @@ export const createTransferTransaction = authorizedProcedure
                     });
                 }
 
+                if (input.feeExpenseCategoryId) {
+                    await resolveExpenseCategoryBelongsToSpace({
+                        trx,
+                        expenseCategoryId: input.feeExpenseCategoryId,
+                        spaceId: input.spaceId,
+                    });
+                }
+
+                // Source must cover amount + fee. Passing the sum keeps
+                // the existing balance guard honest.
+                const totalOut = input.amount + (input.feeAmount ?? 0);
                 await resolveAvailableBalance({
                     trx,
                     accountId: input.sourceAccountId,
-                    requiredBalance: input.amount,
+                    requiredBalance: totalOut,
                 });
 
                 const transaction = await trx
@@ -60,6 +90,9 @@ export const createTransferTransaction = authorizedProcedure
                         location: input.location || null,
                         transaction_datetime: input.datetime || new Date(),
                         event_id: input.eventId ?? null,
+                        fee_amount: input.feeAmount ?? null,
+                        fee_expense_category_id:
+                            input.feeExpenseCategoryId ?? null,
                     })
                     .returning(["id"])
                     .executeTakeFirstOrThrow();

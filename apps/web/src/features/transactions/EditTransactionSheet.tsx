@@ -72,6 +72,13 @@ export interface EditableTransaction {
     transaction_datetime: Date | string;
     expense_category_id: string | null;
     event_id: string | null;
+    /**
+     * Transfer fee columns. Both null on non-transfer rows and on
+     * transfers without a fee. Both populated when the transfer
+     * carries a fee.
+     */
+    fee_amount?: string | number | null;
+    fee_expense_category_id?: string | null;
 }
 
 /**
@@ -147,6 +154,19 @@ function EditForm({
     );
     const [eventId, setEventId] = useState(transaction.event_id ?? "");
 
+    // Transfer fee state. Initialized from the transaction's existing
+    // fee columns (if any) so editing a fee-bearing transfer shows the
+    // current values. Only surfaced in the transfer branch.
+    const initialFeeAmount =
+        transaction.fee_amount != null ? String(transaction.fee_amount) : "";
+    const [feeEnabled, setFeeEnabled] = useState(
+        transaction.fee_amount != null
+    );
+    const [feeAmount, setFeeAmount] = useState(initialFeeAmount);
+    const [feeCategoryId, setFeeCategoryId] = useState<string | null>(
+        transaction.fee_expense_category_id ?? null
+    );
+
     const mutate = trpc.transaction.update.useMutation({
         onSuccess: async () => {
             toast.success("Transaction updated");
@@ -179,6 +199,7 @@ function EditForm({
             toast.error("Pick a destination account");
             return;
         }
+        const feeNum = feeEnabled ? Number(feeAmount) : 0;
         if (type === "transfer") {
             if (!sourceAccountId || !destinationAccountId) {
                 toast.error("Pick both accounts");
@@ -187,6 +208,16 @@ function EditForm({
             if (sourceAccountId === destinationAccountId) {
                 toast.error("Source and destination must differ");
                 return;
+            }
+            if (feeEnabled) {
+                if (!(feeNum > 0)) {
+                    toast.error("Fee must be greater than 0");
+                    return;
+                }
+                if (!feeCategoryId) {
+                    toast.error("Pick a category for the fee");
+                    return;
+                }
             }
         }
         mutate.mutate({
@@ -209,6 +240,20 @@ function EditForm({
             expenseCategoryId: type === "expense" ? categoryId : undefined,
             eventId:
                 type === "adjustment" ? undefined : eventId === "" ? null : eventId,
+            // Fee fields only meaningful for transfers. `null` clears
+            // both server-side (CHECK enforces they move together).
+            feeAmount:
+                type === "transfer"
+                    ? feeEnabled
+                        ? feeNum
+                        : null
+                    : undefined,
+            feeExpenseCategoryId:
+                type === "transfer"
+                    ? feeEnabled
+                        ? feeCategoryId
+                        : null
+                    : undefined,
         });
     };
 
@@ -257,7 +302,7 @@ function EditForm({
                                 <SelectValue placeholder="Choose account" />
                             </SelectTrigger>
                             <SelectContent>
-                                {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
+                                {(accountsQuery.data ?? []).map((a) => (
                                     <SelectItem key={a.id} value={a.id}>
                                         <AccountOption account={a} />
                                     </SelectItem>
@@ -311,11 +356,13 @@ function EditForm({
                                         <SelectValue placeholder="Destination" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
-                                            <SelectItem key={a.id} value={a.id}>
-                                                <AccountOption account={a} />
-                                            </SelectItem>
-                                        ))}
+                                        {(accountsQuery.data ?? [])
+                                            .filter((a) => a.id !== sourceAccountId)
+                                            .map((a) => (
+                                                <SelectItem key={a.id} value={a.id}>
+                                                    <AccountOption account={a} />
+                                                </SelectItem>
+                                            ))}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -334,6 +381,56 @@ function EditForm({
                         placeholder="Choose category"
                         allowAll={false}
                     />
+                </div>
+            )}
+
+            {type === "transfer" && (
+                <div className="rounded-md border border-border bg-card/50 p-3">
+                    <label className="flex cursor-pointer items-start gap-3">
+                        <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={feeEnabled}
+                            onChange={(e) => setFeeEnabled(e.target.checked)}
+                        />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">
+                                There's a fee on this transfer
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                                The fee is deducted from the source account on top
+                                of the transfer amount and counts as a regular
+                                expense in the category you pick.
+                            </p>
+                        </div>
+                    </label>
+                    {feeEnabled && (
+                        <div className="mt-3 grid gap-3">
+                            <div className="grid gap-1.5">
+                                <Label htmlFor="edit-fee-amount">Fee amount</Label>
+                                <Input
+                                    id="edit-fee-amount"
+                                    type="number"
+                                    inputMode="decimal"
+                                    min="0"
+                                    step="0.01"
+                                    value={feeAmount}
+                                    onChange={(e) => setFeeAmount(e.target.value)}
+                                    placeholder="0.00"
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label>Fee category</Label>
+                                <CategoryTreeSelect
+                                    categories={(categoriesQuery.data ?? []) as any}
+                                    value={feeCategoryId}
+                                    onChange={setFeeCategoryId}
+                                    placeholder="Pick a category"
+                                    allowAll={false}
+                                />
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

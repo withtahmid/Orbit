@@ -593,6 +593,16 @@ function Transactions() {
                 in the Transactions page. Delete-permission is the creator or a space
                 editor/owner. Balance and envelope numbers recompute automatically.
             </Paragraph>
+            <div className="grid gap-3 sm:grid-cols-2">
+                <InfoCard
+                    title="From vs To"
+                    body="The 'from' (source) account dropdown only lists accounts you personally own — you can only move your own money out. The 'to' (destination) dropdown lists every account in the space, so you can record income into a shared household pot or transfer money to a roommate's account."
+                />
+                <InfoCard
+                    title="Transfer fees"
+                    body="Toggle 'There's a fee on this transfer' to capture wire fees, ATM fees, FX margins, etc. The fee is deducted from the source on top of the amount (destination still receives the plain amount), categorized as a regular expense, and folds into every analytics view — top categories, envelope utilization, cash flow, spending heatmap."
+                />
+            </div>
             <Paragraph>
                 You can attach image receipts to any transaction. See{" "}
                 <a href="#attachments" className="text-primary underline">

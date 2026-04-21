@@ -42,3 +42,6 @@ tsconfig.tsbuildinfo
 dist
 
 PR-Markdown.md
+
+
+.env.prod

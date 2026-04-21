@@ -54,13 +54,39 @@ export const resolveTransactionPermission = async ({
             });
         }
 
-        await resolveAccountPermission({
-            trx,
-            accountId: destinationAccountId,
-            userId,
-            roles: ["owner"] as unknown as UserAccounts["role"][],
+        // Income can land in any account the caller has access to: one
+        // they own, OR one they have viewer access to via a shared
+        // space. This matches the transfer destination rule so a space
+        // member can record income into a shared household pot they
+        // don't personally own.
+        const asOwner = await trx
+            .selectFrom("user_accounts")
+            .select("user_accounts.user_id")
+            .where("user_accounts.account_id", "=", destinationAccountId)
+            .where("user_accounts.user_id", "=", userId)
+            .where("user_accounts.role", "=", "owner" as unknown as UserAccounts["role"])
+            .executeTakeFirst();
+        if (asOwner) return;
+
+        // Accessible via space membership: the account is shared into a
+        // space the caller is a member of.
+        const asSpaceMember = await trx
+            .selectFrom("space_accounts")
+            .innerJoin(
+                "space_members",
+                "space_members.space_id",
+                "space_accounts.space_id"
+            )
+            .select("space_members.user_id")
+            .where("space_accounts.account_id", "=", destinationAccountId)
+            .where("space_members.user_id", "=", userId)
+            .executeTakeFirst();
+        if (asSpaceMember) return;
+
+        throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You don't have access to the destination account",
         });
-        return;
     }
 
     if (type === ("expense" as unknown as Transactions["type"])) {

@@ -80,14 +80,26 @@ export const personalCashFlow = authorizedProcedure
                                 WHEN type = 'adjustment' AND destination_account_id = ANY(${owned}) THEN amount
                                 ELSE 0
                             END) AS income,
-                            SUM(CASE
-                                WHEN type = 'expense' AND source_account_id = ANY(${owned}) THEN amount
-                                WHEN type = 'transfer'
-                                    AND source_account_id = ANY(${owned})
-                                    AND destination_account_id <> ALL(${owned}) THEN amount
-                                WHEN type = 'adjustment' AND source_account_id = ANY(${owned}) THEN amount
-                                ELSE 0
-                            END) AS expense
+                            SUM(
+                                CASE
+                                    WHEN type = 'expense' AND source_account_id = ANY(${owned}) THEN amount
+                                    WHEN type = 'transfer'
+                                        AND source_account_id = ANY(${owned})
+                                        AND destination_account_id <> ALL(${owned}) THEN amount
+                                    WHEN type = 'adjustment' AND source_account_id = ANY(${owned}) THEN amount
+                                    ELSE 0
+                                END
+                                -- Transfer fees out of owned accounts
+                                -- are personal outflow regardless of
+                                -- whether the transfer itself is
+                                -- internal (owned→owned).
+                                + CASE
+                                    WHEN type = 'transfer'
+                                        AND source_account_id = ANY(${owned})
+                                        AND fee_amount IS NOT NULL THEN fee_amount
+                                    ELSE 0
+                                END
+                            ) AS expense
                         FROM transactions
                         WHERE space_id = ANY(${memberSpaces})
                           AND transaction_datetime >= ${input.periodStart}

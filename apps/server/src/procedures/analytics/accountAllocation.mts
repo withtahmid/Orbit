@@ -108,14 +108,29 @@ export const accountAllocation = authorizedProcedure
                               )
                         ), 0)::text AS allocated,
                         COALESCE((
-                            SELECT SUM(t.amount)
-                            FROM transactions t
-                            JOIN expense_categories ec ON ec.id = t.expense_category_id
-                            WHERE ec.envelop_id = p.envelop_id
-                              AND t.type = 'expense'
-                              AND t.source_account_id = ${input.accountId}
-                              AND t.transaction_datetime >= p.p_start
-                              AND t.transaction_datetime < p.p_end
+                            SELECT SUM(entry.amount) FROM (
+                                SELECT t.amount
+                                FROM transactions t
+                                JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                WHERE ec.envelop_id = p.envelop_id
+                                  AND t.type = 'expense'
+                                  AND t.source_account_id = ${input.accountId}
+                                  AND t.transaction_datetime >= p.p_start
+                                  AND t.transaction_datetime < p.p_end
+                                UNION ALL
+                                -- Transfer fees debited from this
+                                -- account consume the envelope their
+                                -- fee category rolls up to.
+                                SELECT t.fee_amount AS amount
+                                FROM transactions t
+                                JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                WHERE ec.envelop_id = p.envelop_id
+                                  AND t.type = 'transfer'
+                                  AND t.fee_amount IS NOT NULL
+                                  AND t.source_account_id = ${input.accountId}
+                                  AND t.transaction_datetime >= p.p_start
+                                  AND t.transaction_datetime < p.p_end
+                            ) entry
                         ), 0)::text AS consumed,
                         CASE
                             WHEN p.cadence <> 'none' AND p.carry_over THEN GREATEST(0, (
@@ -129,14 +144,26 @@ export const accountAllocation = authorizedProcedure
                                 ), 0)
                                 -
                                 COALESCE((
-                                    SELECT SUM(t.amount)
-                                    FROM transactions t
-                                    JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                    WHERE ec.envelop_id = p.envelop_id
-                                      AND t.type = 'expense'
-                                      AND t.source_account_id = ${input.accountId}
-                                      AND t.transaction_datetime >= p.prev_start
-                                      AND t.transaction_datetime < p.prev_end
+                                    SELECT SUM(entry.amount) FROM (
+                                        SELECT t.amount
+                                        FROM transactions t
+                                        JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                        WHERE ec.envelop_id = p.envelop_id
+                                          AND t.type = 'expense'
+                                          AND t.source_account_id = ${input.accountId}
+                                          AND t.transaction_datetime >= p.prev_start
+                                          AND t.transaction_datetime < p.prev_end
+                                        UNION ALL
+                                        SELECT t.fee_amount AS amount
+                                        FROM transactions t
+                                        JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                        WHERE ec.envelop_id = p.envelop_id
+                                          AND t.type = 'transfer'
+                                          AND t.fee_amount IS NOT NULL
+                                          AND t.source_account_id = ${input.accountId}
+                                          AND t.transaction_datetime >= p.prev_start
+                                          AND t.transaction_datetime < p.prev_end
+                                    ) entry
                                 ), 0)
                             ))
                             ELSE 0

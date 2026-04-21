@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { sql } from "kysely";
 import { z } from "zod";
-import type { SpaceMembers, Transactions } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
@@ -135,42 +135,28 @@ export const spaceSummary = authorizedProcedure
                     ])
                     .executeTakeFirst();
 
-                const incomeExpenseRow = await trx
-                    .selectFrom("transactions")
-                    .where("space_id", "=", input.spaceId)
-                    .where("transaction_datetime", ">=", input.periodStart)
-                    .where("transaction_datetime", "<", input.periodEnd)
-                    .select((eb) => [
-                        eb.fn
-                            .sum<string>(
-                                eb
-                                    .case()
-                                    .when(
-                                        "type",
-                                        "=",
-                                        "income" as unknown as Transactions["type"]
-                                    )
-                                    .then(eb.ref("amount"))
-                                    .else(0)
-                                    .end()
-                            )
-                            .as("income"),
-                        eb.fn
-                            .sum<string>(
-                                eb
-                                    .case()
-                                    .when(
-                                        "type",
-                                        "=",
-                                        "expense" as unknown as Transactions["type"]
-                                    )
-                                    .then(eb.ref("amount"))
-                                    .else(0)
-                                    .end()
-                            )
-                            .as("expense"),
-                    ])
-                    .executeTakeFirst();
+                // Period income / expense. Transfer fees count as
+                // expense (money leaving the space); kept as raw SQL so
+                // we can sum two CASE branches into the expense column.
+                const incomeExpenseRow = await sql<{
+                    income: string;
+                    expense: string;
+                }>`
+                    SELECT
+                        COALESCE(SUM(
+                            CASE WHEN type = 'income' THEN amount ELSE 0 END
+                        ), 0)::text AS income,
+                        COALESCE(SUM(
+                            CASE WHEN type = 'expense' THEN amount ELSE 0 END
+                            + CASE WHEN type = 'transfer' AND fee_amount IS NOT NULL THEN fee_amount ELSE 0 END
+                        ), 0)::text AS expense
+                    FROM transactions
+                    WHERE space_id = ${input.spaceId}
+                      AND transaction_datetime >= ${input.periodStart}
+                      AND transaction_datetime < ${input.periodEnd}
+                `
+                    .execute(trx)
+                    .then((r) => r.rows[0]);
 
                 const totalBalance = Number(balanceRow?.total_balance ?? 0);
                 const spendableBalance = Number(balanceRow?.spendable_balance ?? 0);

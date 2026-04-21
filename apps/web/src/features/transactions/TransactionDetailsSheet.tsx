@@ -44,6 +44,12 @@ type Transaction = {
     created_by_first_name?: string | null;
     created_by_last_name?: string | null;
     created_by_avatar_file_id?: string | null;
+    /**
+     * Transfer fee columns — only populated on transfers that carried
+     * a fee (wire, ATM, FX, etc.). Both move together; see spec §11.6.
+     */
+    fee_amount?: string | number | null;
+    fee_expense_category_id?: string | null;
 };
 
 type Props = {
@@ -114,6 +120,17 @@ function Details({
         ? categoriesById.get(transaction.expense_category_id)?.name
         : null;
     const event = transaction.event_id ? eventsById.get(transaction.event_id)?.name : null;
+    const feeAmount =
+        transaction.fee_amount != null ? Number(transaction.fee_amount) : null;
+    const feeCategory =
+        transaction.fee_expense_category_id != null
+            ? categoriesById.get(transaction.fee_expense_category_id)?.name
+            : null;
+    const hasFee = feeAmount != null && feeAmount > 0;
+    const sourceTotalOut =
+        type === "transfer" && hasFee
+            ? Number(transaction.amount) + (feeAmount ?? 0)
+            : null;
 
     return (
         <>
@@ -138,6 +155,33 @@ function Details({
                     {source && <Row label="From">{source}</Row>}
                     {destination && <Row label="To">{destination}</Row>}
                     {category && <Row label="Category">{category}</Row>}
+                    {hasFee && (
+                        <>
+                            <Row label="Fee">
+                                <span className="inline-flex items-center gap-2">
+                                    <MoneyDisplay
+                                        amount={feeAmount ?? 0}
+                                        variant="expense"
+                                        className="font-semibold"
+                                    />
+                                    {feeCategory && (
+                                        <span className="text-xs text-muted-foreground">
+                                            · {feeCategory}
+                                        </span>
+                                    )}
+                                </span>
+                            </Row>
+                            {sourceTotalOut != null && (
+                                <Row label="Source out">
+                                    <MoneyDisplay
+                                        amount={sourceTotalOut}
+                                        variant="expense"
+                                        className="font-semibold"
+                                    />
+                                </Row>
+                            )}
+                        </>
+                    )}
                     {event && <Row label="Event">{event}</Row>}
                     {transaction.location && <Row label="Location">{transaction.location}</Row>}
                     {transaction.description && (

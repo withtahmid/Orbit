@@ -1,10 +1,19 @@
 import { TRPCError } from "@trpc/server";
+import { sql } from "kysely";
 import { z } from "zod";
-import type { SpaceMembers, Transactions } from "../../db/kysely/types.mjs";
+import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 
+/**
+ * Top N spending categories for the window. "Spending" includes both
+ * regular expense transactions and transfer fees (stored on transfer
+ * rows as `fee_amount` + `fee_expense_category_id`) — the fee is real
+ * money leaving the system and users categorize them like any other
+ * expense. A single unified CTE lets the category roll-up SQL stay
+ * simple.
+ */
 export const topCategories = authorizedProcedure
     .input(
         z.object({
@@ -24,39 +33,44 @@ export const topCategories = authorizedProcedure
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                const rows = await trx
-                    .selectFrom("transactions")
-                    .innerJoin(
-                        "expense_categories",
-                        "expense_categories.id",
-                        "transactions.expense_category_id"
+                const rows = await sql<{
+                    id: string;
+                    name: string;
+                    color: string;
+                    icon: string;
+                    total: string;
+                }>`
+                    WITH spending AS (
+                        SELECT expense_category_id AS category_id, amount
+                        FROM transactions
+                        WHERE type = 'expense'
+                          AND space_id = ${input.spaceId}
+                          AND expense_category_id IS NOT NULL
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
+                        UNION ALL
+                        SELECT fee_expense_category_id AS category_id, fee_amount AS amount
+                        FROM transactions
+                        WHERE type = 'transfer'
+                          AND fee_amount IS NOT NULL
+                          AND space_id = ${input.spaceId}
+                          AND transaction_datetime >= ${input.periodStart}
+                          AND transaction_datetime < ${input.periodEnd}
                     )
-                    .where(
-                        "transactions.type",
-                        "=",
-                        "expense" as unknown as Transactions["type"]
-                    )
-                    .where("transactions.space_id", "=", input.spaceId)
-                    .where("transactions.transaction_datetime", ">=", input.periodStart)
-                    .where("transactions.transaction_datetime", "<", input.periodEnd)
-                    .groupBy([
-                        "expense_categories.id",
-                        "expense_categories.name",
-                        "expense_categories.color",
-                        "expense_categories.icon",
-                    ])
-                    .select((eb) => [
-                        eb.ref("expense_categories.id").as("id"),
-                        eb.ref("expense_categories.name").as("name"),
-                        eb.ref("expense_categories.color").as("color"),
-                        eb.ref("expense_categories.icon").as("icon"),
-                        eb.fn.sum<string>("transactions.amount").as("total"),
-                    ])
-                    .orderBy("total", "desc")
-                    .limit(input.limit)
-                    .execute();
+                    SELECT
+                        ec.id::text AS id,
+                        ec.name,
+                        ec.color,
+                        ec.icon,
+                        SUM(s.amount)::text AS total
+                    FROM spending s
+                    JOIN expense_categories ec ON ec.id = s.category_id
+                    GROUP BY ec.id, ec.name, ec.color, ec.icon
+                    ORDER BY SUM(s.amount) DESC
+                    LIMIT ${input.limit}
+                `.execute(trx);
 
-                return rows.map((r) => ({
+                return rows.rows.map((r) => ({
                     id: r.id,
                     name: r.name,
                     color: r.color,
