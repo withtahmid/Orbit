@@ -20,12 +20,24 @@ export default function BalanceHistoryView() {
     const { space } = useCurrentSpace();
     const { period } = usePeriod("last-3-months");
 
-    const q = trpc.analytics.balanceHistory.useQuery({
-        spaceId: space.id,
-        periodStart: period.start,
-        periodEnd: period.end,
-        bucket: "day",
-    });
+    const qSpace = trpc.analytics.balanceHistory.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: period.start,
+            periodEnd: period.end,
+            bucket: "day",
+        },
+        { enabled: !space.isPersonal }
+    );
+    const qPersonal = trpc.personal.balanceHistory.useQuery(
+        {
+            periodStart: period.start,
+            periodEnd: period.end,
+            bucket: "day",
+        },
+        { enabled: space.isPersonal }
+    );
+    const q = space.isPersonal ? qPersonal : qSpace;
 
     return (
         <AnalyticsDetailLayout

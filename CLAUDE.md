@@ -42,7 +42,7 @@ The server dev loop is: `tsc --watch` writes to `dist/`, nodemon (watching `./di
 
 **Entry point:** `apps/server/src/index.mts` — awaits `run_bootstrap()`, mounts tRPC at `/trpc` via `trpcExpress.createExpressMiddleware`, and in dev also exposes `trpc-playground` at `/trpc-playground`.
 
-**Router tree:** `apps/server/src/routers/index.mts` composes feature routers (`auth`, `space`, `account`, `event`, `envelop`, `plan`, `expenseCategory`, `transaction`, `health`). Each feature router in `routers/<name>.mts` imports procedures from `procedures/<name>/<action>.mts` — this one-procedure-per-file convention is the norm; follow it for new endpoints.
+**Router tree:** `apps/server/src/routers/index.mts` composes feature routers (`auth`, `space`, `account`, `event`, `envelop`, `plan`, `expenseCategory`, `transaction`, `analytics`, `personal`, `file`, `user`, `health`). Each feature router in `routers/<name>.mts` imports procedures from `procedures/<name>/<action>.mts` — this one-procedure-per-file convention is the norm; follow it for new endpoints. The `personal.*` router powers the virtual "My money" space at `/s/me` — every analytics procedure has a cross-space personal twin; see project spec §6.5 and engineering spec §5.6.
 
 **Context & auth:** `trpc/context.mts` builds the per-request context by (1) verifying the JWT from the `Authorization` header via `trpc/auth.mts` and (2) injecting a singleton `services` object (created once at module load). Context shape: `{ auth: { user }, services: { pgPool, qb, mailer } }`.
 

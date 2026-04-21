@@ -15,11 +15,22 @@ export default function HeatmapView() {
     const start = startOfYear(new Date());
     const end = endOfYear(new Date());
 
-    const q = trpc.analytics.spendingHeatmap.useQuery({
-        spaceId: space.id,
-        periodStart: start,
-        periodEnd: end,
-    });
+    const qSpace = trpc.analytics.spendingHeatmap.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: start,
+            periodEnd: end,
+        },
+        { enabled: !space.isPersonal }
+    );
+    const qPersonal = trpc.personal.spendingHeatmap.useQuery(
+        {
+            periodStart: start,
+            periodEnd: end,
+        },
+        { enabled: space.isPersonal }
+    );
+    const q = space.isPersonal ? qPersonal : qSpace;
 
     const byDay = useMemo(() => {
         const m = new Map<string, number>();

@@ -245,6 +245,66 @@ before handing to `date-fns`. For display, prefer
 - Path alias `@/*` → `src/*` (matched in both `vite.config.ts` and
   `tsconfig`).
 
+### 5.6 Virtual "My money" space (`/s/me`)
+
+The personal (cross-space) view is implemented as a **virtual space**,
+not a standalone page. It rides the same `/s/:spaceId` routing tree as
+real spaces, using the literal string `"me"` as a sentinel spaceId.
+Detected via
+[`isPersonalSpaceId`](../apps/web/src/lib/personalSpace.ts).
+[`CurrentSpaceProvider`](../apps/web/src/providers/CurrentSpaceProvider.tsx)
+short-circuits when it sees `spaceId === "me"` and synthesizes a
+`CurrentSpace` with `myRole: "viewer"` (forces read-only through the
+existing `PermissionGate`), `isPersonal: true`, and skips the
+`space.list` membership check.
+
+The SpaceSwitcher and SpaceSelectorPage inject a "My money" entry
+alongside real spaces.
+[`SpaceLayout`](../apps/web/src/layouts/SpaceLayout.tsx) filters its
+sidebar when `space.isPersonal` to Overview / Accounts / Transactions /
+Analytics only (Envelopes / Plans / Categories / Events / Settings are
+hidden because those are mutation-oriented spaces-level entities).
+
+**Dispatch pattern**: each consumer page (OverviewPage, AccountsPage,
+TransactionsPage, every analytics view) uses **paired queries** — one
+variant hitting `analytics.*` / `transaction.*` / `account.*`, the
+other hitting `personal.*`, guarded by `{ enabled: !isPersonal }` /
+`{ enabled: isPersonal }`. The inactive variant never fires. Output
+shapes are aligned so consumer code below the branch is shared.
+
+**Anchor**: `user_accounts.role='owner'` — the user's personally-owned
+accounts. Every `personal.*` procedure resolves them via
+[`resolveOwnedAccountIds`](../apps/server/src/procedures/personal/shared.mts)
+and unions over the caller's `space_members` set via
+`resolveMemberSpaceIds`. Membership is re-resolved per request
+(defensive: a user removed from a space must not see its transactions
+even if they still own an account that was shared into that space
+historically).
+
+**Internal-transfer rule**: an owned → owned transfer nets to zero and
+is excluded from `personal.summary`'s `periodIncome/Expense` and
+`personal.cashFlow` bars. The transaction list keeps the row and tags
+it `is_internal_transfer: true` so the UI can render it as rebalancing.
+
+**Cross-space envelope/plan math**: `personal.envelopeUtilization` and
+`personal.planProgress` restrict allocations and consumed amounts to
+partitions whose `account_id` is owned by the caller. The total bars
+and breakdown rows both represent "my slice" of each shared envelope.
+
+**Personal procedures** (all in
+[`procedures/personal/`](../apps/server/src/procedures/personal/),
+composed by
+[`routers/personal.mts`](../apps/server/src/routers/personal.mts)):
+`summary`, `cashFlow`, `topCategories`, `categoryBreakdown`,
+`envelopeUtilization`, `planProgress`, `balanceHistory`,
+`spendingHeatmap`, `accountDistribution`, `accountAllocation`,
+`transactions` (full filter parity with `transaction.list`,
+snake-case shape matching `transaction.listBySpace` so consumers
+render unchanged), `listCategories`, `ownedAccounts`.
+
+See project spec §6.5 for the full personal cash-flow table and
+product semantics. Legacy `/me` redirects to `/s/me`.
+
 ---
 
 ## 6. File upload system (R2)

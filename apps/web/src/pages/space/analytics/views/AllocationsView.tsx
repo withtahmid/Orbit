@@ -58,8 +58,35 @@ export default function AllocationsView() {
 
 function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
     const { space } = useCurrentSpace();
-    const envelopesQ = trpc.analytics.envelopeUtilization.useQuery({ spaceId });
-    const accountsQ = trpc.account.listBySpace.useQuery({ spaceId });
+    const isPersonal = space.isPersonal;
+    const envelopesSpaceQ = trpc.analytics.envelopeUtilization.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const envelopesPersonalQ = trpc.personal.envelopeUtilization.useQuery(
+        undefined,
+        { enabled: isPersonal }
+    );
+    const envelopesQ = isPersonal ? envelopesPersonalQ : envelopesSpaceQ;
+
+    const accountsSpaceQ = trpc.account.listBySpace.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const accountsPersonalQ = trpc.personal.ownedAccounts.useQuery(undefined, {
+        enabled: isPersonal,
+    });
+    const accountsQ = isPersonal
+        ? {
+              ...accountsPersonalQ,
+              data: accountsPersonalQ.data?.map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  color: a.color,
+                  icon: a.icon,
+              })),
+          }
+        : accountsSpaceQ;
 
     const accountsById = useMemo(() => {
         const m = new Map<string, { name: string; color: string; icon: string }>();
@@ -127,11 +154,17 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
                         <AllocationFlowBar
                             rows={rows.map((r) => ({
                                 ...r,
-                                onClick: () =>
-                                    (window.location.href = ROUTES.spaceEnvelopeDetail(
-                                        space.id,
-                                        r.id
-                                    )),
+                                // In the virtual space each envelope still
+                                // has a canonical home space — use that for
+                                // the drill-down so the detail page works.
+                                onClick: isPersonal
+                                    ? undefined
+                                    : () =>
+                                          (window.location.href =
+                                              ROUTES.spaceEnvelopeDetail(
+                                                  space.id,
+                                                  r.id
+                                              )),
                             }))}
                             emptyLabel="No envelope allocations yet."
                         />
@@ -143,17 +176,39 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
 }
 
 function ByAccountPanel({ spaceId }: { spaceId: string }) {
-    const accountsQ = trpc.account.listBySpace.useQuery({ spaceId });
+    const { space } = useCurrentSpace();
+    const isPersonal = space.isPersonal;
+    const accountsSpaceQ = trpc.account.listBySpace.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const accountsPersonalQ = trpc.personal.ownedAccounts.useQuery(undefined, {
+        enabled: isPersonal,
+    });
     const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
-    const accounts = accountsQ.data ?? [];
-    const activeAccountId =
-        selectedAccountId ?? (accounts[0]?.id ?? null);
+    const accounts = isPersonal
+        ? (accountsPersonalQ.data ?? []).map((a) => ({
+              id: a.id,
+              name: a.name,
+              color: a.color,
+              icon: a.icon,
+          }))
+        : accountsSpaceQ.data ?? [];
+    const activeAccountId = selectedAccountId ?? accounts[0]?.id ?? null;
 
-    const allocQ = trpc.analytics.accountAllocation.useQuery(
+    // The personal variant accepts only accountId (no spaceId —
+    // account allocation is account-centric and unions all the real
+    // spaces the account lives in).
+    const allocSpaceQ = trpc.analytics.accountAllocation.useQuery(
         { spaceId, accountId: activeAccountId ?? "" },
-        { enabled: !!activeAccountId }
+        { enabled: !isPersonal && !!activeAccountId }
     );
+    const allocPersonalQ = trpc.personal.accountAllocation.useQuery(
+        { accountId: activeAccountId ?? "" },
+        { enabled: isPersonal && !!activeAccountId }
+    );
+    const allocQ = isPersonal ? allocPersonalQ : allocSpaceQ;
 
     const envelopeRows: AllocationFlowRow[] = useMemo(
         () =>
@@ -294,8 +349,26 @@ function ByAccountPanel({ spaceId }: { spaceId: string }) {
 }
 
 function TotalsPanel({ spaceId }: { spaceId: string }) {
-    const envelopesQ = trpc.analytics.envelopeUtilization.useQuery({ spaceId });
-    const plansQ = trpc.analytics.planProgress.useQuery({ spaceId });
+    const { space } = useCurrentSpace();
+    const isPersonal = space.isPersonal;
+    const envelopesSpaceQ = trpc.analytics.envelopeUtilization.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const envelopesPersonalQ = trpc.personal.envelopeUtilization.useQuery(
+        undefined,
+        { enabled: isPersonal }
+    );
+    const envelopesQ = isPersonal ? envelopesPersonalQ : envelopesSpaceQ;
+
+    const plansSpaceQ = trpc.analytics.planProgress.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const plansPersonalQ = trpc.personal.planProgress.useQuery(undefined, {
+        enabled: isPersonal,
+    });
+    const plansQ = isPersonal ? plansPersonalQ : plansSpaceQ;
 
     const envelopeDonut = useMemo(
         () =>

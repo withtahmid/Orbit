@@ -51,6 +51,7 @@ import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
 export default function OverviewPage() {
     const { space } = useCurrentSpace();
+    const isPersonal = space.isPersonal;
 
     // Freeze `now` on mount. Every render otherwise creates a fresh Date;
     // tRPC/React Query serializes it into the query cache key (ISO ms
@@ -64,46 +65,155 @@ export default function OverviewPage() {
     const cashFlowStart = addMonths(thisMonthStart, -2);
     const trendStart = addDays(now, -29);
 
-    const summary = trpc.analytics.spaceSummary.useQuery({
-        spaceId: space.id,
-        periodStart: thisMonthStart,
-        periodEnd: thisMonthEnd,
+    // Each query has a real-space and personal-space variant. The
+    // `enabled` flag disables the inactive one so react-query only
+    // fetches once per render. `summary`, `cashFlow`, etc. below pick
+    // the active one; the UI reads through a unified shape.
+    const summarySpace = trpc.analytics.spaceSummary.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: thisMonthStart,
+            periodEnd: thisMonthEnd,
+        },
+        { enabled: !isPersonal }
+    );
+    const summaryPersonal = trpc.personal.summary.useQuery(
+        { periodStart: thisMonthStart, periodEnd: thisMonthEnd },
+        { enabled: isPersonal }
+    );
+    const summary = isPersonal ? summaryPersonal : summarySpace;
+
+    const lastMonthSpace = trpc.analytics.spaceSummary.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: lastMonthStart,
+            periodEnd: thisMonthStart,
+        },
+        { enabled: !isPersonal }
+    );
+    const lastMonthPersonal = trpc.personal.summary.useQuery(
+        { periodStart: lastMonthStart, periodEnd: thisMonthStart },
+        { enabled: isPersonal }
+    );
+    const lastMonthSummary = isPersonal ? lastMonthPersonal : lastMonthSpace;
+
+    const cashFlowSpace = trpc.analytics.cashFlow.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: cashFlowStart,
+            periodEnd: thisMonthEnd,
+            bucket: "week",
+        },
+        { enabled: !isPersonal }
+    );
+    const cashFlowPersonal = trpc.personal.cashFlow.useQuery(
+        {
+            periodStart: cashFlowStart,
+            periodEnd: thisMonthEnd,
+            bucket: "week",
+        },
+        { enabled: isPersonal }
+    );
+    const cashFlow = isPersonal ? cashFlowPersonal : cashFlowSpace;
+
+    const balanceTrendSpace = trpc.analytics.balanceHistory.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: trendStart,
+            periodEnd: now,
+            bucket: "day",
+        },
+        { enabled: !isPersonal }
+    );
+    const balanceTrendPersonal = trpc.personal.balanceHistory.useQuery(
+        { periodStart: trendStart, periodEnd: now, bucket: "day" },
+        { enabled: isPersonal }
+    );
+    const balanceTrend = isPersonal ? balanceTrendPersonal : balanceTrendSpace;
+
+    const utilizationSpace = trpc.analytics.envelopeUtilization.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: thisMonthStart,
+            periodEnd: thisMonthEnd,
+        },
+        { enabled: !isPersonal }
+    );
+    const utilizationPersonal = trpc.personal.envelopeUtilization.useQuery(
+        { periodStart: thisMonthStart, periodEnd: thisMonthEnd },
+        { enabled: isPersonal }
+    );
+    const utilization = isPersonal ? utilizationPersonal : utilizationSpace;
+
+    const topCatsSpace = trpc.analytics.topCategories.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: thisMonthStart,
+            periodEnd: thisMonthEnd,
+            limit: 6,
+        },
+        { enabled: !isPersonal }
+    );
+    const topCatsPersonal = trpc.personal.topCategories.useQuery(
+        {
+            periodStart: thisMonthStart,
+            periodEnd: thisMonthEnd,
+            limit: 6,
+        },
+        { enabled: isPersonal }
+    );
+    const topCats = isPersonal ? topCatsPersonal : topCatsSpace;
+
+    // Recent transactions. personal.transactions returns the same
+    // snake_case shape as transaction.listBySpace (plus a few
+    // personal-only enrichments), so both paths feed the same UI.
+    const recentTxSpace = trpc.transaction.listBySpace.useQuery(
+        { spaceId: space.id, limit: 6 },
+        { enabled: !isPersonal }
+    );
+    const recentTxPersonal = trpc.personal.transactions.useQuery(
+        { limit: 6 },
+        { enabled: isPersonal }
+    );
+    const recentTx = isPersonal ? recentTxPersonal : recentTxSpace;
+
+    const plansSpace = trpc.analytics.planProgress.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+    const plansPersonal = trpc.personal.planProgress.useQuery(undefined, {
+        enabled: isPersonal,
     });
-    const lastMonthSummary = trpc.analytics.spaceSummary.useQuery({
-        spaceId: space.id,
-        periodStart: lastMonthStart,
-        periodEnd: thisMonthStart,
+    const plans = isPersonal ? plansPersonal : plansSpace;
+
+    // Events are space-scoped and don't render in the virtual space
+    // (no cross-space event concept yet). Always fetch for real spaces;
+    // the virtual overview hides the widget entirely.
+    const events = trpc.event.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+
+    // Account list for the overview (used to annotate recent txns).
+    // In the virtual space, show owned accounts.
+    const accountsSpace = trpc.account.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+    const accountsPersonal = trpc.personal.ownedAccounts.useQuery(undefined, {
+        enabled: isPersonal,
     });
-    const cashFlow = trpc.analytics.cashFlow.useQuery({
-        spaceId: space.id,
-        periodStart: cashFlowStart,
-        periodEnd: thisMonthEnd,
-        bucket: "week",
-    });
-    const balanceTrend = trpc.analytics.balanceHistory.useQuery({
-        spaceId: space.id,
-        periodStart: trendStart,
-        periodEnd: now,
-        bucket: "day",
-    });
-    const utilization = trpc.analytics.envelopeUtilization.useQuery({
-        spaceId: space.id,
-        periodStart: thisMonthStart,
-        periodEnd: thisMonthEnd,
-    });
-    const topCats = trpc.analytics.topCategories.useQuery({
-        spaceId: space.id,
-        periodStart: thisMonthStart,
-        periodEnd: thisMonthEnd,
-        limit: 6,
-    });
-    const recentTx = trpc.transaction.listBySpace.useQuery({
-        spaceId: space.id,
-        limit: 6,
-    });
-    const plans = trpc.analytics.planProgress.useQuery({ spaceId: space.id });
-    const events = trpc.event.listBySpace.useQuery({ spaceId: space.id });
-    const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId: space.id });
+    const accountsQuery = isPersonal
+        ? {
+              ...accountsPersonal,
+              data: accountsPersonal.data?.map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  color: a.color,
+                  icon: a.icon,
+              })),
+          }
+        : accountsSpace;
 
     const accountsById = useMemo(() => {
         const m = new Map<string, { name: string; color: string; icon: string }>();

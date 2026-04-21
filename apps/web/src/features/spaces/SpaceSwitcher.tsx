@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronsUpDown, Plus, Check, Sparkles } from "lucide-react";
+import { ChevronsUpDown, Plus, Check, Sparkles, LineChart } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
 import { CreateSpaceDialog } from "./CreateSpaceDialog";
 import { cn } from "@/lib/utils";
+import { PERSONAL_SPACE_ID, PERSONAL_SPACE_NAME } from "@/lib/personalSpace";
 
 export function SpaceSwitcher() {
     const { space } = useCurrentSpace();
@@ -47,6 +48,30 @@ export function SpaceSwitcher() {
                     <CommandInput placeholder="Search spaces…" />
                     <CommandList>
                         <CommandEmpty>No spaces found.</CommandEmpty>
+                        <CommandGroup heading="Personal">
+                            <CommandItem
+                                key={PERSONAL_SPACE_ID}
+                                value={PERSONAL_SPACE_NAME}
+                                onSelect={() => {
+                                    navigate(ROUTES.space(PERSONAL_SPACE_ID));
+                                    setOpen(false);
+                                }}
+                            >
+                                <LineChart className="mr-2 size-3.5 opacity-80" />
+                                <span className="truncate font-medium">
+                                    {PERSONAL_SPACE_NAME}
+                                </span>
+                                <Check
+                                    className={cn(
+                                        "ml-auto size-4",
+                                        space.id === PERSONAL_SPACE_ID
+                                            ? "opacity-100"
+                                            : "opacity-0"
+                                    )}
+                                />
+                            </CommandItem>
+                        </CommandGroup>
+                        <CommandSeparator />
                         <CommandGroup heading="Your spaces">
                             {(spacesQuery.data ?? []).map((s) => (
                                 <CommandItem

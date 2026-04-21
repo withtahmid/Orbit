@@ -63,6 +63,7 @@ type TxType = "income" | "expense" | "transfer" | "adjustment";
 
 export default function TransactionsPage() {
     const { space } = useCurrentSpace();
+    const isPersonal = space.isPersonal;
     const { authStore } = useStore();
     const { period } = usePeriod("this-month");
 
@@ -88,46 +89,105 @@ export default function TransactionsPage() {
     const amountMax = params.get("max");
     const search = useDebouncedValue(searchRaw, 300);
 
-    const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId: space.id });
-    const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({
-        spaceId: space.id,
+    // Accounts / categories have parallel real-space and personal
+    // queries. Events and members are space-scoped concepts; their
+    // filters are hidden in the virtual space (no single space to
+    // enumerate events or members of).
+    const accountsSpaceQuery = trpc.account.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+    const accountsPersonalQuery = trpc.personal.ownedAccounts.useQuery(undefined, {
+        enabled: isPersonal,
     });
-    const eventsQuery = trpc.event.listBySpace.useQuery({ spaceId: space.id });
-    const membersQuery = trpc.space.memberList.useQuery({ spaceId: space.id });
+    const accountsData = isPersonal
+        ? (accountsPersonalQuery.data ?? []).map((a) => ({
+              id: a.id,
+              name: a.name,
+              color: a.color,
+              icon: a.icon,
+          }))
+        : (accountsSpaceQuery.data ?? []).map((a) => ({
+              id: a.id,
+              name: a.name,
+              color: a.color,
+              icon: a.icon,
+          }));
+
+    const categoriesSpaceQuery = trpc.expenseCategory.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+    const categoriesPersonalQuery = trpc.personal.listCategories.useQuery(undefined, {
+        enabled: isPersonal,
+    });
+    const categoriesData = isPersonal
+        ? categoriesPersonalQuery.data ?? []
+        : categoriesSpaceQuery.data ?? [];
+
+    const eventsQuery = trpc.event.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+    const membersQuery = trpc.space.memberList.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
 
     const [pageCursors, setPageCursors] = useState<(string | null)[]>([null]);
     const cursor = pageCursors[pageCursors.length - 1];
     const [selectedTx, setSelectedTx] = useState<any>(null);
 
-    const listQuery = trpc.transaction.listBySpace.useQuery({
-        spaceId: space.id,
-        type,
-        accountId: accountId || null,
-        expenseCategoryId: categoryId || null,
-        eventId: eventId || null,
-        userId: userId || null,
-        search: search || null,
-        amountMin: amountMin ? Number(amountMin) : null,
-        amountMax: amountMax ? Number(amountMax) : null,
-        dateFrom: period.start,
-        dateTo: period.end,
-        cursor: cursor,
-        limit: 50,
-    });
+    const listSpaceQuery = trpc.transaction.listBySpace.useQuery(
+        {
+            spaceId: space.id,
+            type,
+            accountId: accountId || null,
+            expenseCategoryId: categoryId || null,
+            eventId: eventId || null,
+            userId: userId || null,
+            search: search || null,
+            amountMin: amountMin ? Number(amountMin) : null,
+            amountMax: amountMax ? Number(amountMax) : null,
+            dateFrom: period.start,
+            dateTo: period.end,
+            cursor: cursor,
+            limit: 50,
+        },
+        { enabled: !isPersonal }
+    );
+    const listPersonalQuery = trpc.personal.transactions.useQuery(
+        {
+            type,
+            accountId: accountId || null,
+            expenseCategoryId: categoryId || null,
+            eventId: eventId || null,
+            userId: userId || null,
+            search: search || null,
+            amountMin: amountMin ? Number(amountMin) : null,
+            amountMax: amountMax ? Number(amountMax) : null,
+            dateFrom: period.start,
+            dateTo: period.end,
+            cursor: cursor,
+            limit: 50,
+        },
+        { enabled: isPersonal }
+    );
+    const listQuery = isPersonal ? listPersonalQuery : listSpaceQuery;
 
     const accountsById = useMemo(() => {
         const m = new Map<string, { name: string; color: string; icon: string }>();
-        for (const a of accountsQuery.data ?? [])
+        for (const a of accountsData)
             m.set(a.id, { name: a.name, color: a.color, icon: a.icon });
         return m;
-    }, [accountsQuery.data]);
+    }, [accountsData]);
 
     const categoriesById = useMemo(() => {
         const m = new Map<string, { name: string; color: string; icon: string }>();
-        for (const c of categoriesQuery.data ?? [])
+        for (const c of categoriesData)
             m.set(c.id, { name: c.name, color: c.color, icon: c.icon });
         return m;
-    }, [categoriesQuery.data]);
+    }, [categoriesData]);
 
     const eventsById = useMemo(() => {
         const m = new Map<string, { name: string; color: string; icon: string }>();
@@ -180,7 +240,11 @@ export default function TransactionsPage() {
         <div className="grid gap-5 sm:gap-6">
             <PageHeader
                 title="Transactions"
-                description="All money movement in this space"
+                description={
+                    isPersonal
+                        ? "Every transaction that touched an account you own, across every space you're in"
+                        : "All money movement in this space"
+                }
                 actions={
                     <PermissionGate roles={["owner", "editor"]}>
                         <NewTransactionSheet />
@@ -217,11 +281,13 @@ export default function TransactionsPage() {
                             setAmountMin={(v) => setParam("min", v)}
                             amountMax={amountMax}
                             setAmountMax={(v) => setParam("max", v)}
-                            accounts={accountsQuery.data ?? []}
-                            categories={(categoriesQuery.data ?? []) as any}
+                            accounts={accountsData}
+                            categories={categoriesData as any}
                             events={eventsQuery.data ?? []}
                             members={membersQuery.data ?? []}
                             activeFilterCount={activeFilterCount}
+                            hideEvents={isPersonal}
+                            hideMembers={isPersonal}
                         />
                         {activeFilterCount > 0 && (
                             <Button size="sm" variant="ghost" onClick={resetFilters}>
@@ -242,7 +308,7 @@ export default function TransactionsPage() {
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="all">All accounts</SelectItem>
-                                {(accountsQuery.data ?? []).map((a) => (
+                                {accountsData.map((a) => (
                                     <SelectItem key={a.id} value={a.id}>
                                         {a.name}
                                     </SelectItem>
@@ -251,28 +317,32 @@ export default function TransactionsPage() {
                         </Select>
                         <div className="w-56">
                             <CategoryTreeSelect
-                                categories={(categoriesQuery.data ?? []) as any}
+                                categories={categoriesData as any}
                                 value={categoryId}
                                 onChange={(id) => setParam("category", id)}
                                 placeholder="Any category"
                             />
                         </div>
-                        <Select
-                            value={eventId ?? "all"}
-                            onValueChange={(v) => setParam("event", v === "all" ? null : v)}
-                        >
-                            <SelectTrigger className="w-44">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Any event</SelectItem>
-                                {(eventsQuery.data ?? []).map((e) => (
-                                    <SelectItem key={e.id} value={e.id}>
-                                        {e.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        {!isPersonal && (
+                            <Select
+                                value={eventId ?? "all"}
+                                onValueChange={(v) =>
+                                    setParam("event", v === "all" ? null : v)
+                                }
+                            >
+                                <SelectTrigger className="w-44">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Any event</SelectItem>
+                                    {(eventsQuery.data ?? []).map((e) => (
+                                        <SelectItem key={e.id} value={e.id}>
+                                            {e.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        )}
                     </div>
                 </div>
             </Card>
@@ -352,7 +422,14 @@ export default function TransactionsPage() {
                                                 </TableCell>
                                                 <TableCell className="text-sm">
                                                     <AccountFlow
-                                                        spaceId={space.id}
+                                                        spaceId={
+                                                            // In the virtual space, the transaction
+                                                            // row carries its real home space; use
+                                                            // that for drill-down so the account
+                                                            // detail route resolves to a real space.
+                                                            (t as { space_id?: string })
+                                                                .space_id ?? space.id
+                                                        }
                                                         from={t.source_account_id}
                                                         to={t.destination_account_id}
                                                         accountsById={accountsById}
@@ -654,6 +731,8 @@ function MobileFilters({
     events,
     members,
     activeFilterCount,
+    hideEvents = false,
+    hideMembers = false,
 }: {
     type: TxType | null;
     setType: (v: string | null) => void;
@@ -685,6 +764,10 @@ function MobileFilters({
         avatar_file_id: string | null;
     }>;
     activeFilterCount: number;
+    /** Hide the event filter (no cross-space event concept). */
+    hideEvents?: boolean;
+    /** Hide the member filter (no single space to enumerate). */
+    hideMembers?: boolean;
 }) {
     const [open, setOpen] = useState(false);
     return (
@@ -736,52 +819,60 @@ function MobileFilters({
                             onChange={setCategoryId}
                         />
                     </div>
-                    <div className="grid gap-1.5">
-                        <Label>Event</Label>
-                        <Select
-                            value={eventId ?? "all"}
-                            onValueChange={(v) => setEventId(v === "all" ? null : v)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Any event</SelectItem>
-                                {events.map((e) => (
-                                    <SelectItem key={e.id} value={e.id}>
-                                        {e.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="grid gap-1.5">
-                        <Label>Created by</Label>
-                        <Select
-                            value={userId ?? "all"}
-                            onValueChange={(v) => setUserId(v === "all" ? null : v)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">Anyone</SelectItem>
-                                {members.map((m) => (
-                                    <SelectItem key={m.id} value={m.id}>
-                                        <span className="inline-flex items-center gap-2">
-                                            <UserAvatar
-                                                fileId={m.avatar_file_id}
-                                                firstName={m.first_name}
-                                                lastName={m.last_name}
-                                                size="xs"
-                                            />
-                                            {m.first_name} {m.last_name}
-                                        </span>
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                    {!hideEvents && (
+                        <div className="grid gap-1.5">
+                            <Label>Event</Label>
+                            <Select
+                                value={eventId ?? "all"}
+                                onValueChange={(v) =>
+                                    setEventId(v === "all" ? null : v)
+                                }
+                            >
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Any event</SelectItem>
+                                    {events.map((e) => (
+                                        <SelectItem key={e.id} value={e.id}>
+                                            {e.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
+                    {!hideMembers && (
+                        <div className="grid gap-1.5">
+                            <Label>Created by</Label>
+                            <Select
+                                value={userId ?? "all"}
+                                onValueChange={(v) =>
+                                    setUserId(v === "all" ? null : v)
+                                }
+                            >
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">Anyone</SelectItem>
+                                    {members.map((m) => (
+                                        <SelectItem key={m.id} value={m.id}>
+                                            <span className="inline-flex items-center gap-2">
+                                                <UserAvatar
+                                                    fileId={m.avatar_file_id}
+                                                    firstName={m.first_name}
+                                                    lastName={m.last_name}
+                                                    size="xs"
+                                                />
+                                                {m.first_name} {m.last_name}
+                                            </span>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    )}
                     <div className="grid gap-1.5 sm:grid-cols-2">
                         <div className="grid gap-1.5">
                             <Label>Min amount</Label>

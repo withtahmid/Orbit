@@ -11,15 +11,63 @@ import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useMemo } from "react";
 import { CreateAccountDialog } from "@/features/accounts/CreateAccountDialog";
 import { AddExistingAccountDialog } from "@/features/accounts/AddExistingAccountDialog";
 import { ROUTES } from "@/router/routes";
 
 export default function AccountsPage() {
     const { space } = useCurrentSpace();
-    const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId: space.id });
+    const isPersonal = space.isPersonal;
 
-    const accounts = accountsQuery.data ?? [];
+    // In the virtual personal space we don't have a single "space" to
+    // list accounts for — the interesting set is the accounts the
+    // caller personally owns, shared out across many real spaces.
+    // `account.listByUser` already returns that shape (with a per-row
+    // `spaces` array) and is used by the global /accounts page; re-use
+    // it here to keep a single source of truth for owned accounts.
+    const accountsSpaceQuery = trpc.account.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+    const accountsUserQuery = trpc.account.listByUser.useQuery(undefined, {
+        enabled: isPersonal,
+    });
+
+    // Normalize to the space-shape the rest of the component renders.
+    // listByUser returns `accountType` (camelCase) + `spaces` array;
+    // listBySpace returns `account_type` (snake_case) + `owners` array.
+    // We want: id, name, account_type, color, icon, balance, myRole,
+    // plus an optional `_spaces` annotation used only in the personal
+    // variant to route the card click to a real space.
+    const accountsQuery = isPersonal ? accountsUserQuery : accountsSpaceQuery;
+    const accounts = useMemo(() => {
+        if (isPersonal) {
+            return (accountsUserQuery.data ?? [])
+                .filter((a) => a.myRole === "owner")
+                .map((a) => ({
+                    id: a.id,
+                    name: a.name,
+                    account_type: a.accountType,
+                    color: a.color,
+                    icon: a.icon,
+                    balance: a.balance,
+                    myRole: a.myRole,
+                    owners: [] as Array<{
+                        id: string;
+                        first_name: string;
+                        avatar_file_id: string | null;
+                    }>,
+                    _spaces: a.spaces,
+                    _otherSpacesCount: a.otherSpacesCount,
+                }));
+        }
+        return (accountsSpaceQuery.data ?? []).map((a) => ({
+            ...a,
+            _spaces: null as null | Array<{ spaceId: string; name: string }>,
+            _otherSpacesCount: 0,
+        }));
+    }, [isPersonal, accountsUserQuery.data, accountsSpaceQuery.data]);
     const grouped = {
         asset: accounts.filter((a) => a.account_type === "asset"),
         liability: accounts.filter((a) => a.account_type === "liability"),
@@ -30,7 +78,11 @@ export default function AccountsPage() {
         <div className="grid gap-5 sm:gap-6">
             <PageHeader
                 title="Accounts"
-                description="All accounts in this space"
+                description={
+                    isPersonal
+                        ? "Every account you personally own, across all your spaces"
+                        : "All accounts in this space"
+                }
                 actions={
                     <PermissionGate roles={["owner", "editor"]}>
                         <div className="flex flex-wrap items-center gap-2">
@@ -82,10 +134,30 @@ export default function AccountsPage() {
                                     />
                                 </div>
                                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                                    {grouped[type].map((a) => (
+                                    {grouped[type].map((a) => {
+                                        // In the virtual personal space the account detail
+                                        // can't live at /s/me/accounts/<id> — detail pages
+                                        // are inherently per-space (envelope allocations,
+                                        // space-scoped member management). Route to the
+                                        // first real space the account is shared into; if
+                                        // none are visible, fall back to the global
+                                        // /accounts page which shows the same row.
+                                        const href =
+                                            isPersonal && a._spaces && a._spaces.length > 0
+                                                ? ROUTES.spaceAccountDetail(
+                                                      a._spaces[0].spaceId,
+                                                      a.id
+                                                  )
+                                                : isPersonal
+                                                  ? ROUTES.myAccounts
+                                                  : ROUTES.spaceAccountDetail(
+                                                        space.id,
+                                                        a.id
+                                                    );
+                                        return (
                                         <Link
                                             key={a.id}
-                                            to={ROUTES.spaceAccountDetail(space.id, a.id)}
+                                            to={href}
                                             className="group"
                                         >
                                             <Card
@@ -141,7 +213,8 @@ export default function AccountsPage() {
                                                 </div>
                                             </Card>
                                         </Link>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             </div>
                         )

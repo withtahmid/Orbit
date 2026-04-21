@@ -18,6 +18,7 @@ import {
     ChevronRight,
     Paperclip,
     UserCircle,
+    LineChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,6 +59,7 @@ const SECTIONS: Section[] = [
     { id: "allocations", title: "Allocations (the 2D idea)", icon: Sparkles },
     { id: "drift", title: "Drift & rebalancing", icon: Shield },
     { id: "analytics", title: "Analytics", icon: BarChart3 },
+    { id: "my-money", title: "Your money across spaces", icon: LineChart },
     { id: "permissions", title: "Roles & permissions", icon: Shield },
     { id: "profile", title: "Your profile", icon: UserCircle },
     { id: "timezone", title: "Time & timezone", icon: Clock },
@@ -158,6 +160,7 @@ const DocsPage = observer(function DocsPage() {
                         <Allocations />
                         <Drift />
                         <Analytics />
+                        <MyMoney />
                         <Permissions />
                         <Profile />
                         <Timezone />
@@ -738,6 +741,60 @@ function Analytics() {
                 </li>
             </ul>
             <ScreenshotPlaceholder label="Analytics index with the 7 sub-view cards" />
+        </section>
+    );
+}
+
+function MyMoney() {
+    return (
+        <section className="grid gap-4">
+            <SectionHeader
+                id="my-money"
+                title="Your money across spaces"
+                icon={LineChart}
+            />
+            <Paragraph>
+                A Roommates space, an Office one, a Family one — each is its own
+                ledger, which is exactly what you want when you're collaborating.
+                The downside: your own financial picture gets fragmented across
+                three or four spaces. <b>My money</b> fixes that by stitching your
+                personal activity back into one place — except it's not a
+                separate page, it's a <b>virtual space</b> that shows up right
+                alongside your real spaces in the space switcher.
+            </Paragraph>
+            <Paragraph>
+                The anchor is <b>accounts you personally own</b> — the ones
+                where you're listed as owner in the account's members. Your
+                salary account, your wallet, your savings. Open <b>My money</b>{" "}
+                and you get the same overview, accounts, transactions, and
+                analytics views you'd see in any real space — but unioned
+                across <i>every</i> space you're in, filtered to transactions
+                that touch your owned accounts. Every chart: cash flow,
+                balance history, category breakdown, envelope utilization,
+                account distribution, spending heatmap, allocation map. Every
+                transaction with every filter (type, category, event, space,
+                amount, date, search). Each row tagged with the real space it
+                came from, so you can drill straight back into the shared
+                ledger when you need to.
+            </Paragraph>
+            <div className="grid gap-3 sm:grid-cols-2">
+                <InfoCard
+                    title="What counts as personal cash flow"
+                    body="Income into an owned account is inflow. Expenses paid from an owned account are outflow. A transfer from your own account into a shared household pot counts as an outflow (you funded the shared pot); the other direction is an inflow. Transfers between two accounts you both own net to zero and are shown as rebalancing, not income or expense."
+                />
+                <InfoCard
+                    title="What doesn't show up here"
+                    body="Money that moves inside a shared space without touching an account you own — like the household paying rent out of a shared pot — stays on that space's dashboard. Splitting shared-space expenses into per-user shares is on the roadmap."
+                />
+            </div>
+            <Paragraph>
+                My money is read-only — you can't create transactions or
+                accounts there because every mutation has to land in a
+                specific real space. Jump into a real space via the switcher
+                (or click any row's space chip) when you need to record
+                something.
+            </Paragraph>
+            <ScreenshotPlaceholder label="My money virtual space — overview, analytics, and transactions unioned across every space you're in" />
         </section>
     );
 }

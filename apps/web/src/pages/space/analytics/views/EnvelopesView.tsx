@@ -17,11 +17,22 @@ export default function EnvelopesView() {
     const { space } = useCurrentSpace();
     const { period } = usePeriod("this-month");
 
-    const q = trpc.analytics.envelopeUtilization.useQuery({
-        spaceId: space.id,
-        periodStart: period.start,
-        periodEnd: period.end,
-    });
+    const qSpace = trpc.analytics.envelopeUtilization.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: period.start,
+            periodEnd: period.end,
+        },
+        { enabled: !space.isPersonal }
+    );
+    const qPersonal = trpc.personal.envelopeUtilization.useQuery(
+        {
+            periodStart: period.start,
+            periodEnd: period.end,
+        },
+        { enabled: space.isPersonal }
+    );
+    const q = space.isPersonal ? qPersonal : qSpace;
 
     return (
         <AnalyticsDetailLayout
@@ -57,7 +68,19 @@ export default function EnvelopesView() {
                         return (
                             <Link
                                 key={e.envelopId}
-                                to={ROUTES.spaceEnvelopeDetail(space.id, e.envelopId)}
+                                to={ROUTES.spaceEnvelopeDetail(
+                                    // In the virtual space each envelope still
+                                    // lives in exactly one real space — route
+                                    // the card click there so the detail page
+                                    // works (envelopes are space-scoped).
+                                    space.isPersonal &&
+                                        "spaceId" in e &&
+                                        typeof (e as { spaceId?: string })
+                                            .spaceId === "string"
+                                        ? (e as { spaceId: string }).spaceId
+                                        : space.id,
+                                    e.envelopId
+                                )}
                                 className="group"
                             >
                                 <Card

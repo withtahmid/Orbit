@@ -110,6 +110,13 @@ export const router = createBrowserRouter([
                                 path: "/accounts",
                                 element: withSuspense(<MyAccountsPage />),
                             },
+                            // Legacy /me URL — the virtual space now
+                            // lives under /s/me via CurrentSpaceProvider
+                            // sentinel. Redirect keeps old links working.
+                            {
+                                path: "/me",
+                                element: <Navigate to="/s/me" replace />,
+                            },
                         ],
                     },
                     {

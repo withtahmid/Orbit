@@ -14,6 +14,7 @@ import {
     LogOut,
     User,
     BookOpen,
+    LineChart,
 } from "lucide-react";
 import { useState } from "react";
 import { UserAvatar } from "@/components/shared/UserAvatar";
@@ -38,7 +39,7 @@ import { useStore } from "@/stores/useStore";
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/router/routes";
 
-const NAV = [
+const FULL_NAV = [
     { label: "Overview", icon: LayoutDashboard, path: "" },
     { label: "Accounts", icon: Wallet, path: "accounts" },
     { label: "Transactions", icon: ArrowLeftRight, path: "transactions" },
@@ -50,17 +51,27 @@ const NAV = [
     { label: "Settings", icon: Settings, path: "settings" },
 ];
 
+// Virtual "My money" space: strip the mutation-oriented tabs. Envelopes,
+// plans, categories, events are space-level entities that only make
+// sense to create/edit inside a specific real space; Settings doesn't
+// apply to a synthesized space. The underlying analytics still fold in
+// cross-space envelope/plan/category numbers via personal.* procedures.
+const PERSONAL_NAV = FULL_NAV.filter((n) =>
+    ["", "accounts", "transactions", "analytics"].includes(n.path)
+);
+
 export const SpaceLayout = observer(function SpaceLayout() {
     const { space } = useCurrentSpace();
     const basePath = ROUTES.space(space.id);
     const [mobileOpen, setMobileOpen] = useState(false);
+    const nav = space.isPersonal ? PERSONAL_NAV : FULL_NAV;
 
     return (
         <div className="min-h-screen bg-background">
             <div className="md:grid md:grid-cols-[260px_1fr]">
                 {/* Desktop sidebar */}
                 <aside className="hidden md:flex md:h-screen md:sticky md:top-0 md:flex-col border-r border-border bg-sidebar">
-                    <Sidebar basePath={basePath} onNavigate={() => {}} />
+                    <Sidebar basePath={basePath} nav={nav} onNavigate={() => {}} />
                 </aside>
 
                 {/* Main content */}
@@ -78,6 +89,7 @@ export const SpaceLayout = observer(function SpaceLayout() {
                                 </SheetHeader>
                                 <Sidebar
                                     basePath={basePath}
+                                    nav={nav}
                                     onNavigate={() => setMobileOpen(false)}
                                 />
                             </SheetContent>
@@ -95,9 +107,11 @@ export const SpaceLayout = observer(function SpaceLayout() {
 
 function Sidebar({
     basePath,
+    nav,
     onNavigate,
 }: {
     basePath: string;
+    nav: typeof FULL_NAV;
     onNavigate: () => void;
 }) {
     const { authStore } = useStore();
@@ -112,7 +126,7 @@ function Sidebar({
                 <SpaceSwitcher />
             </div>
             <nav className="mt-3 flex flex-1 flex-col gap-0.5">
-                {NAV.map(({ label, icon: Icon, path }) => {
+                {nav.map(({ label, icon: Icon, path }) => {
                     const to = path ? `${basePath}/${path}` : basePath;
                     return (
                         <NavLink
@@ -163,6 +177,12 @@ function Sidebar({
                             Security
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                            onSelect={() => navigate(ROUTES.space("me"))}
+                        >
+                            <LineChart className="size-4" />
+                            My money
+                        </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => navigate(ROUTES.myAccounts)}>
                             <Wallet className="size-4" />
                             My accounts

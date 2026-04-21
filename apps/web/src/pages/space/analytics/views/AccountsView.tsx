@@ -15,7 +15,14 @@ type AccountType = "asset" | "liability" | "locked";
 
 export default function AccountsView() {
     const { space } = useCurrentSpace();
-    const q = trpc.analytics.accountDistribution.useQuery({ spaceId: space.id });
+    const qSpace = trpc.analytics.accountDistribution.useQuery(
+        { spaceId: space.id },
+        { enabled: !space.isPersonal }
+    );
+    const qPersonal = trpc.personal.accountDistribution.useQuery(undefined, {
+        enabled: space.isPersonal,
+    });
+    const q = space.isPersonal ? qPersonal : qSpace;
 
     const grouped = useMemo(() => {
         const rows = q.data ?? [];
@@ -82,7 +89,19 @@ export default function AccountsView() {
                             {grouped[type].map((a) => (
                                 <Link
                                     key={a.accountId}
-                                    to={ROUTES.spaceAccountDetail(space.id, a.accountId)}
+                                    to={
+                                        // Virtual space has no per-account
+                                        // detail route — link back to the
+                                        // global /accounts page where space
+                                        // chips let the user drill into any
+                                        // real space that hosts the account.
+                                        space.isPersonal
+                                            ? ROUTES.myAccounts
+                                            : ROUTES.spaceAccountDetail(
+                                                  space.id,
+                                                  a.accountId
+                                              )
+                                    }
                                     className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent/30"
                                 >
                                     <span className="flex items-center gap-2">

@@ -392,6 +392,99 @@ An account can live in many spaces via multiple `space_accounts` rows.
   in both [`AppShellLayout`](../apps/web/src/layouts/AppShellLayout.tsx)
   and [`SpaceLayout`](../apps/web/src/layouts/SpaceLayout.tsx).
 
+### 6.5 "My money" — the virtual personal space
+
+Orbit treats the user's personal financial picture as a **virtual
+space**, not a standalone page. It lives at `/s/me` (the literal
+string `"me"` is a sentinel spaceId — not a valid UUID, so there's no
+collision with real spaces), flows through the same `/s/:spaceId`
+routing tree as real spaces, and reuses the same `SpaceLayout` shell,
+sidebar, overview, transactions page, analytics views, and account
+list. Every place a real space appears — space switcher, space
+selector page — the virtual one shows up alongside, usually first.
+
+This reframing was deliberate: any user who's in 3-4 spaces (Roommates,
+Office, Family, …) would otherwise have no unified picture of their own
+money. Giving them a synthesized "space of spaces" means zero new UI
+paradigm — just a new anchor for the queries.
+
+**Anchor**: accounts the caller owns
+(`user_accounts.role = 'owner'`). The virtual space contains transactions
+from every space the caller is currently a member of that touch one
+of those accounts. Categories, envelopes, and plans from those real
+spaces fold in too, restricted to the caller's owned-account partition.
+
+**Personal cash-flow semantics** (same rules as the per-space analytics,
+adapted to a multi-space union):
+
+| Transaction | Counts as |
+|---|---|
+| `income` → owned account | personal inflow |
+| `expense` from owned account | personal outflow |
+| `transfer` owned → non-owned (e.g. funding a household pot) | personal outflow |
+| `transfer` non-owned → owned | personal inflow |
+| `transfer` owned → owned (internal rebalance) | **excluded** — net zero |
+| `adjustment` on an owned account | personal inflow or outflow per direction |
+
+**UI dispatch**: the virtual space is detected via
+[`isPersonalSpaceId(spaceId)`](../apps/web/src/lib/personalSpace.ts)
+inside
+[`CurrentSpaceProvider`](../apps/web/src/providers/CurrentSpaceProvider.tsx),
+which synthesizes a `CurrentSpace` with `id: "me"`, `name: "My money"`,
+`myRole: "viewer"` (forces read-only through existing `PermissionGate`
+checks), and `isPersonal: true`. Downstream pages — overview, accounts,
+transactions, and every analytics view — check `space.isPersonal` and
+dispatch to the `personal.*` trpc procedures instead of their
+`analytics.*` / `transaction.*` / `account.*` counterparts. The paired-
+query pattern uses react-query's `enabled` flag so only one variant
+fires per render.
+
+**Nav items hidden in the virtual space**: Envelopes, Plans,
+Categories, Events, Settings.
+[`SpaceLayout`](../apps/web/src/layouts/SpaceLayout.tsx) filters its
+sidebar to Overview / Accounts / Transactions / Analytics only, because
+those are mutation-oriented entities (`/s/me/envelopes/new` wouldn't
+know which real space to create in). Their *analytics* — envelope
+utilization, plan progress, category breakdown — still fold in via the
+seven analytics views.
+
+**Server procedures**: under
+[`apps/server/src/procedures/personal/`](../apps/server/src/procedures/personal/),
+composed by [`routers/personal.mts`](../apps/server/src/routers/personal.mts).
+Every analytics procedure has a personal counterpart:
+
+| analytics.* | personal.* |
+|---|---|
+| `spaceSummary` | `summary` (full shape — balances, envelope/plan aggregates, unallocated, period income/expense) |
+| `cashFlow` | `cashFlow` |
+| `topCategories` | `topCategories` (each row tagged `space_id`/`space_name`) |
+| `categoryBreakdown` | `categoryBreakdown` (flat rows across spaces, tagged with space) |
+| `envelopeUtilization` | `envelopeUtilization` ("my slice" — partitions filtered to owned accounts, tagged with space) |
+| `planProgress` | `planProgress` (same) |
+| `balanceHistory` | `balanceHistory` |
+| `spendingHeatmap` | `spendingHeatmap` |
+| `accountDistribution` | `accountDistribution` |
+| `accountAllocation` | `accountAllocation` (no `spaceId` — unions all the real spaces the account lives in) |
+| `transaction.listBySpace` | `transactions` (snake-case shape parity, full filter parity with `transaction.list`: type, category, envelope, event, account, user, amount range, search, date range, cursor — plus `is_internal_transfer` / `direction` / space annotations) |
+| `expenseCategory.listBySpace` | `listCategories` |
+| — | `ownedAccounts` (used by the virtual `AccountsPage`) |
+
+Helpers in
+[`shared.mts`](../apps/server/src/procedures/personal/shared.mts):
+`resolveOwnedAccountIds` and `resolveMemberSpaceIds`. The membership
+set is re-resolved per request (defensive: a user removed from a space
+must not see its transactions even if they still own an account that
+was shared in historically).
+
+**Legacy `/me`** route redirects to `/s/me` for old links. Old MePage
+component is retired — OverviewPage now renders the full personal
+dashboard when `space.isPersonal`.
+
+**Explicitly out of scope**: per-user splits of a single shared-space
+transaction (Splitwise-style "my share of the household rent"). That
+requires schema additions (`transaction_splits` or similar) and is
+tracked in §17.
+
 ---
 
 ## 7. Allocations — the 2D matrix
@@ -626,6 +719,18 @@ and registered in [`routers/analytics.mts`](../apps/server/src/routers/analytics
 
 All accept `spaceId` and validate membership before running.
 
+**Cross-space counterparts** live under
+[`apps/server/src/procedures/personal/`](../apps/server/src/procedures/personal/)
+and are composed by [`routers/personal.mts`](../apps/server/src/routers/personal.mts).
+Every analytics procedure has a personal twin (same output shape, same
+SQL pattern, different anchor) so the pages and analytics views swap
+data sources via a single `space.isPersonal` branch:
+`summary`, `cashFlow`, `topCategories`, `categoryBreakdown`,
+`envelopeUtilization`, `planProgress`, `balanceHistory`,
+`spendingHeatmap`, `accountDistribution`, `accountAllocation`, plus
+`transactions` (full filter parity with `transaction.list`),
+`listCategories`, and `ownedAccounts`. See §6.5 for the semantics.
+
 ---
 
 ## 13. Web UI structure
@@ -644,7 +749,9 @@ and the ROUTES constant is in [`router/routes.ts`](../apps/web/src/router/routes
 - `/settings/profile`, `/settings/security` — user settings (avatar
   upload on profile uses the three-step file flow from §11.4)
 - `/accounts` — **global My Accounts** (cross-space)
-- `/s/:spaceId` — space overview
+- `/me` — legacy alias, redirects to `/s/me`
+- `/s/:spaceId` — space overview (handles both real spaces and the
+  virtual `"me"` sentinel; see §6.5 for the virtual-space dispatch)
   - `/accounts`, `/accounts/:accountId` — space accounts (detail has
     **Allocations / Transactions / Shared with / Members / Settings** tabs)
   - `/transactions`, `/envelopes`, `/envelopes/:envelopeId`,

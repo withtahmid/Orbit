@@ -12,6 +12,13 @@ single coherent ledger:
   routes through categories.
 - **Goal-based planning** — plans hold money earmarked for long-horizon targets.
 
+Users in multiple shared spaces (roommates, office, family, …) also get a
+**virtual "My money" space** at `/s/me` that unions every space they're in,
+filtered to accounts they personally own — same overview / transactions /
+analytics views as a real space, just anchored on the user instead of a
+group. See [project spec §6.5](./contexts/project-specification.md) for the
+full semantics.
+
 Design priorities, in order: **correctness → clarity → performance**.
 
 Full product guide (end-user facing): visit

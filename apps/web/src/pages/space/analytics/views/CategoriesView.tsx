@@ -15,11 +15,22 @@ export default function CategoriesView() {
     const { space } = useCurrentSpace();
     const { period } = usePeriod("this-month");
 
-    const q = trpc.analytics.categoryBreakdown.useQuery({
-        spaceId: space.id,
-        periodStart: period.start,
-        periodEnd: period.end,
-    });
+    const qSpace = trpc.analytics.categoryBreakdown.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: period.start,
+            periodEnd: period.end,
+        },
+        { enabled: !space.isPersonal }
+    );
+    const qPersonal = trpc.personal.categoryBreakdown.useQuery(
+        {
+            periodStart: period.start,
+            periodEnd: period.end,
+        },
+        { enabled: space.isPersonal }
+    );
+    const q = space.isPersonal ? qPersonal : qSpace;
 
     const topLevel = useMemo(
         () => (q.data ?? []).filter((c) => c.parentId === null),

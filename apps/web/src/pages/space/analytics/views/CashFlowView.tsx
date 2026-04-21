@@ -22,12 +22,24 @@ export default function CashFlowView() {
     const { space } = useCurrentSpace();
     const { period } = usePeriod("last-3-months");
 
-    const q = trpc.analytics.cashFlow.useQuery({
-        spaceId: space.id,
-        periodStart: period.start,
-        periodEnd: period.end,
-        bucket: "month",
-    });
+    const qSpace = trpc.analytics.cashFlow.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: period.start,
+            periodEnd: period.end,
+            bucket: "month",
+        },
+        { enabled: !space.isPersonal }
+    );
+    const qPersonal = trpc.personal.cashFlow.useQuery(
+        {
+            periodStart: period.start,
+            periodEnd: period.end,
+            bucket: "month",
+        },
+        { enabled: space.isPersonal }
+    );
+    const q = space.isPersonal ? qPersonal : qSpace;
 
     const summary = useMemo(() => {
         const rows = q.data ?? [];
