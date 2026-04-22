@@ -132,8 +132,16 @@ export function CategoryTreeSelect({
                     <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[--radix-popover-trigger-width] min-w-[18rem] p-0" align="start">
-                <div className="border-b border-border p-2">
+            <PopoverContent
+                portal={false}
+                className="flex w-[--radix-popover-trigger-width] min-w-[18rem] flex-col p-0"
+                align="start"
+                style={{
+                    maxHeight:
+                        "min(var(--radix-popover-content-available-height, 24rem), 24rem)",
+                }}
+            >
+                <div className="shrink-0 border-b border-border p-2">
                     <Input
                         autoFocus
                         value={query}
@@ -142,7 +150,7 @@ export function CategoryTreeSelect({
                         className="h-8"
                     />
                 </div>
-                <div className="max-h-72 overflow-y-auto p-1">
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1">
                     {allowAll && (
                         <button
                             type="button"

@@ -173,6 +173,7 @@ function EditForm({
             await utils.transaction.listBySpace.invalidate({ spaceId });
             await utils.account.listBySpace.invalidate({ spaceId });
             await utils.envelop.listBySpace.invalidate({ spaceId });
+            await utils.expenseCategory.listBySpaceWithUsage.invalidate({ spaceId });
             await utils.analytics.envelopeUtilization.invalidate({ spaceId });
             await utils.analytics.spaceSummary.invalidate();
             onDone();

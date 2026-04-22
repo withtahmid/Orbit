@@ -202,6 +202,9 @@ export default function TransactionsPage() {
             toast.success("Transaction deleted");
             await utils.transaction.listBySpace.invalidate({ spaceId: space.id });
             await utils.account.listBySpace.invalidate({ spaceId: space.id });
+            await utils.expenseCategory.listBySpaceWithUsage.invalidate({
+                spaceId: space.id,
+            });
             await utils.analytics.spaceSummary.invalidate();
             await utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id });
         },

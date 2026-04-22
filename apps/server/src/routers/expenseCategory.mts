@@ -3,6 +3,7 @@ import { changeExpenseCategoryParent } from "../procedures/expenseCategory/chang
 import { createExpenseCategory } from "../procedures/expenseCategory/create.mjs";
 import { deleteExpenseCategory } from "../procedures/expenseCategory/delete.mjs";
 import { listExpenseCategoriesBySpace } from "../procedures/expenseCategory/listBySpace.mjs";
+import { listExpenseCategoriesBySpaceWithUsage } from "../procedures/expenseCategory/listBySpaceWithUsage.mjs";
 import { updateExpenseCategory } from "../procedures/expenseCategory/update.mjs";
 import { router } from "../trpc/index.mjs";
 
@@ -13,4 +14,5 @@ export const expenseCategoryRouter = router({
     changeEnvelop: changeExpenseCategoryEnvelop,
     delete: deleteExpenseCategory,
     listBySpace: listExpenseCategoriesBySpace,
+    listBySpaceWithUsage: listExpenseCategoriesBySpaceWithUsage,
 });

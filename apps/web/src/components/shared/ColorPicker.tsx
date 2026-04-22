@@ -14,7 +14,7 @@ export function ColorPicker({
     return (
         <div
             className={cn(
-                "grid grid-cols-7 gap-2 rounded-md border border-border bg-muted/30 p-2 sm:grid-cols-7",
+                "grid grid-cols-7 gap-2 rounded-md border border-border bg-muted/30 p-2.5 sm:grid-cols-9",
                 className
             )}
             role="radiogroup"

@@ -1,19 +1,44 @@
 import { useMemo } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ChevronRight, CornerDownLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { PeriodSelector } from "@/components/shared/PeriodSelector";
-import { Donut } from "@/components/shared/charts/Donut";
+import { Donut, type DonutDatum } from "@/components/shared/charts/Donut";
 import { AllocationFlowBar } from "@/components/shared/charts/AllocationFlowBar";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { usePeriod } from "@/hooks/usePeriod";
+import { ROUTES } from "@/router/routes";
+
+/**
+ * Sentinel id used for the "<parent> (direct)" pseudo-slice in drilled
+ * views. Anything with this prefix is not a real category and should be
+ * routed to transactions for the parent id, not treated as a drilldown.
+ */
+const DIRECT_SLICE_PREFIX = "__direct__:";
+
+type Row = {
+    id: string;
+    parentId: string | null;
+    name: string;
+    color: string;
+    icon: string;
+    envelopId: string;
+    directTotal: number;
+    subtreeTotal: number;
+};
 
 export default function CategoriesView() {
     const { space } = useCurrentSpace();
+    const navigate = useNavigate();
     const { period } = usePeriod("this-month");
+    const [params, setParams] = useSearchParams();
+    const focusId = params.get("cat");
 
     const qSpace = trpc.analytics.categoryBreakdown.useQuery(
         {
@@ -31,42 +56,183 @@ export default function CategoriesView() {
         { enabled: space.isPersonal }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
+    const rows = useMemo(() => (q.data ?? []) as Row[], [q.data]);
 
-    const topLevel = useMemo(
-        () => (q.data ?? []).filter((c) => c.parentId === null),
-        [q.data]
-    );
+    const byId = useMemo(() => {
+        const m = new Map<string, Row>();
+        for (const r of rows) m.set(r.id, r);
+        return m;
+    }, [rows]);
 
     const childrenByParent = useMemo(() => {
-        type Row = NonNullable<typeof q.data>[number];
-        const m = new Map<string, Row[]>();
-        for (const c of q.data ?? []) {
-            if (c.parentId) {
-                const arr = m.get(c.parentId) ?? [];
-                arr.push(c);
-                m.set(c.parentId, arr);
-            }
+        const m = new Map<string | null, Row[]>();
+        for (const r of rows) {
+            const arr = m.get(r.parentId) ?? [];
+            arr.push(r);
+            m.set(r.parentId, arr);
         }
         return m;
-    }, [q.data]);
+    }, [rows]);
 
-    const donutData = topLevel.map((c) => ({
-        id: c.id,
-        name: c.name,
-        value: c.subtreeTotal,
-        color: c.color,
-        hint: `Rolled-up total including sub-categories`,
-    }));
+    // Resolve the current focus node + its ancestor chain for the breadcrumb.
+    const focus = focusId ? byId.get(focusId) ?? null : null;
+    const ancestors = useMemo(() => {
+        if (!focus) return [] as Row[];
+        const chain: Row[] = [];
+        let cur: Row | undefined = focus;
+        while (cur) {
+            chain.unshift(cur);
+            cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+        }
+        return chain;
+    }, [focus, byId]);
+
+    // What rows does the donut + breakdown show? If focused, the direct
+    // children of the focus; otherwise, the root level.
+    const focusChildren = useMemo(
+        () => (focus ? childrenByParent.get(focus.id) ?? [] : []),
+        [focus, childrenByParent]
+    );
+    const topLevel = useMemo(
+        () => (childrenByParent.get(null) ?? []) as Row[],
+        [childrenByParent]
+    );
+
+    // Donut slices. When drilled in, prepend a "(direct)" pseudo-slice for
+    // any spending recorded against the focus itself (not a sub-category)
+    // so the donut total matches the focus' subtreeTotal.
+    const donutData: DonutDatum[] = useMemo(() => {
+        if (!focus) {
+            return topLevel
+                .filter((c) => c.subtreeTotal > 0)
+                .map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    value: c.subtreeTotal,
+                    color: c.color,
+                    hint:
+                        c.subtreeTotal !== c.directTotal
+                            ? "Includes sub-categories. Click to drill in."
+                            : undefined,
+                }));
+        }
+        const slices: DonutDatum[] = [];
+        if (focus.directTotal > 0) {
+            slices.push({
+                id: `${DIRECT_SLICE_PREFIX}${focus.id}`,
+                name: `${focus.name} (direct)`,
+                value: focus.directTotal,
+                color: focus.color,
+                hint: "Transactions tagged directly to this category",
+            });
+        }
+        for (const c of focusChildren) {
+            if (c.subtreeTotal > 0) {
+                slices.push({
+                    id: c.id,
+                    name: c.name,
+                    value: c.subtreeTotal,
+                    color: c.color,
+                    hint:
+                        c.subtreeTotal !== c.directTotal
+                            ? "Includes sub-categories. Click to drill in."
+                            : undefined,
+                });
+            }
+        }
+        return slices;
+    }, [focus, focusChildren, topLevel]);
+
+    const centerValue = focus ? focus.subtreeTotal : undefined;
+    const centerLabel = focus ? focus.name : "Total spent";
+
+    const setFocus = (id: string | null) => {
+        setParams(
+            (prev) => {
+                const next = new URLSearchParams(prev);
+                if (id) next.set("cat", id);
+                else next.delete("cat");
+                return next;
+            },
+            { replace: false } // allow browser back to pop out of drill-down
+        );
+    };
+
+    const onSelect = (d: DonutDatum) => {
+        // "(direct)" pseudo-slice: open transactions filtered to the focus
+        // category. Server defaults includeDescendants=true, but since the
+        // direct slice *is* the parent-with-no-descendants concept, this is
+        // the closest approximation without extra URL params.
+        if (d.id.startsWith(DIRECT_SLICE_PREFIX)) {
+            const realId = d.id.slice(DIRECT_SLICE_PREFIX.length);
+            navigate(
+                `${ROUTES.spaceTransactions(space.id)}?category=${realId}`
+            );
+            return;
+        }
+        const node = byId.get(d.id);
+        if (!node) return;
+        const hasChildren = (childrenByParent.get(node.id) ?? []).length > 0;
+        if (hasChildren) {
+            setFocus(node.id);
+        } else {
+            navigate(
+                `${ROUTES.spaceTransactions(space.id)}?category=${node.id}`
+            );
+        }
+    };
+
+    // Rows for the breakdown + "All categories" sections. When drilled,
+    // narrow to the focus subtree so the whole page stays coherent.
+    const subtreeIds = useMemo(() => {
+        if (!focus) return null;
+        const set = new Set<string>([focus.id]);
+        const stack = [focus.id];
+        while (stack.length) {
+            const id = stack.pop()!;
+            for (const c of childrenByParent.get(id) ?? []) {
+                set.add(c.id);
+                stack.push(c.id);
+            }
+        }
+        return set;
+    }, [focus, childrenByParent]);
+
+    const breakdownRoots: Row[] = focus ? focusChildren : topLevel;
+    const listRows: Row[] = subtreeIds
+        ? rows.filter((r) => subtreeIds.has(r.id))
+        : rows;
 
     return (
         <AnalyticsDetailLayout
             title="Spending by category"
-            description="Top-level categories rolled up with their children. Click a segment or row to focus."
+            description="Click a slice to drill into its sub-categories. Leaves open the matching transactions."
             actions={<PeriodSelector />}
         >
+            <Breadcrumb
+                ancestors={ancestors}
+                onNavigate={(id) => setFocus(id)}
+            />
+
             <Card>
-                <CardHeader>
-                    <CardTitle>Distribution</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
+                    <CardTitle>
+                        {focus ? `Inside ${focus.name}` : "Distribution"}
+                    </CardTitle>
+                    {focus && (
+                        <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                                const parent = ancestors[ancestors.length - 2] ?? null;
+                                setFocus(parent?.id ?? null);
+                            }}
+                        >
+                            <CornerDownLeft />
+                            Back
+                        </Button>
+                    )}
                 </CardHeader>
                 <CardContent>
                     {q.isLoading ? (
@@ -74,9 +240,15 @@ export default function CategoriesView() {
                     ) : (
                         <Donut
                             data={donutData}
-                            centerLabel="Total spent"
+                            centerLabel={centerLabel}
+                            centerValue={centerValue}
                             height={300}
-                            emptyLabel="No spending in this period."
+                            onSelect={onSelect}
+                            emptyLabel={
+                                focus
+                                    ? `No spending in ${focus.name} for this period.`
+                                    : "No spending in this period."
+                            }
                         />
                     )}
                 </CardContent>
@@ -84,22 +256,27 @@ export default function CategoriesView() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Top categories with sub-category breakdown</CardTitle>
+                    <CardTitle>
+                        {focus
+                            ? `Sub-categories of ${focus.name}`
+                            : "Top categories with sub-category breakdown"}
+                    </CardTitle>
                 </CardHeader>
                 <CardContent>
                     {q.isLoading ? (
                         <Skeleton className="h-64 w-full" />
-                    ) : topLevel.length === 0 ? (
+                    ) : breakdownRoots.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
-                            No spending to analyze.
+                            {focus
+                                ? `${focus.name} has no sub-categories.`
+                                : "No spending to analyze."}
                         </p>
                     ) : (
                         <AllocationFlowBar
-                            rows={topLevel
+                            rows={breakdownRoots
                                 .filter((c) => c.subtreeTotal > 0)
                                 .map((c) => {
-                                    const children = (childrenByParent.get(c.id) ??
-                                        []) as typeof topLevel;
+                                    const children = childrenByParent.get(c.id) ?? [];
                                     const segments =
                                         children.length > 0
                                             ? [
@@ -107,7 +284,8 @@ export default function CategoriesView() {
                                                       ? [
                                                             {
                                                                 id: c.id + "-self",
-                                                                name: c.name + " (direct)",
+                                                                name:
+                                                                    c.name + " (direct)",
                                                                 value: c.directTotal,
                                                                 color: c.color,
                                                             },
@@ -130,6 +308,7 @@ export default function CategoriesView() {
                                                       color: c.color,
                                                   },
                                               ];
+                                    const hasChildren = children.length > 0;
                                     return {
                                         id: c.id,
                                         name: c.name,
@@ -142,6 +321,14 @@ export default function CategoriesView() {
                                         ),
                                         segments,
                                         rightLabel: undefined,
+                                        onClick: hasChildren
+                                            ? () => setFocus(c.id)
+                                            : () =>
+                                                  navigate(
+                                                      `${ROUTES.spaceTransactions(
+                                                          space.id
+                                                      )}?category=${c.id}`
+                                                  ),
                                     };
                                 })}
                         />
@@ -151,18 +338,20 @@ export default function CategoriesView() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>All categories</CardTitle>
+                    <CardTitle>
+                        {focus ? `All categories inside ${focus.name}` : "All categories"}
+                    </CardTitle>
                 </CardHeader>
                 <CardContent>
                     {q.isLoading ? (
                         <Skeleton className="h-48 w-full" />
-                    ) : (q.data ?? []).length === 0 ? (
+                    ) : listRows.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
                             No categories yet.
                         </p>
                     ) : (
                         <div className="grid gap-1">
-                            {(q.data ?? []).map((c) => (
+                            {listRows.map((c) => (
                                 <div
                                     key={c.id}
                                     className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 hover:bg-accent/30"
@@ -197,6 +386,51 @@ export default function CategoriesView() {
                 </CardContent>
             </Card>
         </AnalyticsDetailLayout>
+    );
+}
+
+function Breadcrumb({
+    ancestors,
+    onNavigate,
+}: {
+    ancestors: Row[];
+    onNavigate: (id: string | null) => void;
+}) {
+    return (
+        <div className="flex flex-wrap items-center gap-1 text-sm">
+            <button
+                type="button"
+                onClick={() => onNavigate(null)}
+                className={
+                    ancestors.length === 0
+                        ? "font-semibold text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                }
+            >
+                All categories
+            </button>
+            {ancestors.map((a, i) => {
+                const isLast = i === ancestors.length - 1;
+                return (
+                    <span key={a.id} className="flex items-center gap-1">
+                        <ChevronRight className="size-3.5 text-muted-foreground/60" />
+                        <button
+                            type="button"
+                            onClick={() => onNavigate(a.id)}
+                            disabled={isLast}
+                            className={
+                                isLast
+                                    ? "flex items-center gap-1.5 font-semibold text-foreground"
+                                    : "flex items-center gap-1.5 text-muted-foreground hover:text-foreground"
+                            }
+                        >
+                            <EntityAvatar size="sm" color={a.color} icon={a.icon} />
+                            {a.name}
+                        </button>
+                    </span>
+                );
+            })}
+        </div>
     );
 }
 

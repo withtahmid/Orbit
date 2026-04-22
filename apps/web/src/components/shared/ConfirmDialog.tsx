@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 
 export function ConfirmDialog({
     trigger,
+    open,
+    onOpenChange,
     title,
     description,
     confirmLabel = "Confirm",
@@ -25,7 +27,11 @@ export function ConfirmDialog({
     destructive,
     typedConfirmationText,
 }: {
-    trigger: React.ReactNode;
+    /** Uncontrolled mode — renders the trigger inside `AlertDialogTrigger`. */
+    trigger?: React.ReactNode;
+    /** Controlled mode — caller manages open state; `trigger` becomes optional. */
+    open?: boolean;
+    onOpenChange?: (v: boolean) => void;
     title: string;
     description?: string;
     confirmLabel?: string;
@@ -38,11 +44,13 @@ export function ConfirmDialog({
     const canConfirm = !typedConfirmationText || typed === typedConfirmationText;
     return (
         <AlertDialog
-            onOpenChange={(open) => {
-                if (!open) setTyped("");
+            open={open}
+            onOpenChange={(v) => {
+                if (!v) setTyped("");
+                onOpenChange?.(v);
             }}
         >
-            <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
+            {trigger && <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>}
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>{title}</AlertDialogTitle>
