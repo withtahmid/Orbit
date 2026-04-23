@@ -28,3 +28,11 @@ export const ENV = configEnv(process.env, {
     R2_BUCKET: e.string().default(""),
     R2_PUBLIC_URL_BASE: e.string().optional(),
 });
+
+/**
+ * Demo mode disables all writes: tRPC mutations are rejected by
+ * `filterMutationsOnDemoMiddleware`, and pooled Postgres sessions are
+ * forced into `default_transaction_read_only = on` as a DB-level
+ * backstop (see `db/index.mts`). Set `NODE_ENV=demo` to activate.
+ */
+export const IS_DEMO = ENV.NODE_ENV === "demo";

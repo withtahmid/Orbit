@@ -16,9 +16,18 @@ on:
 jobs:
     deploy:
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                target:
+                    - name: production
+                      project_id_secret: VERCEL_PROJECT_ID
+                    - name: demo
+                      project_id_secret: VERCEL_PROJECT_ID_DEMO
+        name: deploy (${{ matrix.target.name }})
         env:
             VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-            VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+            VERCEL_PROJECT_ID: ${{ secrets[matrix.target.project_id_secret] }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4

@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { ENV } from "../env.mjs";
+import { ENV, IS_DEMO } from "../env.mjs";
 
 /**
  * Apply the app-wide session TimeZone to every checked-out connection.
@@ -21,11 +21,20 @@ const createPGPool = (): Pool => {
         // Format as a SQL literal (the zone is a trusted env var, but
         // escape just in case — single quotes doubled).
         const tz = ENV.APP_TIMEZONE.replace(/'/g, "''");
-        client.query(`SET TIME ZONE '${tz}'`).catch((err) => {
+        const statements = [`SET TIME ZONE '${tz}'`];
+        if (IS_DEMO) {
+            // DB-level write freeze: Postgres rejects any INSERT/UPDATE/
+            // DELETE/DDL on this session with "cannot execute X in a
+            // read-only transaction". Belt-and-suspenders backstop to
+            // `filterMutationsOnDemoMiddleware` — protects CLI scripts
+            // (seed, ad-hoc tsx runs) that bypass the tRPC layer.
+            statements.push(`SET default_transaction_read_only = on`);
+        }
+        client.query(statements.join("; ")).catch((err) => {
             // Don't crash the pool; log and let queries surface the
             // problem if the zone name is invalid.
             // eslint-disable-next-line no-console
-            console.error("Failed to SET TIME ZONE on pg connection:", err);
+            console.error("Failed to apply session config on pg connection:", err);
         });
     });
     return pool;
