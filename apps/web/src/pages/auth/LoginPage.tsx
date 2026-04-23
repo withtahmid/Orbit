@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { observer } from "mobx-react-lite";
 import { toast } from "sonner";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, Wand2 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,10 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/trpc";
 import { useStore } from "@/stores/useStore";
 import { ROUTES } from "@/router/routes";
+import { IS_DEMO } from "@/config/isDemo";
+
+const DEMO_EMAIL = "alex@orbit.dev";
+const DEMO_PASSWORD = "password123";
 
 export const LoginPage = observer(function LoginPage() {
     const { authStore } = useStore();
@@ -38,6 +42,11 @@ export const LoginPage = observer(function LoginPage() {
         login.mutate({ email, password });
     };
 
+    const fillDemo = () => {
+        setEmail(DEMO_EMAIL);
+        setPassword(DEMO_PASSWORD);
+    };
+
     return (
         <Card className="border-border/60 shadow-2xl">
             <CardHeader className="text-center">
@@ -45,6 +54,32 @@ export const LoginPage = observer(function LoginPage() {
                 <CardDescription>Sign in to continue to your spaces</CardDescription>
             </CardHeader>
             <CardContent>
+                {IS_DEMO && (
+                    <div className="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                            <div className="grid min-w-0 gap-0.5">
+                                <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                                    Demo credentials
+                                </p>
+                                <p className="truncate font-mono text-[13px] text-amber-900/80 dark:text-amber-100/80">
+                                    <span className="select-all">{DEMO_EMAIL}</span>
+                                    <span className="mx-1.5 opacity-60">·</span>
+                                    <span className="select-all">{DEMO_PASSWORD}</span>
+                                </p>
+                            </div>
+                            <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={fillDemo}
+                                className="shrink-0"
+                            >
+                                <Wand2 className="size-3.5" />
+                                Fill
+                            </Button>
+                        </div>
+                    </div>
+                )}
                 <form onSubmit={onSubmit} className="grid gap-4">
                     <div className="grid gap-2">
                         <Label htmlFor="email">Email</Label>

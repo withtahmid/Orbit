@@ -1,7 +1,12 @@
 # Orbit
 
-**Production:** [orbit.withtahmid.com](https://orbit.withtahmid.com) ·
-**Docs:** [orbit.withtahmid.com/docs](https://orbit.withtahmid.com/docs)
+> 🔎 **Live demo (read-only):** [orbit-demo.withtahmid.com](https://orbit-demo.withtahmid.com)
+> — sign in as `alex@orbit.dev` / `password123` to explore a fully seeded
+> sandbox. Mutations are rejected at both the tRPC layer and the Postgres
+> session, so state is stable across visitors.
+>
+> **Production:** [orbit.withtahmid.com](https://orbit.withtahmid.com) ·
+> **Docs:** [orbit.withtahmid.com/docs](https://orbit.withtahmid.com/docs)
 
 A collaborative personal-finance app for small groups — families, couples,
 roommates, shared projects. Orbit combines three orthogonal models into a

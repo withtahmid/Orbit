@@ -19,9 +19,11 @@ import {
     Paperclip,
     UserCircle,
     LineChart,
+    Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { DEMO_URL } from "@/config/isDemo";
 import { ROUTES } from "@/router/routes";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/stores/useStore";
@@ -45,6 +47,7 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
+    { id: "live-demo", title: "Live demo (read-only)", icon: Eye },
     { id: "overview", title: "What is Orbit?", icon: Sparkles },
     { id: "concepts", title: "Core concepts", icon: BookOpen },
     { id: "getting-started", title: "Getting started", icon: ArrowRight },
@@ -146,6 +149,7 @@ const DocsPage = observer(function DocsPage() {
                     <MobileToc />
 
                     <div className="mt-10 grid gap-14">
+                        <LiveDemo />
                         <Overview />
                         <Concepts />
                         <GettingStarted />
@@ -354,6 +358,75 @@ function Overview() {
                     },
                 ]}
             />
+        </section>
+    );
+}
+
+function LiveDemo() {
+    return (
+        <section className="grid gap-4">
+            <SectionHeader
+                id="live-demo"
+                title="Live demo (read-only)"
+                kicker="Try before you sign up"
+                icon={Eye}
+            />
+            <Paragraph>
+                A fully seeded sandbox runs at{" "}
+                <a
+                    href={DEMO_URL}
+                    className="font-medium text-primary underline-offset-4 hover:underline"
+                >
+                    orbit-demo.withtahmid.com
+                </a>
+                . Every screen renders real data — multiple accounts, envelopes, plans,
+                months of transactions, a shared "Janina family" space — so you can
+                explore the product end-to-end without creating anything of your own.
+            </Paragraph>
+            <Paragraph>
+                The demo is <b>read-only</b>: log in, click around, open every screen
+                and form — nothing you do gets saved. That's by design, so the sandbox
+                stays the same for every visitor.
+            </Paragraph>
+
+            <Card className="border-primary/30 bg-primary/5">
+                <CardContent className="grid gap-3 p-5 sm:p-6">
+                    <div className="flex items-center gap-2">
+                        <Shield className="size-4 text-primary" />
+                        <span className="text-sm font-semibold">Sign-in credentials</span>
+                    </div>
+                    <dl className="grid gap-2 font-mono text-[13px] sm:grid-cols-[auto_1fr] sm:gap-x-6">
+                        <dt className="text-muted-foreground">email</dt>
+                        <dd className="select-all">alex@orbit.dev</dd>
+                        <dt className="text-muted-foreground">password</dt>
+                        <dd className="select-all">password123</dd>
+                    </dl>
+                    <p className="text-sm text-muted-foreground">
+                        Alex is the primary demo user and owns two spaces. To see the app
+                        from a collaborator's perspective, log out and sign in as{" "}
+                        <code className="rounded bg-muted px-1 py-0.5 text-[13px]">
+                            sam@orbit.dev
+                        </code>
+                        ,{" "}
+                        <code className="rounded bg-muted px-1 py-0.5 text-[13px]">
+                            jordan@orbit.dev
+                        </code>
+                        , or{" "}
+                        <code className="rounded bg-muted px-1 py-0.5 text-[13px]">
+                            taylor@orbit.dev
+                        </code>{" "}
+                        — same password.
+                    </p>
+                </CardContent>
+            </Card>
+
+            <div>
+                <Button asChild variant="gradient">
+                    <a href={DEMO_URL}>
+                        Open the demo <ArrowRight />
+                    </a>
+                </Button>
+            </div>
         </section>
     );
 }
@@ -641,21 +714,20 @@ function Attachments() {
                 icon={Paperclip}
             />
             <Paragraph>
-                You can attach images to transactions (receipts) and to events
-                (tickets, confirmations, photos). Files live in Cloudflare R2 — the
-                browser uploads them directly to the bucket, so nothing slows down
-                the main app. Limits:
+                Attach images to transactions (receipts) and to events (tickets,
+                confirmations, photos). Uploads go straight from your browser to
+                secure storage, so they don't slow the app down.
             </Paragraph>
             <div className="grid gap-3 sm:grid-cols-3">
                 <InfoCard title="Transaction receipts" body="Images up to 10 MB each. Visible to any member of the transaction's space." />
                 <InfoCard title="Event attachments" body="Images up to 10 MB each. Visible to any member of the event's space." />
-                <InfoCard title="Profile avatars" body="Images up to 5 MB. Automatically resized into 256 px and 64 px variants." />
+                <InfoCard title="Profile avatars" body="Images up to 5 MB. Automatically optimized so they stay crisp at any size." />
             </div>
             <Paragraph>
-                Download links are short-lived (15-minute signed URLs) — the app
-                re-signs them on every view, so a link that leaves the app stops
-                working. Removing an attachment immediately removes it from R2 (best
-                effort).
+                Download links expire after a short window for safety — the app
+                refreshes them every time you view an attachment, so sharing a link
+                outside the app won't leak access. Remove an attachment and the file
+                is deleted straight away.
             </Paragraph>
             <ScreenshotPlaceholder label="Transaction detail sheet — receipt thumbnails with add / remove controls" />
         </section>
@@ -667,7 +739,7 @@ function Allocations() {
         <section className="grid gap-4">
             <SectionHeader
                 id="allocations"
-                title="Allocations — the 2D mental model"
+                title="Allocations — where money lives vs what it's for"
                 kicker="What makes Orbit different"
                 icon={Sparkles}
             />
@@ -747,7 +819,7 @@ function Analytics() {
                     <b>Heatmap</b> — daily expense calendar
                 </li>
                 <li className="text-sm">
-                    <b>Allocations</b> — 2D matrix of (envelope × account)
+                    <b>Allocations</b> — see at a glance where each envelope's money sits across your accounts
                 </li>
             </ul>
             <ScreenshotPlaceholder label="Analytics index with the 7 sub-view cards" />
@@ -798,11 +870,9 @@ function MyMoney() {
                 />
             </div>
             <Paragraph>
-                My money is read-only — you can't create transactions or
-                accounts there because every mutation has to land in a
-                specific real space. Jump into a real space via the switcher
-                (or click any row's space chip) when you need to record
-                something.
+                My money is read-only — every change belongs to a specific real
+                space, so to record something, jump into a real space via the
+                switcher (or click any row's space chip).
             </Paragraph>
             <ScreenshotPlaceholder label="My money virtual space — overview, analytics, and transactions unioned across every space you're in" />
         </section>
@@ -868,11 +938,10 @@ function Timezone() {
         <section className="grid gap-4">
             <SectionHeader id="timezone" title="Time & timezone" icon={Clock} />
             <Paragraph>
-                Orbit is currently <b>Asia/Dhaka (+06:00) throughout</b> — both the server
-                and the web app treat all dates in Dhaka time. That means "this month",
-                envelope period boundaries, and displayed transaction times are the same
-                for everyone regardless of where they open the app from. Per-space
-                timezone customization is on the roadmap.
+                Orbit currently shows all dates in <b>Asia/Dhaka (+06:00)</b> — so
+                "this month", envelope period boundaries, and displayed transaction
+                times are identical for everyone, no matter where they open the app.
+                Per-space timezone customization is on the roadmap.
             </Paragraph>
         </section>
     );
@@ -905,11 +974,11 @@ function Faq() {
                 />
                 <FaqItem
                     q="How big can a receipt attachment be?"
-                    a="Images up to 10 MB per transaction or event attachment; profile avatars up to 5 MB. Files live in Cloudflare R2; upload goes direct from your browser, so the app stays snappy."
+                    a="Images up to 10 MB for each transaction or event attachment; profile avatars up to 5 MB. Uploads go directly from your browser, so the app stays fast even on larger files."
                 />
                 <FaqItem
                     q="Who can see a receipt I attach to a transaction?"
-                    a="Any member of the space that the transaction belongs to. Download links expire after 15 minutes — Orbit re-signs them on every view."
+                    a="Any member of the space the transaction belongs to. Links expire after a short window, so even if someone copies one out of the app it won't keep working."
                 />
                 <FaqItem
                     q="Where do I report a bug or request a feature?"
@@ -963,25 +1032,33 @@ function ClosingCta({ isAuthed }: { isAuthed: boolean }) {
 /*  Reusable bits                                                   */
 /* ---------------------------------------------------------------- */
 
-function ScreenshotPlaceholder({ label }: { label: string }) {
+/**
+ * Screenshot placeholder. Renders a real <img> pointing at an SVG mock of
+ * the Orbit UI in `public/docs/`. To replace with a real screenshot:
+ * drop `<section-id>.png` (or `.webp`) into `apps/web/public/docs/` and
+ * pass `src="/docs/<section-id>.png"` on the usage.
+ */
+function ScreenshotPlaceholder({
+    label,
+    src = "/docs/placeholder.svg",
+}: {
+    label: string;
+    src?: string;
+}) {
     return (
-        <div className="group relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-dashed border-border bg-card/40">
-            <div
-                aria-hidden
-                className="absolute inset-0 opacity-40"
-                style={{
-                    background:
-                        "repeating-linear-gradient(135deg, var(--muted) 0 1px, transparent 1px 18px)",
-                }}
+        <figure className="group relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-card/40">
+            <img
+                src={src}
+                alt={label}
+                loading="lazy"
+                decoding="async"
+                className="absolute inset-0 h-full w-full object-cover"
             />
-            <div className="relative flex h-full flex-col items-center justify-center gap-2 text-center p-6">
-                <div className="inline-flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <BookOpen className="size-5" />
-                </div>
-                <p className="text-sm font-semibold">Screenshot</p>
-                <p className="max-w-md text-xs text-muted-foreground">{label}</p>
-            </div>
-        </div>
+            <figcaption className="absolute inset-x-0 bottom-0 flex items-center gap-2 border-t border-border/60 bg-background/80 px-4 py-2 backdrop-blur-sm">
+                <BookOpen className="size-3.5 shrink-0 text-primary" />
+                <span className="truncate text-xs text-muted-foreground">{label}</span>
+            </figcaption>
+        </figure>
     );
 }
 

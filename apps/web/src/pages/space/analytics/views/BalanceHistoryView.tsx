@@ -1,3 +1,5 @@
+import { useMemo, useState } from "react";
+import { ChevronDown, Wallet } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
 import {
     Area,
@@ -10,6 +12,17 @@ import {
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuCheckboxItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+    DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { PeriodSelector } from "@/components/shared/PeriodSelector";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { trpc } from "@/trpc";
@@ -20,12 +33,48 @@ export default function BalanceHistoryView() {
     const { space } = useCurrentSpace();
     const { period } = usePeriod("last-3-months");
 
+    // Accounts available to filter on. For a real space that's every
+    // account in the space; for the virtual personal space it's every
+    // account the caller owns (the scope the personal balance_history
+    // already operates within — filtering to a non-owned account would
+    // be silently dropped server-side anyway).
+    const accountsSpace = trpc.account.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !space.isPersonal }
+    );
+    const accountsPersonal = trpc.personal.ownedAccounts.useQuery(undefined, {
+        enabled: space.isPersonal,
+    });
+    const accounts = useMemo(() => {
+        if (space.isPersonal) {
+            return (accountsPersonal.data ?? []).map((a) => ({
+                id: a.id,
+                name: a.name,
+                color: a.color,
+                icon: a.icon,
+            }));
+        }
+        return (accountsSpace.data ?? []).map((a) => ({
+            id: a.id,
+            name: a.name,
+            color: a.color,
+            icon: a.icon,
+        }));
+    }, [space.isPersonal, accountsSpace.data, accountsPersonal.data]);
+
+    // Empty set = "all accounts" (no filter). Using a Set here rather
+    // than an array so toggle is O(1) and order-independent.
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const hasFilter = selected.size > 0;
+    const accountIds = hasFilter ? Array.from(selected) : undefined;
+
     const qSpace = trpc.analytics.balanceHistory.useQuery(
         {
             spaceId: space.id,
             periodStart: period.start,
             periodEnd: period.end,
             bucket: "day",
+            accountIds,
         },
         { enabled: !space.isPersonal }
     );
@@ -34,16 +83,94 @@ export default function BalanceHistoryView() {
             periodStart: period.start,
             periodEnd: period.end,
             bucket: "day",
+            accountIds,
         },
         { enabled: space.isPersonal }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
+    const toggle = (id: string) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const triggerLabel = hasFilter
+        ? selected.size === 1
+            ? accounts.find((a) => selected.has(a.id))?.name ?? "1 account"
+            : `${selected.size} accounts`
+        : "All accounts";
+
     return (
         <AnalyticsDetailLayout
             title="Balance history"
             description="Total space balance (assets minus liabilities) over time."
-            actions={<PeriodSelector defaultPreset="last-3-months" />}
+            actions={
+                <div className="flex flex-wrap items-center gap-2">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="justify-between gap-2"
+                            >
+                                <span className="inline-flex items-center gap-1.5">
+                                    <Wallet className="size-3.5" />
+                                    {triggerLabel}
+                                </span>
+                                <ChevronDown className="size-3.5 opacity-60" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-64">
+                            <DropdownMenuLabel>Filter by account</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {accounts.length === 0 ? (
+                                <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                                    No accounts available.
+                                </p>
+                            ) : (
+                                <>
+                                    <DropdownMenuItem
+                                        onSelect={(e) => {
+                                            e.preventDefault();
+                                            setSelected(new Set());
+                                        }}
+                                        disabled={!hasFilter}
+                                    >
+                                        Clear selection
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <div className="max-h-[260px] overflow-y-auto">
+                                        {accounts.map((a) => (
+                                            <DropdownMenuCheckboxItem
+                                                key={a.id}
+                                                checked={selected.has(a.id)}
+                                                onCheckedChange={() => toggle(a.id)}
+                                                onSelect={(e) => e.preventDefault()}
+                                            >
+                                                <span className="flex min-w-0 items-center gap-2">
+                                                    <EntityAvatar
+                                                        size="sm"
+                                                        color={a.color}
+                                                        icon={a.icon}
+                                                    />
+                                                    <span className="truncate">
+                                                        {a.name}
+                                                    </span>
+                                                </span>
+                                            </DropdownMenuCheckboxItem>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                    <PeriodSelector defaultPreset="last-3-months" />
+                </div>
+            }
         >
             <Card>
                 <CardHeader>

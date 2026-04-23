@@ -114,6 +114,7 @@ export default function CashFlowView() {
                                     width={50}
                                 />
                                 <RTooltip
+                                    cursor={{ fill: "var(--accent)", opacity: 0.5 }}
                                     contentStyle={{
                                         background: "var(--popover)",
                                         border: "1px solid var(--border)",

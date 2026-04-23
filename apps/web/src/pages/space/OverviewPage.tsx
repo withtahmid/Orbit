@@ -145,24 +145,26 @@ export default function OverviewPage() {
     );
     const utilization = isPersonal ? utilizationPersonal : utilizationSpace;
 
-    const topCatsSpace = trpc.analytics.topCategories.useQuery(
+    // Root-level category breakdown for the donut (same shape the
+    // analytics "Category spending" page uses at its root view):
+    // subtree totals rolled up to top-level categories so the slices
+    // include descendant spending.
+    const catBreakdownSpace = trpc.analytics.categoryBreakdown.useQuery(
         {
             spaceId: space.id,
             periodStart: thisMonthStart,
             periodEnd: thisMonthEnd,
-            limit: 6,
         },
         { enabled: !isPersonal }
     );
-    const topCatsPersonal = trpc.personal.topCategories.useQuery(
+    const catBreakdownPersonal = trpc.personal.categoryBreakdown.useQuery(
         {
             periodStart: thisMonthStart,
             periodEnd: thisMonthEnd,
-            limit: 6,
         },
         { enabled: isPersonal }
     );
-    const topCats = isPersonal ? topCatsPersonal : topCatsSpace;
+    const catBreakdown = isPersonal ? catBreakdownPersonal : catBreakdownSpace;
 
     // Recent transactions. personal.transactions returns the same
     // snake_case shape as transaction.listBySpace (plus a few
@@ -233,13 +235,19 @@ export default function OverviewPage() {
 
     const topCatsDonut = useMemo(
         () =>
-            (topCats.data ?? []).map((c) => ({
-                id: c.id,
-                name: c.name,
-                value: c.total,
-                color: c.color,
-            })),
-        [topCats.data]
+            (catBreakdown.data ?? [])
+                .filter((c) => c.parentId === null && c.subtreeTotal > 0)
+                .map((c) => ({
+                    id: c.id,
+                    name: c.name,
+                    value: c.subtreeTotal,
+                    color: c.color,
+                    hint:
+                        c.subtreeTotal !== c.directTotal
+                            ? "Includes sub-categories"
+                            : undefined,
+                })),
+        [catBreakdown.data]
     );
 
     // Space-level allocation map: envelope current-period remaining +
@@ -634,7 +642,7 @@ export default function OverviewPage() {
                         />
                     </CardHeader>
                     <CardContent>
-                        {topCats.isLoading ? (
+                        {catBreakdown.isLoading ? (
                             <Skeleton className="h-[280px] w-full" />
                         ) : (
                             <Donut
@@ -690,6 +698,7 @@ export default function OverviewPage() {
                                         width={50}
                                     />
                                     <RTooltip
+                                        cursor={{ fill: "var(--accent)", opacity: 0.5 }}
                                         contentStyle={{
                                             background: "var(--popover)",
                                             border: "1px solid var(--border)",

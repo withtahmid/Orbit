@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" role="img" aria-label="Screenshot placeholder — real screenshots will be dropped in later">
+    <defs>
+        <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#0b1221"/>
+            <stop offset="100%" stop-color="#111827"/>
+        </linearGradient>
+        <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#34d399"/>
+            <stop offset="100%" stop-color="#22d3ee"/>
+        </linearGradient>
+        <pattern id="grid" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1f2937" stroke-width="0.5"/>
+        </pattern>
+    </defs>
+
+    <rect width="1280" height="720" fill="url(#bg)"/>
+    <rect width="1280" height="720" fill="url(#grid)" opacity="0.6"/>
+
+    <!-- Window chrome -->
+    <rect x="72" y="72" width="1136" height="576" rx="14" fill="#0b1221" stroke="#1f2937" stroke-width="1.5"/>
+    <circle cx="104" cy="104" r="6" fill="#334155"/>
+    <circle cx="126" cy="104" r="6" fill="#334155"/>
+    <circle cx="148" cy="104" r="6" fill="#334155"/>
+    <rect x="180" y="96" width="300" height="16" rx="8" fill="#111827"/>
+
+    <!-- Sidebar -->
+    <rect x="72" y="138" width="220" height="510" fill="#0b1221" stroke="#1f2937" stroke-width="1"/>
+    <rect x="92" y="168" width="140" height="12" rx="4" fill="#1f2937"/>
+    <rect x="92" y="200" width="180" height="30" rx="8" fill="#1f2937"/>
+    <rect x="92" y="240" width="150" height="10" rx="4" fill="#1f2937"/>
+    <rect x="92" y="268" width="170" height="10" rx="4" fill="#1f2937"/>
+    <rect x="92" y="296" width="130" height="10" rx="4" fill="#1f2937"/>
+    <rect x="92" y="324" width="160" height="10" rx="4" fill="#1f2937"/>
+    <rect x="92" y="352" width="120" height="10" rx="4" fill="#1f2937"/>
+
+    <!-- Top stats row -->
+    <rect x="312" y="168" width="280" height="110" rx="10" fill="#0f172a" stroke="#1f2937"/>
+    <rect x="332" y="188" width="90" height="10" rx="4" fill="#334155"/>
+    <rect x="332" y="210" width="160" height="22" rx="6" fill="url(#brand)" opacity="0.85"/>
+    <rect x="332" y="244" width="120" height="8" rx="4" fill="#1f2937"/>
+
+    <rect x="608" y="168" width="280" height="110" rx="10" fill="#0f172a" stroke="#1f2937"/>
+    <rect x="628" y="188" width="90" height="10" rx="4" fill="#334155"/>
+    <rect x="628" y="210" width="140" height="22" rx="6" fill="#1f2937"/>
+    <rect x="628" y="244" width="100" height="8" rx="4" fill="#1f2937"/>
+
+    <rect x="904" y="168" width="284" height="110" rx="10" fill="#0f172a" stroke="#1f2937"/>
+    <rect x="924" y="188" width="90" height="10" rx="4" fill="#334155"/>
+    <rect x="924" y="210" width="180" height="22" rx="6" fill="#1f2937"/>
+    <rect x="924" y="244" width="140" height="8" rx="4" fill="#1f2937"/>
+
+    <!-- Chart card -->
+    <rect x="312" y="298" width="572" height="340" rx="10" fill="#0f172a" stroke="#1f2937"/>
+    <rect x="332" y="320" width="140" height="12" rx="4" fill="#334155"/>
+    <rect x="332" y="340" width="220" height="8" rx="4" fill="#1f2937"/>
+    <!-- Bar chart -->
+    <g transform="translate(332,572)">
+        <rect x="0"   y="-60"  width="36" height="60"  rx="4" fill="#10b981" opacity="0.9"/>
+        <rect x="52"  y="-110" width="36" height="110" rx="4" fill="#14b8a6" opacity="0.9"/>
+        <rect x="104" y="-150" width="36" height="150" rx="4" fill="#0ea5e9" opacity="0.9"/>
+        <rect x="156" y="-90"  width="36" height="90"  rx="4" fill="#10b981" opacity="0.9"/>
+        <rect x="208" y="-170" width="36" height="170" rx="4" fill="#22d3ee" opacity="0.9"/>
+        <rect x="260" y="-130" width="36" height="130" rx="4" fill="#10b981" opacity="0.9"/>
+        <rect x="312" y="-200" width="36" height="200" rx="4" fill="url(#brand)"/>
+        <rect x="364" y="-150" width="36" height="150" rx="4" fill="#14b8a6" opacity="0.9"/>
+        <rect x="416" y="-220" width="36" height="220" rx="4" fill="url(#brand)"/>
+        <rect x="468" y="-130" width="36" height="130" rx="4" fill="#0ea5e9" opacity="0.9"/>
+    </g>
+
+    <!-- Right stack: donut + list -->
+    <rect x="904" y="298" width="284" height="160" rx="10" fill="#0f172a" stroke="#1f2937"/>
+    <rect x="924" y="318" width="120" height="12" rx="4" fill="#334155"/>
+    <circle cx="1046" cy="390" r="46" fill="none" stroke="#1f2937" stroke-width="10"/>
+    <circle cx="1046" cy="390" r="46" fill="none" stroke="url(#brand)" stroke-width="10" stroke-dasharray="180 110" stroke-linecap="round" transform="rotate(-90 1046 390)"/>
+
+    <rect x="904" y="478" width="284" height="160" rx="10" fill="#0f172a" stroke="#1f2937"/>
+    <rect x="924" y="498" width="140" height="12" rx="4" fill="#334155"/>
+    <rect x="924" y="526" width="244" height="8" rx="4" fill="#1f2937"/>
+    <rect x="924" y="548" width="220" height="8" rx="4" fill="#1f2937"/>
+    <rect x="924" y="570" width="240" height="8" rx="4" fill="#1f2937"/>
+    <rect x="924" y="592" width="200" height="8" rx="4" fill="#1f2937"/>
+    <rect x="924" y="614" width="230" height="8" rx="4" fill="#1f2937"/>
+
+    <!-- Watermark -->
+    <g transform="translate(640,688)" opacity="0.55">
+        <text text-anchor="middle" fill="#64748b" font-family="system-ui, -apple-system, sans-serif" font-size="14" letter-spacing="2">
+            ORBIT · SCREENSHOT PLACEHOLDER
+        </text>
+    </g>
+</svg>

@@ -10,7 +10,10 @@ export const balanceHistory = authorizedProcedure
     .input(
         z.object({
             spaceId: z.string().uuid(),
-            accountId: z.string().uuid().optional(),
+            // One or more account ids to narrow the scope to. Empty array
+            // is treated like "no filter" (every account in the space);
+            // ids not in the space are silently ignored.
+            accountIds: z.array(z.string().uuid()).optional(),
             periodStart: z.coerce.date(),
             periodEnd: z.coerce.date(),
             bucket: z.enum(["day", "week", "month"]).default("day"),
@@ -33,8 +36,18 @@ export const balanceHistory = authorizedProcedure
                           ? "1 week"
                           : "1 month";
 
-                // Compute the current total balance of the space (or a single account)
-                // and the time-series of net deltas. Work backward from the current balance.
+                const hasAccountFilter =
+                    !!input.accountIds && input.accountIds.length > 0;
+
+                // Compute the current total balance of the space (or the
+                // selected subset of accounts within it) and the time-series
+                // of net deltas. Work backward from the current balance.
+                //
+                // The two CASE branches below are summed independently (not
+                // mutually exclusive): a transfer where both source AND
+                // destination are in-scope must net to 0 for the scope
+                // total, which only works if we fire both the +amount
+                // destination leg and the -amount source leg.
                 const query = sql<{
                     bucket: Date;
                     balance: string;
@@ -43,7 +56,7 @@ export const balanceHistory = authorizedProcedure
                         SELECT sa.account_id
                         FROM space_accounts sa
                         WHERE sa.space_id = ${input.spaceId}
-                          ${input.accountId ? sql`AND sa.account_id = ${input.accountId}` : sql``}
+                          ${hasAccountFilter ? sql`AND sa.account_id = ANY(${input.accountIds})` : sql``}
                     ),
                     current_balance AS (
                         SELECT COALESCE(SUM(ab.balance), 0) AS balance
@@ -60,11 +73,21 @@ export const balanceHistory = authorizedProcedure
                     bucket_deltas AS (
                         SELECT
                             date_trunc(${input.bucket}, t.transaction_datetime) AS bucket,
-                            SUM(CASE
-                                WHEN t.type IN ('income','transfer','adjustment') AND t.destination_account_id IN (SELECT account_id FROM scope_accounts) THEN t.amount
-                                WHEN t.type IN ('expense','transfer','adjustment') AND t.source_account_id IN (SELECT account_id FROM scope_accounts) THEN -t.amount
-                                ELSE 0
-                            END) AS delta
+                            SUM(
+                                CASE
+                                    WHEN t.type IN ('income','transfer','adjustment')
+                                        AND t.destination_account_id IN (SELECT account_id FROM scope_accounts)
+                                        THEN t.amount
+                                    ELSE 0
+                                END
+                                +
+                                CASE
+                                    WHEN t.type IN ('expense','transfer','adjustment')
+                                        AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
+                                        THEN -t.amount
+                                    ELSE 0
+                                END
+                            ) AS delta
                         FROM transactions t
                         WHERE t.space_id = ${input.spaceId}
                         GROUP BY 1

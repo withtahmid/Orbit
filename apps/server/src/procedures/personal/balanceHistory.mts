@@ -11,12 +11,13 @@ import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
  * total" shape as analytics.balanceHistory — swap `scope_accounts` from
  * "accounts in one space" to "accounts the caller owns".
  *
- * The `accountId` filter, if passed, must be owned by the caller.
+ * The `accountIds` filter, if passed, narrows the scope to that subset.
+ * Any id not owned by the caller is silently dropped.
  */
 export const personalBalanceHistory = authorizedProcedure
     .input(
         z.object({
-            accountId: z.string().uuid().optional(),
+            accountIds: z.array(z.string().uuid()).optional(),
             periodStart: z.coerce.date(),
             periodEnd: z.coerce.date(),
             bucket: z.enum(["day", "week", "month"]).default("day"),
@@ -41,15 +42,14 @@ export const personalBalanceHistory = authorizedProcedure
                           ? "1 week"
                           : "1 month";
 
-                // Guard: a caller-supplied accountId must be one of their
-                // owned accounts — otherwise silently skew the answer to an
-                // empty scope.
-                const scope =
-                    input.accountId && owned.includes(input.accountId)
-                        ? [input.accountId]
-                        : input.accountId
-                          ? []
-                          : owned;
+                // Restrict caller-supplied ids to owned accounts. An empty
+                // array after filtering means "no valid accounts" and we
+                // short-circuit to zero-filled buckets below.
+                const hasFilter = !!input.accountIds && input.accountIds.length > 0;
+                const ownedSet = new Set(owned);
+                const scope = hasFilter
+                    ? input.accountIds!.filter((id) => ownedSet.has(id))
+                    : owned;
 
                 if (scope.length === 0 || memberSpaces.length === 0) {
                     const emptyBuckets = await sql<{ bucket: Date }>`
@@ -82,15 +82,27 @@ export const personalBalanceHistory = authorizedProcedure
                         ) AS bucket
                     ),
                     bucket_deltas AS (
+                        -- Branches summed additively (not mutually
+                        -- exclusive) so an intra-scope transfer correctly
+                        -- nets to 0 instead of double-counting the
+                        -- destination leg.
                         SELECT
                             date_trunc(${input.bucket}, t.transaction_datetime) AS bucket,
-                            SUM(CASE
-                                WHEN t.type IN ('income','transfer','adjustment')
-                                    AND t.destination_account_id = ANY(${scope}) THEN t.amount
-                                WHEN t.type IN ('expense','transfer','adjustment')
-                                    AND t.source_account_id = ANY(${scope}) THEN -t.amount
-                                ELSE 0
-                            END) AS delta
+                            SUM(
+                                CASE
+                                    WHEN t.type IN ('income','transfer','adjustment')
+                                        AND t.destination_account_id = ANY(${scope})
+                                        THEN t.amount
+                                    ELSE 0
+                                END
+                                +
+                                CASE
+                                    WHEN t.type IN ('expense','transfer','adjustment')
+                                        AND t.source_account_id = ANY(${scope})
+                                        THEN -t.amount
+                                    ELSE 0
+                                END
+                            ) AS delta
                         FROM transactions t
                         WHERE t.space_id = ANY(${memberSpaces})
                           AND (
