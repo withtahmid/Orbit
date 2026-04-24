@@ -30,6 +30,7 @@ export const personalListCategories = authorizedProcedure.query(async ({ ctx }) 
                     "name",
                     "color",
                     "icon",
+                    "priority",
                     "created_at",
                     "updated_at",
                 ])

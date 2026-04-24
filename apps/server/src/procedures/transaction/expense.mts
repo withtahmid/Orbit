@@ -2,6 +2,7 @@ import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import type { Transactions } from "../../db/kysely/types.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
+import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
@@ -32,6 +33,12 @@ export const createExpenseTransaction = authorizedProcedure
                     destinationAccountId: null,
                     sourceAccountId: input.sourceAccountId,
                     type: "expense" as unknown as Transactions["type"],
+                });
+                await resolveTransactionSpaceIntegrity({
+                    trx,
+                    spaceId: input.spaceId,
+                    sourceAccountId: input.sourceAccountId,
+                    destinationAccountId: null,
                 });
                 await resolveExpenseCategoryBelongsToSpace({
                     trx,

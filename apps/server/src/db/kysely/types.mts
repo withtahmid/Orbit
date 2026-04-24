@@ -112,6 +112,7 @@ export interface ExpenseCategories {
   id: Generated<string>;
   name: string;
   parent_id: string | null;
+  priority: string | null;
   space_id: string;
   updated_at: Generated<Timestamp | null>;
 }

@@ -141,6 +141,11 @@ always trust migrations + `generate-types` over ad-hoc type edits.
 **No `envelop_balances` table.** Retired in migration `026`. All envelope
 metrics are computed on-read (see §5).
 
+**Priority tiers live on categories, not envelopes** — see §3.5. A single
+envelope can legitimately span tiers (most groceries are essential, a
+premium leaf category might be luxury), so tagging at the category level
+with inheritance from ancestors gives the right granularity.
+
 ### 3.4 Plans (rolling goal buckets)
 
 - **`plans`** — `id`, `space_id`, `name`, `color`, `icon`, `description`,
@@ -155,7 +160,18 @@ metrics are computed on-read (see §5).
 
 - **`expense_categories`** — `id`, `space_id`, `parent_id` (self-FK,
   nullable, RESTRICT on delete), `envelop_id` (NOT NULL, RESTRICT), `name`,
-  `color`, `icon`, timestamps.
+  `color`, `icon`, `priority text NULL` ∈ `'essential' | 'important' |
+  'discretionary' | 'luxury'` (CHECK-constrained; migration 031),
+  timestamps.
+
+**Priority inheritance.** A category with `priority = NULL` inherits
+from the nearest ancestor that has a non-NULL value. A root with NULL
+priority bubbles up as "unclassified" in analytics. This lets you tag
+"Groceries" as essential once and only override the specific leaves
+that differ (e.g. a `Premium Imports > Imported Cheese` leaf tagged
+luxury even though its ancestor is essential). `priorityBreakdown`
+(§12) resolves the effective tier via a recursive CTE walking
+`parent_id`.
 
 **Invariant:** all categories in a subtree share the same `envelop_id`. The
 `envelop.create` and `envelop.update` procedures enforce this; the
@@ -727,7 +743,7 @@ all respect the fee (swap OLD for NEW on updates, reverse on delete).
 |---|---|
 | `topCategories`, `categoryBreakdown` | added to totals under `fee_expense_category_id` |
 | `envelopeUtilization`, `accountAllocation` | consumed includes fees on the envelope their category rolls up to; carry-over math respects fees on prior periods |
-| `cashFlow`, `spendingHeatmap`, `spaceSummary` (`periodExpense`) | fees count as period expense alongside regular `type='expense'` rows |
+| `cashFlow`, `spendingHeatmap`, `spaceSummary` (`periodExpense`) | fees count as period expense alongside regular `type='expense'` rows, **gated to transfers whose source is in the space** (see §12) |
 
 **Personal twins** — same additions on every `personal.*` counterpart.
 A transfer fee only counts as the caller's personal outflow if the
@@ -773,8 +789,66 @@ and registered in [`routers/analytics.mts`](../apps/server/src/routers/analytics
 | `accountAllocation` | for one account: envelope partitions + plan partitions + balance/allocated/unallocated (**new**, powers Account detail "Allocations" tab) |
 | `balanceHistory` | bucketed running total-balance over time |
 | `spendingHeatmap` | daily expense totals for calendar heatmap |
+| `priorityBreakdown` | expense per priority tier (essential / important / discretionary / luxury / unclassified) for the window. Tier lives on the category (§3.5); descendants inherit from the nearest non-NULL ancestor via a recursive CTE. Transfer principal excluded; transfer fees counted via `fee_expense_category_id` |
 
 All accept `spaceId` and validate membership before running.
+
+**Money-flow analytics are account-scoped; category-like analytics are
+`space_id`-scoped.** This is the central rule.
+
+| Procedure | Scope | Rationale |
+|---|---|---|
+| `spaceSummary` (balances + `periodIncome` / `periodExpense` / `periodNet`) | account | balances derive from `account_balances`, which the trigger updates purely by account |
+| `cashFlow` | account | income vs. expense must agree with balance movement |
+| `balanceHistory` | account | current balance is account-derived; deltas must match or the chart contradicts today |
+| `spendingHeatmap` | account | a day's cell should match that day's cash-flow expense bar |
+| `categoryBreakdown`, `topCategories` | `space_id` | expense categories are space-local; the category tree only contains rows stamped with this space |
+| `envelopeUtilization`, `accountAllocation`, `planProgress` | `space_id` | envelopes and plans are space entities |
+| `eventTotals` | `space_id` | events are space entities |
+| `priorityBreakdown` | account | mirrors `cashFlow`: inflow/outflow is per-account, classified via envelope's `priority` column |
+
+**Why account-scoped for money-flow.** The balance trigger updates
+`account_balances` based on `source_account_id` / `destination_account_id`
+regardless of which `space_id` a row was stamped with. Historically the
+analytics queries filtered by `space_id` instead, which produced two
+pathologies: (1) a cross-space contribution (e.g. transfer from a
+personal account into a family-shared pot) silently raised the family's
+balance without ever surfacing as income, and (2) `balanceHistory`'s
+delta stream diverged from its `current_balance` when a row touched a
+scope account but was stamped with a neighboring space. Under the
+account-flow rule, both problems disappear: every query derives its
+population from `space_accounts` via a scope CTE, and `space_id`
+becomes purely a categorization tag for the category/envelope/plan
+graph.
+
+**The combination table** (for any row, from Space X's viewpoint,
+where `scope = space_accounts` for X):
+
+| src ∈ scope | dst ∈ scope | Transfer → X income | Transfer → X expense | Fee (if present) |
+|---|---|---|---|---|
+| yes | yes | 0 | 0 | counts as expense (bank took it) |
+| yes | no  | 0 | `amount` | counts as expense |
+| no  | yes | `amount` | 0 | **doesn't count** (fee debited a source outside scope) |
+| no  | no  | 0 | 0 | doesn't count |
+
+- `income` counts only if destination ∈ scope.
+- `expense` counts only if source ∈ scope.
+- `adjustment` mirrors balanceHistory: `+amount` when destination ∈
+  scope, `−amount` when source ∈ scope.
+
+**Write-time integrity.** To keep `space_id` a meaningful categorization
+tag (even though it no longer scopes money-flow), every transaction
+creation / update path runs
+[`resolveTransactionSpaceIntegrity`](../apps/server/src/procedures/transaction/utils/resolveTransactionSpaceIntegrity.mts):
+the chosen `spaceId` must be one of the spaces that source or
+destination is shared into. This allows the common "contribute from
+outside into a space pot" flow (one leg is in the recording space,
+the other isn't) while rejecting orphaned rows where neither leg
+relates to the stamped space.
+
+These rules make the period net reported by `spaceSummary` / `cashFlow`
+always match the balance-delta reported by `balanceHistory`, and
+parallel the personal semantics in §6.5.
 
 **Cross-space counterparts** live under
 [`apps/server/src/procedures/personal/`](../apps/server/src/procedures/personal/)

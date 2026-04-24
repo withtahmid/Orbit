@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
+import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
 import type { Transactions } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 import { attachFilesToTransaction } from "../file/attach.mjs";
@@ -29,6 +30,13 @@ export const adjustAccountBalance = authorizedProcedure
                     destinationAccountId: input.accountId,
                     sourceAccountId: input.accountId,
                     type: "adjustment" as unknown as Transactions["type"],
+                });
+
+                await resolveTransactionSpaceIntegrity({
+                    trx,
+                    spaceId: input.spaceId,
+                    sourceAccountId: input.accountId,
+                    destinationAccountId: input.accountId,
                 });
 
                 // Compute the delta in Postgres so we preserve the exact

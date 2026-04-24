@@ -14,7 +14,11 @@ single coherent ledger:
 
 - **Ledger accounting** — accounts hold real money, transactions move it.
 - **Envelope budgeting** — named buckets hold a logical allocation; spending
-  routes through categories.
+  routes through categories. Categories carry an optional priority tier
+  (essential / important / discretionary / luxury) with ancestor inheritance,
+  so analytics can answer "what fraction of this month was must-spend vs
+  want-spend?" at a glance — with the granularity to mark an occasional
+  premium leaf as luxury while its siblings stay essential.
 - **Goal-based planning** — plans hold money earmarked for long-horizon targets.
 
 Users in multiple shared spaces (roommates, office, family, …) also get a
@@ -80,7 +84,7 @@ apps/
 ├── server/                       # tRPC backend
 │   └── src/
 │       ├── db/kysely/
-│       │   ├── migrations/       # schema history (0001–029), applied with `pnpm migrate`
+│       │   ├── migrations/       # schema history (0001–031), applied with `pnpm migrate`
 │       │   └── types.mts         # generated — don't hand-edit
 │       ├── procedures/           # one procedure per file per resource
 │       ├── routers/              # feature routers composing procedures

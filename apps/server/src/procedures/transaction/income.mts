@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
+import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
 
@@ -29,6 +30,13 @@ export const createIncomeTransaction = authorizedProcedure
                     destinationAccountId: input.accountId,
                     sourceAccountId: null,
                     type: "income" as unknown as Transactions["type"],
+                });
+
+                await resolveTransactionSpaceIntegrity({
+                    trx,
+                    spaceId: input.spaceId,
+                    sourceAccountId: null,
+                    destinationAccountId: input.accountId,
                 });
 
                 if (input.eventId) {

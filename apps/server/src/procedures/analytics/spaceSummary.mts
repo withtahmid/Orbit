@@ -135,25 +135,59 @@ export const spaceSummary = authorizedProcedure
                     ])
                     .executeTakeFirst();
 
-                // Period income / expense. Transfer fees count as
-                // expense (money leaving the space); kept as raw SQL so
-                // we can sum two CASE branches into the expense column.
+                // Period income / expense derived from actual money
+                // movement through the space's accounts. The
+                // transaction's `space_id` column is a categorization
+                // tag (see spec §12), not a scope boundary; a transfer
+                // from outside into a scope account surfaces here as
+                // income even if the row was stamped with a different
+                // `space_id`. Internal transfers net to zero; fees
+                // count as expense only when the source is in scope.
                 const incomeExpenseRow = await sql<{
                     income: string;
                     expense: string;
                 }>`
+                    WITH scope_accounts AS (
+                        SELECT sa.account_id
+                        FROM space_accounts sa
+                        WHERE sa.space_id = ${input.spaceId}
+                    )
                     SELECT
+                        COALESCE(SUM(CASE
+                            WHEN type = 'income'
+                                AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                            WHEN type = 'transfer'
+                                AND destination_account_id IN (SELECT account_id FROM scope_accounts)
+                                AND source_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount
+                            WHEN type = 'adjustment'
+                                AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                            ELSE 0
+                        END), 0)::text AS income,
                         COALESCE(SUM(
-                            CASE WHEN type = 'income' THEN amount ELSE 0 END
-                        ), 0)::text AS income,
-                        COALESCE(SUM(
-                            CASE WHEN type = 'expense' THEN amount ELSE 0 END
-                            + CASE WHEN type = 'transfer' AND fee_amount IS NOT NULL THEN fee_amount ELSE 0 END
+                            CASE
+                                WHEN type = 'expense'
+                                    AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                WHEN type = 'transfer'
+                                    AND source_account_id IN (SELECT account_id FROM scope_accounts)
+                                    AND destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount
+                                WHEN type = 'adjustment'
+                                    AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                ELSE 0
+                            END
+                            + CASE
+                                WHEN type = 'transfer'
+                                    AND source_account_id IN (SELECT account_id FROM scope_accounts)
+                                    AND fee_amount IS NOT NULL THEN fee_amount
+                                ELSE 0
+                            END
                         ), 0)::text AS expense
                     FROM transactions
-                    WHERE space_id = ${input.spaceId}
-                      AND transaction_datetime >= ${input.periodStart}
+                    WHERE transaction_datetime >= ${input.periodStart}
                       AND transaction_datetime < ${input.periodEnd}
+                      AND (
+                          source_account_id IN (SELECT account_id FROM scope_accounts)
+                          OR destination_account_id IN (SELECT account_id FROM scope_accounts)
+                      )
                 `
                     .execute(trx)
                     .then((r) => r.rows[0]);

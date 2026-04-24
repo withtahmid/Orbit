@@ -22,6 +22,14 @@ import { ROUTES } from "@/router/routes";
  */
 const DIRECT_SLICE_PREFIX = "__direct__:";
 
+/**
+ * Sentinel id prefix for envelope-level slices at the top of the view.
+ * Clicking an envelope slice focuses on that envelope and shows its
+ * root categories. Envelopes aren't in the `expense_categories` tree,
+ * so we synthesize them as pseudo-nodes at render time.
+ */
+const ENVELOPE_ID_PREFIX = "env:";
+
 type Row = {
     id: string;
     parentId: string | null;
@@ -31,6 +39,13 @@ type Row = {
     envelopId: string;
     directTotal: number;
     subtreeTotal: number;
+};
+
+type EnvelopeMeta = {
+    id: string;
+    name: string;
+    color: string;
+    icon: string;
 };
 
 export default function CategoriesView() {
@@ -58,6 +73,41 @@ export default function CategoriesView() {
     const q = space.isPersonal ? qPersonal : qSpace;
     const rows = useMemo(() => (q.data ?? []) as Row[], [q.data]);
 
+    // Envelope metadata (name, color, icon) for the top-level grouping.
+    // Personal path: use personal.envelopeUtilization which returns
+    // envelopes across all member spaces already tagged.
+    const envSpaceQ = trpc.envelop.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !space.isPersonal }
+    );
+    const envPersonalQ = trpc.personal.envelopeUtilization.useQuery(
+        { periodStart: period.start, periodEnd: period.end },
+        { enabled: space.isPersonal }
+    );
+    const envelopeMeta = useMemo<Map<string, EnvelopeMeta>>(() => {
+        const m = new Map<string, EnvelopeMeta>();
+        if (space.isPersonal) {
+            for (const e of envPersonalQ.data ?? []) {
+                m.set(e.envelopId, {
+                    id: e.envelopId,
+                    name: e.name,
+                    color: e.color,
+                    icon: e.icon,
+                });
+            }
+        } else {
+            for (const e of envSpaceQ.data ?? []) {
+                m.set(e.id, {
+                    id: e.id,
+                    name: e.name,
+                    color: e.color,
+                    icon: e.icon,
+                });
+            }
+        }
+        return m;
+    }, [space.isPersonal, envSpaceQ.data, envPersonalQ.data]);
+
     const byId = useMemo(() => {
         const m = new Map<string, Row>();
         for (const r of rows) m.set(r.id, r);
@@ -74,36 +124,105 @@ export default function CategoriesView() {
         return m;
     }, [rows]);
 
-    // Resolve the current focus node + its ancestor chain for the breadcrumb.
-    const focus = focusId ? byId.get(focusId) ?? null : null;
+    // Focus can be either an envelope (id prefixed "env:") or a real
+    // category id. Envelope focus shows the root categories of that
+    // envelope; category focus shows that category's children.
+    const isEnvelopeFocus = !!focusId && focusId.startsWith(ENVELOPE_ID_PREFIX);
+    const focusedEnvelopeId = isEnvelopeFocus
+        ? focusId!.slice(ENVELOPE_ID_PREFIX.length)
+        : null;
+    const focusedEnvelope = focusedEnvelopeId
+        ? envelopeMeta.get(focusedEnvelopeId) ?? null
+        : null;
+    const focus =
+        focusId && !isEnvelopeFocus ? byId.get(focusId) ?? null : null;
+
     const ancestors = useMemo(() => {
-        if (!focus) return [] as Row[];
-        const chain: Row[] = [];
-        let cur: Row | undefined = focus;
-        while (cur) {
-            chain.unshift(cur);
-            cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+        // Category ancestors walk up via parent_id, stopping at the
+        // root category. Prepend the envelope at the top.
+        const chain: Array<Row | (EnvelopeMeta & { kind: "env" })> = [];
+        let envId: string | null = null;
+
+        if (focus) {
+            let cur: Row | undefined = focus;
+            while (cur) {
+                chain.unshift(cur);
+                cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+            }
+            envId = focus.envelopId;
+        } else if (focusedEnvelopeId) {
+            envId = focusedEnvelopeId;
+        }
+
+        if (envId) {
+            const env = envelopeMeta.get(envId);
+            if (env) {
+                chain.unshift({ ...env, kind: "env" });
+            }
         }
         return chain;
-    }, [focus, byId]);
+    }, [focus, focusedEnvelopeId, byId, envelopeMeta]);
 
-    // What rows does the donut + breakdown show? If focused, the direct
-    // children of the focus; otherwise, the root level.
+    // What rows does the donut + breakdown show? Priority:
+    //   1. Category focus  → children of that category
+    //   2. Envelope focus  → root categories in that envelope
+    //   3. No focus        → one row per envelope (top level)
     const focusChildren = useMemo(
         () => (focus ? childrenByParent.get(focus.id) ?? [] : []),
         [focus, childrenByParent]
     );
-    const topLevel = useMemo(
-        () => (childrenByParent.get(null) ?? []) as Row[],
-        [childrenByParent]
-    );
+    const envelopeRootRows = useMemo(() => {
+        if (!focusedEnvelopeId) return [] as Row[];
+        return rows.filter(
+            (r) => r.envelopId === focusedEnvelopeId && r.parentId === null
+        );
+    }, [rows, focusedEnvelopeId]);
+    const topLevelEnvelopes = useMemo(() => {
+        // Aggregate per-envelope spend from root categories' subtree totals.
+        const totals = new Map<string, number>();
+        for (const r of rows) {
+            if (r.parentId === null) {
+                totals.set(
+                    r.envelopId,
+                    (totals.get(r.envelopId) ?? 0) + r.subtreeTotal
+                );
+            }
+        }
+        const list: Array<{
+            envelope: EnvelopeMeta;
+            total: number;
+        }> = [];
+        for (const [envId, total] of totals) {
+            const env = envelopeMeta.get(envId);
+            if (env) list.push({ envelope: env, total });
+        }
+        // Also surface envelopes that exist but have no spend this period,
+        // behind the `> 0` filter at render time.
+        for (const env of envelopeMeta.values()) {
+            if (!totals.has(env.id)) {
+                list.push({ envelope: env, total: 0 });
+            }
+        }
+        return list;
+    }, [rows, envelopeMeta]);
 
-    // Donut slices. When drilled in, prepend a "(direct)" pseudo-slice for
-    // any spending recorded against the focus itself (not a sub-category)
-    // so the donut total matches the focus' subtreeTotal.
+    // Donut slices. Three modes: top level (envelopes), envelope-focused
+    // (root categories of the envelope), category-focused (children, with
+    // a "(direct)" slice prepended for spending on the focus itself).
     const donutData: DonutDatum[] = useMemo(() => {
-        if (!focus) {
-            return topLevel
+        if (!focus && !focusedEnvelopeId) {
+            return topLevelEnvelopes
+                .filter((e) => e.total > 0)
+                .map((e) => ({
+                    id: `${ENVELOPE_ID_PREFIX}${e.envelope.id}`,
+                    name: e.envelope.name,
+                    value: e.total,
+                    color: e.envelope.color,
+                    hint: "Envelope. Click to see its categories.",
+                }));
+        }
+        if (focusedEnvelopeId && !focus) {
+            return envelopeRootRows
                 .filter((c) => c.subtreeTotal > 0)
                 .map((c) => ({
                     id: c.id,
@@ -117,7 +236,7 @@ export default function CategoriesView() {
                 }));
         }
         const slices: DonutDatum[] = [];
-        if (focus.directTotal > 0) {
+        if (focus && focus.directTotal > 0) {
             slices.push({
                 id: `${DIRECT_SLICE_PREFIX}${focus.id}`,
                 name: `${focus.name} (direct)`,
@@ -141,10 +260,23 @@ export default function CategoriesView() {
             }
         }
         return slices;
-    }, [focus, focusChildren, topLevel]);
+    }, [focus, focusedEnvelopeId, focusChildren, envelopeRootRows, topLevelEnvelopes]);
 
-    const centerValue = focus ? focus.subtreeTotal : undefined;
-    const centerLabel = focus ? focus.name : "Total spent";
+    const focusedEnvelopeTotal = useMemo(() => {
+        if (!focusedEnvelopeId || focus) return undefined;
+        return (
+            topLevelEnvelopes.find((e) => e.envelope.id === focusedEnvelopeId)
+                ?.total ?? 0
+        );
+    }, [focusedEnvelopeId, focus, topLevelEnvelopes]);
+    const centerValue = focus
+        ? focus.subtreeTotal
+        : focusedEnvelopeTotal;
+    const centerLabel = focus
+        ? focus.name
+        : focusedEnvelope
+          ? focusedEnvelope.name
+          : "Total spent";
 
     const setFocus = (id: string | null) => {
         setParams(
@@ -159,6 +291,11 @@ export default function CategoriesView() {
     };
 
     const onSelect = (d: DonutDatum) => {
+        // Envelope slice → focus on the envelope.
+        if (d.id.startsWith(ENVELOPE_ID_PREFIX)) {
+            setFocus(d.id);
+            return;
+        }
         // "(direct)" pseudo-slice: open transactions filtered to the focus
         // category. Server defaults includeDescendants=true, but since the
         // direct slice *is* the parent-with-no-descendants concept, this is
@@ -183,7 +320,8 @@ export default function CategoriesView() {
     };
 
     // Rows for the breakdown + "All categories" sections. When drilled,
-    // narrow to the focus subtree so the whole page stays coherent.
+    // narrow to the focus subtree (or focused envelope) so the whole
+    // page stays coherent.
     const subtreeIds = useMemo(() => {
         if (!focus) return null;
         const set = new Set<string>([focus.id]);
@@ -198,15 +336,23 @@ export default function CategoriesView() {
         return set;
     }, [focus, childrenByParent]);
 
-    const breakdownRoots: Row[] = focus ? focusChildren : topLevel;
-    const listRows: Row[] = subtreeIds
-        ? rows.filter((r) => subtreeIds.has(r.id))
-        : rows;
+    const breakdownRoots: Row[] = focus
+        ? focusChildren
+        : focusedEnvelopeId
+          ? envelopeRootRows
+          : [];
+    const listRows: Row[] = focus
+        ? subtreeIds
+            ? rows.filter((r) => subtreeIds.has(r.id))
+            : rows
+        : focusedEnvelopeId
+          ? rows.filter((r) => r.envelopId === focusedEnvelopeId)
+          : rows;
 
     return (
         <AnalyticsDetailLayout
             title="Spending by category"
-            description="Click a slice to drill into its sub-categories. Leaves open the matching transactions."
+            description="Starts at the envelope level. Click an envelope to see its categories; click a category to drill further; leaves open the matching transactions."
             actions={<PeriodSelector />}
         >
             <Breadcrumb
@@ -217,16 +363,28 @@ export default function CategoriesView() {
             <Card>
                 <CardHeader className="flex flex-row items-center justify-between gap-2">
                     <CardTitle>
-                        {focus ? `Inside ${focus.name}` : "Distribution"}
+                        {focus
+                            ? `Inside ${focus.name}`
+                            : focusedEnvelope
+                              ? `Inside ${focusedEnvelope.name}`
+                              : "Distribution"}
                     </CardTitle>
-                    {focus && (
+                    {(focus || focusedEnvelope) && (
                         <Button
                             type="button"
                             size="sm"
                             variant="ghost"
                             onClick={() => {
-                                const parent = ancestors[ancestors.length - 2] ?? null;
-                                setFocus(parent?.id ?? null);
+                                const parent = ancestors[ancestors.length - 2];
+                                if (!parent) {
+                                    setFocus(null);
+                                    return;
+                                }
+                                if ("kind" in parent && parent.kind === "env") {
+                                    setFocus(`${ENVELOPE_ID_PREFIX}${parent.id}`);
+                                } else {
+                                    setFocus(parent.id);
+                                }
                             }}
                         >
                             <CornerDownLeft />
@@ -247,7 +405,9 @@ export default function CategoriesView() {
                             emptyLabel={
                                 focus
                                     ? `No spending in ${focus.name} for this period.`
-                                    : "No spending in this period."
+                                    : focusedEnvelope
+                                      ? `No spending in ${focusedEnvelope.name} for this period.`
+                                      : "No spending in this period."
                             }
                         />
                     )}
@@ -259,17 +419,26 @@ export default function CategoriesView() {
                     <CardTitle>
                         {focus
                             ? `Sub-categories of ${focus.name}`
-                            : "Top categories with sub-category breakdown"}
+                            : focusedEnvelope
+                              ? `Categories in ${focusedEnvelope.name}`
+                              : "Envelopes this period"}
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
                     {q.isLoading ? (
                         <Skeleton className="h-64 w-full" />
+                    ) : !focus && !focusedEnvelopeId ? (
+                        <EnvelopeFlow
+                            rows={topLevelEnvelopes}
+                            onSelect={(envId) =>
+                                setFocus(`${ENVELOPE_ID_PREFIX}${envId}`)
+                            }
+                        />
                     ) : breakdownRoots.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
                             {focus
                                 ? `${focus.name} has no sub-categories.`
-                                : "No spending to analyze."}
+                                : "No categories in this envelope yet."}
                         </p>
                     ) : (
                         <AllocationFlowBar
@@ -339,7 +508,11 @@ export default function CategoriesView() {
             <Card>
                 <CardHeader>
                     <CardTitle>
-                        {focus ? `All categories inside ${focus.name}` : "All categories"}
+                        {focus
+                            ? `All categories inside ${focus.name}`
+                            : focusedEnvelope
+                              ? `All categories in ${focusedEnvelope.name}`
+                              : "All categories"}
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -389,11 +562,15 @@ export default function CategoriesView() {
     );
 }
 
+type BreadcrumbNode =
+    | Row
+    | (EnvelopeMeta & { kind: "env" });
+
 function Breadcrumb({
     ancestors,
     onNavigate,
 }: {
-    ancestors: Row[];
+    ancestors: BreadcrumbNode[];
     onNavigate: (id: string | null) => void;
 }) {
     return (
@@ -407,16 +584,20 @@ function Breadcrumb({
                         : "text-muted-foreground hover:text-foreground"
                 }
             >
-                All categories
+                All envelopes
             </button>
             {ancestors.map((a, i) => {
                 const isLast = i === ancestors.length - 1;
+                const navId =
+                    "kind" in a && a.kind === "env"
+                        ? `${ENVELOPE_ID_PREFIX}${a.id}`
+                        : a.id;
                 return (
                     <span key={a.id} className="flex items-center gap-1">
                         <ChevronRight className="size-3.5 text-muted-foreground/60" />
                         <button
                             type="button"
-                            onClick={() => onNavigate(a.id)}
+                            onClick={() => onNavigate(navId)}
                             disabled={isLast}
                             className={
                                 isLast
@@ -431,6 +612,47 @@ function Breadcrumb({
                 );
             })}
         </div>
+    );
+}
+
+function EnvelopeFlow({
+    rows,
+    onSelect,
+}: {
+    rows: Array<{ envelope: EnvelopeMeta; total: number }>;
+    onSelect: (envelopeId: string) => void;
+}) {
+    const active = rows.filter((r) => r.total > 0);
+    if (active.length === 0) {
+        return (
+            <p className="text-sm text-muted-foreground">
+                No spending to analyze.
+            </p>
+        );
+    }
+    return (
+        <AllocationFlowBar
+            rows={active.map((r) => ({
+                id: r.envelope.id,
+                name: r.envelope.name,
+                leading: (
+                    <EntityAvatar
+                        size="sm"
+                        color={r.envelope.color}
+                        icon={r.envelope.icon}
+                    />
+                ),
+                segments: [
+                    {
+                        id: r.envelope.id,
+                        name: r.envelope.name,
+                        value: r.total,
+                        color: r.envelope.color,
+                    },
+                ],
+                onClick: () => onSelect(r.envelope.id),
+            }))}
+        />
     );
 }
 

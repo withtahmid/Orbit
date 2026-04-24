@@ -597,6 +597,35 @@ function Envelopes() {
                 added to this period's <i>carriedIn</i>. Overspend does <b>not</b> carry
                 forward as debt — drift is surfaced as a UI state, not an accounting one.
             </CalloutCard>
+            <Paragraph>
+                Categories (not envelopes) carry a <b>priority tier</b> —{" "}
+                <i>Essential</i>, <i>Important</i>, <i>Discretionary</i>, or{" "}
+                <i>Luxury</i>. Children without a tier inherit from the nearest
+                ancestor, so you typically tag once at the top-level category
+                and only override leaves where a sub-category genuinely differs
+                (e.g. your standard Groceries roll up to Essential, but a
+                "Premium Imports" leaf is Luxury). The Analytics &rarr; By
+                priority donut rolls this up into a single "what fraction of
+                this month was must-spend vs want-spend?" view.
+            </Paragraph>
+            <div className="grid gap-3 sm:grid-cols-2">
+                <InfoCard
+                    title="Essential"
+                    body="Non-negotiables: rent, utilities, groceries, commute, debt payments. Can't cut without life disruption."
+                />
+                <InfoCard
+                    title="Important"
+                    body="Real needs with some flexibility: health, household supplies, charity, bank fees. You'd adjust these before cutting essentials."
+                />
+                <InfoCard
+                    title="Discretionary"
+                    body="Quality-of-life spend: eating out, subscriptions, clothing, gifts, education. First lever when you need to save."
+                />
+                <InfoCard
+                    title="Luxury"
+                    body="True indulgences and big one-off upgrades: premium electronics, non-essential furniture, expensive leisure."
+                />
+            </div>
             <ScreenshotPlaceholder label="Envelopes page — cards showing utilization, cadence, remaining" />
         </section>
     );
@@ -674,6 +703,14 @@ function Transactions() {
                 <InfoCard
                     title="Transfer fees"
                     body="Toggle 'There's a fee on this transfer' to capture wire fees, ATM fees, FX margins, etc. The fee is deducted from the source on top of the amount (destination still receives the plain amount), categorized as a regular expense, and folds into every analytics view — top categories, envelope utilization, cash flow, spending heatmap."
+                />
+                <InfoCard
+                    title="Contributing from outside the space"
+                    body="When you transfer money from a personal account (not shared with a space) into that space — e.g. topping up a family pot from your own checking — the space sees it as income for the period, not a mystery balance bump. Internal rebalances (both accounts already in the space) stay neutral. A transfer's fee is the source account's expense, so it only shows up in the space whose accounts actually paid it. You can record the transfer in whichever space makes sense for categorization (e.g. your personal space if you want to keep the sending account private); each space still sees what actually happened to its own accounts."
+                />
+                <InfoCard
+                    title="Inflow & outflow are per-account, not per-space"
+                    body="Cash flow, period net, balance trend, and the spending heatmap all read from the accounts shared into the space you're viewing. If an account is shared into two spaces, both spaces see every inflow and outflow on that account. An account you didn't share stays private — no info leaks to spaces that can't see it. This is why 'income this month' and the balance trend always agree now: both are derived from real movement on the space's accounts rather than from which space you happened to record a row in."
                 />
             </div>
             <Paragraph>

@@ -206,6 +206,7 @@ Enforced in-DB (not just app code):
   product spec §3.6).
 - `events` CHECK `end_time > start_time`.
 - `envelops.cadence` CHECK `in ('none', 'monthly')`.
+- `expense_categories.priority` CHECK `in ('essential', 'important', 'discretionary', 'luxury')` (nullable; migration 031). Children with NULL inherit from the nearest ancestor.
 - `ON DELETE RESTRICT` on `transactions.created_by`,
   `spaces.created_by`, `spaces.updated_by`,
   `envelop_allocations.created_by`, `plan_allocations.created_by`
@@ -298,6 +299,41 @@ historically).
 is excluded from `personal.summary`'s `periodIncome/Expense` and
 `personal.cashFlow` bars. The transaction list keeps the row and tags
 it `is_internal_transfer: true` so the UI can render it as rebalancing.
+
+**Shared-space parity (account-flow analytics).** `analytics.cashFlow`,
+`analytics.spaceSummary` (`periodIncome` / `periodExpense`),
+`analytics.balanceHistory`, and `analytics.spendingHeatmap` all derive
+their populations from `space_accounts` rather than the row's
+`space_id` tag — the same rule the balance trigger uses to update
+`account_balances`. A cross-space transfer (e.g. personal account →
+shared family pot) surfaces as **income** on the receiving space even
+if the row was stamped with the sender's space_id, which is the
+realistic recording flow (users pick the space to keep source-account
+privacy, not to categorize the money). Fees follow the source leg: a
+transfer's fee counts as a space's expense only when the transfer's
+source account is in that space. Category-like analytics
+(`categoryBreakdown`, `topCategories`, `envelopeUtilization`,
+`planProgress`, `accountAllocation`, `eventTotals`) stay `space_id`-
+scoped because the concepts they sum (categories, envelopes, plans,
+events) are space-local entities. See project spec §6.5 and §12 for
+the full combination table.
+
+**Write-time integrity.** Every transaction creation / update path runs
+[`resolveTransactionSpaceIntegrity`](../apps/server/src/procedures/transaction/utils/resolveTransactionSpaceIntegrity.mts):
+the chosen `spaceId` must be one of the spaces that source or
+destination is shared into. This keeps `space_id` a meaningful tag
+(used for category / envelope / event attribution) without rejecting
+legitimate cross-space contributions.
+
+**Category priority.** `expense_categories.priority` (migration 031)
+classifies categories as `essential / important / discretionary /
+luxury`. NULL means "inherit from the nearest ancestor" — so tagging
+"Groceries" as essential propagates to every leaf unless a specific
+leaf overrides (e.g. "Groceries > Premium Imports" tagged luxury).
+Analytics resolves the effective tier via a recursive parent-walk CTE
+in `analytics.priorityBreakdown`. Shape chosen over per-envelope
+tagging because a single envelope routinely spans tiers (everyday vs
+splurge inside the same budget bucket).
 
 **Cross-space envelope/plan math**: `personal.envelopeUtilization` and
 `personal.planProgress` restrict allocations and consumed amounts to

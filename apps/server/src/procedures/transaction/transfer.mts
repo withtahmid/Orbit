@@ -3,6 +3,7 @@ import type { Transactions } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
+import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
 import { TRPCError } from "@trpc/server";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
@@ -50,6 +51,13 @@ export const createTransferTransaction = authorizedProcedure
                     destinationAccountId: input.destinationAccountId,
                     sourceAccountId: input.sourceAccountId,
                     type: "transfer" as unknown as Transactions["type"],
+                });
+
+                await resolveTransactionSpaceIntegrity({
+                    trx,
+                    spaceId: input.spaceId,
+                    sourceAccountId: input.sourceAccountId,
+                    destinationAccountId: input.destinationAccountId,
                 });
 
                 if (input.eventId) {

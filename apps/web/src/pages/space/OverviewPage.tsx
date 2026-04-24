@@ -13,6 +13,7 @@ import {
     CalendarDays,
     PiggyBank,
     ArrowRightLeft,
+    Layers,
 } from "lucide-react";
 import {
     Area,
@@ -131,6 +132,24 @@ export default function OverviewPage() {
     );
     const balanceTrend = isPersonal ? balanceTrendPersonal : balanceTrendSpace;
 
+    // Collapse the per-account series returned by balanceHistory into a
+    // single total line for this summary card. Bucket values arrive as ISO
+    // strings over the wire (no superjson transformer).
+    const balanceTrendSeries = useMemo(() => {
+        if (!balanceTrend.data) return [];
+        const byBucket = new Map<string, number>();
+        for (const row of balanceTrend.data.series) {
+            const bucketKey =
+                typeof row.bucket === "string"
+                    ? row.bucket
+                    : new Date(row.bucket).toISOString();
+            byBucket.set(bucketKey, (byBucket.get(bucketKey) ?? 0) + row.balance);
+        }
+        return Array.from(byBucket.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([bucket, balance]) => ({ bucket, balance }));
+    }, [balanceTrend.data]);
+
     const utilizationSpace = trpc.analytics.envelopeUtilization.useQuery(
         {
             spaceId: space.id,
@@ -145,11 +164,10 @@ export default function OverviewPage() {
     );
     const utilization = isPersonal ? utilizationPersonal : utilizationSpace;
 
-    // Root-level category breakdown for the donut (same shape the
-    // analytics "Category spending" page uses at its root view):
-    // subtree totals rolled up to top-level categories so the slices
-    // include descendant spending.
-    const catBreakdownSpace = trpc.analytics.categoryBreakdown.useQuery(
+    // Priority breakdown (must / need / want / luxury) — space only.
+    // Personal view doesn't have its own priorityBreakdown procedure
+    // because the concept is space-local (categories live per space).
+    const priorityBreakdownQuery = trpc.analytics.priorityBreakdown.useQuery(
         {
             spaceId: space.id,
             periodStart: thisMonthStart,
@@ -157,14 +175,6 @@ export default function OverviewPage() {
         },
         { enabled: !isPersonal }
     );
-    const catBreakdownPersonal = trpc.personal.categoryBreakdown.useQuery(
-        {
-            periodStart: thisMonthStart,
-            periodEnd: thisMonthEnd,
-        },
-        { enabled: isPersonal }
-    );
-    const catBreakdown = isPersonal ? catBreakdownPersonal : catBreakdownSpace;
 
     // Recent transactions. personal.transactions returns the same
     // snake_case shape as transaction.listBySpace (plus a few
@@ -233,21 +243,35 @@ export default function OverviewPage() {
         [events.data]
     );
 
+    // Spending donut is envelope-first (one slice per envelope), so it
+    // agrees with the Category analytics view's top-level drill. Built
+    // from envelopeUtilization's per-envelope `consumed` — which already
+    // rolls up transactions via category → envelope + transfer fees.
     const topCatsDonut = useMemo(
         () =>
-            (catBreakdown.data ?? [])
-                .filter((c) => c.parentId === null && c.subtreeTotal > 0)
-                .map((c) => ({
-                    id: c.id,
-                    name: c.name,
-                    value: c.subtreeTotal,
-                    color: c.color,
-                    hint:
-                        c.subtreeTotal !== c.directTotal
-                            ? "Includes sub-categories"
-                            : undefined,
+            (utilization.data ?? [])
+                .filter((e) => e.consumed > 0)
+                .map((e) => ({
+                    id: e.envelopId,
+                    name: e.name,
+                    value: e.consumed,
+                    color: e.color,
+                    hint: "Envelope total for this period",
                 })),
-        [catBreakdown.data]
+        [utilization.data]
+    );
+
+    const priorityDonut = useMemo(
+        () =>
+            (priorityBreakdownQuery.data ?? [])
+                .filter((t) => t.total > 0)
+                .map((t) => ({
+                    id: t.priority,
+                    name: t.label,
+                    value: Number(t.total),
+                    color: t.color,
+                })),
+        [priorityBreakdownQuery.data]
     );
 
     // Space-level allocation map: envelope current-period remaining +
@@ -524,13 +548,13 @@ export default function OverviewPage() {
                     <CardContent className="h-[240px] px-1 sm:h-[280px] sm:px-6">
                         {balanceTrend.isLoading ? (
                             <Skeleton className="h-full w-full" />
-                        ) : !balanceTrend.data || balanceTrend.data.length === 0 ? (
+                        ) : balanceTrendSeries.length === 0 ? (
                             <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
                                 No balance history yet.
                             </p>
                         ) : (
                             <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={balanceTrend.data}>
+                                <AreaChart data={balanceTrendSeries}>
                                     <defs>
                                         <linearGradient
                                             id="overview-trend-grad"
@@ -562,6 +586,10 @@ export default function OverviewPage() {
                                         }
                                         stroke="var(--muted-foreground)"
                                         fontSize={11}
+                                        interval={0}
+                                        angle={-45}
+                                        textAnchor="end"
+                                        height={56}
                                     />
                                     <YAxis
                                         stroke="var(--muted-foreground)"
@@ -593,9 +621,14 @@ export default function OverviewPage() {
 
             </div>
 
-            {/* Row 3 — Allocation map + Top categories (paired donuts) */}
-            <div className="grid gap-4 md:grid-cols-12">
-                <Card className="md:col-span-6">
+            {/* Row 3 — Allocation map + Spending by envelope + Priority
+                 (triptych on md+; priority hidden on personal) */}
+            <div
+                className={cn(
+                    "grid gap-4 md:grid-cols-12",
+                )}
+            >
+                <Card className={isPersonal ? "md:col-span-6" : "md:col-span-4"}>
                     <CardHeader className="flex-row items-center justify-between">
                         <div>
                             <CardTitle className="flex items-center gap-2">
@@ -626,15 +659,15 @@ export default function OverviewPage() {
                     </CardContent>
                 </Card>
 
-                <Card className="md:col-span-6">
+                <Card className={isPersonal ? "md:col-span-6" : "md:col-span-4"}>
                     <CardHeader className="flex-row items-center justify-between">
                         <div>
                             <CardTitle className="flex items-center gap-2">
                                 <PiggyBank className="size-4" />
-                                Top categories
+                                Spending by envelope
                             </CardTitle>
                             <CardDescription>
-                                This month&apos;s biggest spends
+                                This month&apos;s biggest spends. Click to drill.
                             </CardDescription>
                         </div>
                         <DrillLink
@@ -642,7 +675,7 @@ export default function OverviewPage() {
                         />
                     </CardHeader>
                     <CardContent>
-                        {catBreakdown.isLoading ? (
+                        {utilization.isLoading ? (
                             <Skeleton className="h-[280px] w-full" />
                         ) : (
                             <Donut
@@ -655,6 +688,38 @@ export default function OverviewPage() {
                         )}
                     </CardContent>
                 </Card>
+
+                {!isPersonal && (
+                    <Card className="md:col-span-4">
+                        <CardHeader className="flex-row items-center justify-between">
+                            <div>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Layers className="size-4" />
+                                    By priority
+                                </CardTitle>
+                                <CardDescription>
+                                    Must vs want this month.
+                                </CardDescription>
+                            </div>
+                            <DrillLink
+                                to={ROUTES.spaceAnalyticsDetail(space.id, "priority")}
+                            />
+                        </CardHeader>
+                        <CardContent>
+                            {priorityBreakdownQuery.isLoading ? (
+                                <Skeleton className="h-[280px] w-full" />
+                            ) : (
+                                <Donut
+                                    data={priorityDonut}
+                                    centerLabel="Total spent"
+                                    height={280}
+                                    ringRatio={0.6}
+                                    emptyLabel="No spending yet"
+                                />
+                            )}
+                        </CardContent>
+                    </Card>
+                )}
             </div>
 
             {/* Row 4 — Cash flow full width */}

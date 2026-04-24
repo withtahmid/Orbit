@@ -7,6 +7,7 @@ import {
     Mail,
     Flame,
     Network,
+    Layers,
     ArrowRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -73,6 +74,14 @@ const ENTRIES: Entry[] = [
         description: "Daily expense intensity for the year — see spending patterns at a glance.",
         icon: Flame,
         tint: "hsl(4 78% 62%)",
+    },
+    {
+        view: "priority",
+        title: "By priority",
+        description:
+            "Essential / important / discretionary / luxury — how much of this period was must-spend vs want-spend.",
+        icon: Layers,
+        tint: "hsl(280 70% 60%)",
     },
 ];
 

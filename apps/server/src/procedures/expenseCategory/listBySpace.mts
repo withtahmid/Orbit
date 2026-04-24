@@ -31,6 +31,7 @@ export const listExpenseCategoriesBySpace = authorizedProcedure
                         "name",
                         "color",
                         "icon",
+                        "priority",
                         "created_at",
                         "updated_at",
                     ])

@@ -6,6 +6,7 @@ import { categoryBreakdown } from "../procedures/analytics/categoryBreakdown.mjs
 import { envelopeUtilization } from "../procedures/analytics/envelopeUtilization.mjs";
 import { eventTotals } from "../procedures/analytics/eventTotals.mjs";
 import { planProgress } from "../procedures/analytics/planProgress.mjs";
+import { priorityBreakdown } from "../procedures/analytics/priorityBreakdown.mjs";
 import { spaceSummary } from "../procedures/analytics/spaceSummary.mjs";
 import { spendingHeatmap } from "../procedures/analytics/spendingHeatmap.mjs";
 import { topCategories } from "../procedures/analytics/topCategories.mjs";
@@ -18,6 +19,7 @@ export const analyticsRouter = router({
     envelopeUtilization,
     eventTotals,
     planProgress,
+    priorityBreakdown,
     topCategories,
     accountDistribution,
     accountAllocation,

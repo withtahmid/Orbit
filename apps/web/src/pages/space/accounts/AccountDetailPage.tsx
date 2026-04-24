@@ -1,7 +1,42 @@
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, AlertTriangle, Loader2, Trash2, UserPlus, Target, Mail } from "lucide-react";
+import {
+    ArrowLeft,
+    AlertTriangle,
+    Clock,
+    Loader2,
+    Trash2,
+    TrendingDown,
+    TrendingUp,
+    UserPlus,
+    Target,
+    Mail,
+} from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import {
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Cell,
+    ResponsiveContainer,
+    Tooltip as RTooltip,
+    XAxis,
+    YAxis,
+} from "recharts";
+import { PeriodSelector } from "@/components/shared/PeriodSelector";
+import { usePeriod } from "@/hooks/usePeriod";
+import { formatMoney } from "@/lib/money";
+import {
+    autoBucket,
+    bucketLabelPattern,
+    bucketTickPattern,
+    BUCKET_LABEL,
+    compactMoney,
+    type Bucket,
+    type BucketSelection,
+} from "@/lib/chartBucket";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -125,6 +160,7 @@ export default function AccountDetailPage() {
             <Tabs defaultValue="allocations">
                 <TabsList className="h-auto flex-wrap">
                     <TabsTrigger value="allocations">Allocations</TabsTrigger>
+                    <TabsTrigger value="history">Balance history</TabsTrigger>
                     <TabsTrigger value="transactions">Transactions</TabsTrigger>
                     <TabsTrigger value="shared">Shared with</TabsTrigger>
                     <TabsTrigger value="members">Members</TabsTrigger>
@@ -135,6 +171,14 @@ export default function AccountDetailPage() {
 
                 <TabsContent value="allocations">
                     <AccountAllocationsTab spaceId={space.id} accountId={account.id} />
+                </TabsContent>
+
+                <TabsContent value="history">
+                    <AccountBalanceHistoryTab
+                        spaceId={space.id}
+                        accountId={account.id}
+                        accountColor={account.color}
+                    />
                 </TabsContent>
 
                 <TabsContent value="shared">
@@ -965,5 +1009,372 @@ function ShareWithAnotherSpaceDialog({
                 </DialogFooter>
             </DialogContent>
         </Dialog>
+    );
+}
+
+function AccountBalanceHistoryTab({
+    spaceId,
+    accountId,
+    accountColor,
+}: {
+    spaceId: string;
+    accountId: string;
+    accountColor: string;
+}) {
+    const { period } = usePeriod("last-3-months");
+    const [bucketSelection, setBucketSelection] =
+        useState<BucketSelection>("auto");
+    const resolvedBucket = useMemo(
+        () => autoBucket(period.start, period.end),
+        [period.start, period.end]
+    );
+    const effectiveBucket: Bucket =
+        bucketSelection === "auto" ? resolvedBucket : bucketSelection;
+
+    const q = trpc.analytics.balanceHistory.useQuery({
+        spaceId,
+        accountIds: [accountId],
+        periodStart: period.start,
+        periodEnd: period.end,
+        bucket: effectiveBucket,
+    });
+
+    // The server returns long-form rows keyed by accountId. Since we're
+    // scoped to one account, fold directly into [{bucket, balance}].
+    const series = useMemo(() => {
+        if (!q.data) return [];
+        return q.data.series
+            .map((r) => ({
+                bucket:
+                    typeof r.bucket === "string"
+                        ? r.bucket
+                        : new Date(r.bucket).toISOString(),
+                balance: r.balance,
+            }))
+            .sort((a, b) => a.bucket.localeCompare(b.bucket));
+    }, [q.data]);
+
+    // Per-bucket delta = net flow into the account during that bucket.
+    // First bucket has no predecessor, so its delta is 0 (rendered as
+    // an empty bar, which keeps the x-axis aligned with the trend chart
+    // above).
+    const activity = useMemo(
+        () =>
+            series.map((row, i) => ({
+                bucket: row.bucket,
+                delta: i === 0 ? 0 : row.balance - series[i - 1].balance,
+            })),
+        [series]
+    );
+
+    const stats = useMemo(() => {
+        if (series.length === 0) return null;
+        const start = series[0].balance;
+        const end = series[series.length - 1].balance;
+        const change = end - start;
+        const pct =
+            start !== 0 ? (change / Math.abs(start)) * 100 : change === 0 ? 0 : null;
+        return { start, end, change, pct };
+    }, [series]);
+
+    const gradId = `acct-history-grad-${accountId}`;
+
+    return (
+        <div className="grid gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+                <Select
+                    value={bucketSelection}
+                    onValueChange={(v) =>
+                        setBucketSelection(v as BucketSelection)
+                    }
+                >
+                    <SelectTrigger className="w-full min-w-[10rem] sm:w-auto">
+                        <Clock className="size-4 text-muted-foreground" />
+                        <SelectValue>
+                            {bucketSelection === "auto"
+                                ? `Auto · ${BUCKET_LABEL[resolvedBucket]}`
+                                : BUCKET_LABEL[bucketSelection]}
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem value="day">Day</SelectItem>
+                        <SelectItem value="week">Week</SelectItem>
+                        <SelectItem value="month">Month</SelectItem>
+                        <SelectItem value="year">Year</SelectItem>
+                    </SelectContent>
+                </Select>
+                <PeriodSelector defaultPreset="last-3-months" />
+            </div>
+
+            <Card>
+                <CardContent className="grid grid-cols-1 gap-3 pt-6 sm:grid-cols-3">
+                    <Stat label="Starting balance" value={stats?.start} />
+                    <Stat label="Ending balance" value={stats?.end} />
+                    <Stat
+                        label="Net change"
+                        value={stats?.change}
+                        variant={
+                            stats == null || stats.change === 0
+                                ? "neutral"
+                                : stats.change > 0
+                                  ? "income"
+                                  : "expense"
+                        }
+                        subtext={
+                            stats?.pct == null
+                                ? undefined
+                                : `${stats.change >= 0 ? "+" : ""}${stats.pct.toFixed(1)}%`
+                        }
+                    />
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base">Balance trend</CardTitle>
+                </CardHeader>
+                <CardContent className="h-[340px] px-1 sm:h-[420px] sm:px-4">
+                    {q.isLoading ? (
+                        <Skeleton className="h-full w-full" />
+                    ) : series.length === 0 ? (
+                        <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                            No balance data in this period yet.
+                        </p>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart
+                                data={series}
+                                margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
+                            >
+                                <defs>
+                                    <linearGradient
+                                        id={gradId}
+                                        x1="0"
+                                        y1="0"
+                                        x2="0"
+                                        y2="1"
+                                    >
+                                        <stop
+                                            offset="0%"
+                                            stopColor={accountColor}
+                                            stopOpacity={0.45}
+                                        />
+                                        <stop
+                                            offset="100%"
+                                            stopColor={accountColor}
+                                            stopOpacity={0}
+                                        />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid
+                                    strokeDasharray="2 6"
+                                    stroke="var(--border)"
+                                    vertical={false}
+                                />
+                                <XAxis
+                                    dataKey="bucket"
+                                    tickFormatter={(v) =>
+                                        formatInAppTz(
+                                            v,
+                                            bucketTickPattern(effectiveBucket)
+                                        )
+                                    }
+                                    stroke="var(--muted-foreground)"
+                                    fontSize={11}
+                                    tickLine={false}
+                                    axisLine={{ stroke: "var(--border)" }}
+                                    tickMargin={8}
+                                />
+                                <YAxis
+                                    stroke="var(--muted-foreground)"
+                                    fontSize={11}
+                                    width={56}
+                                    tickFormatter={compactMoney}
+                                    tickLine={false}
+                                    axisLine={false}
+                                    tickMargin={4}
+                                />
+                                <RTooltip
+                                    contentStyle={{
+                                        background: "var(--popover)",
+                                        border: "1px solid var(--border)",
+                                        borderRadius: 8,
+                                    }}
+                                    labelFormatter={(v) =>
+                                        formatInAppTz(
+                                            v as string,
+                                            bucketLabelPattern(effectiveBucket)
+                                        )
+                                    }
+                                    formatter={(value) => [
+                                        formatMoney(Number(value ?? 0)),
+                                        "Balance",
+                                    ]}
+                                    cursor={{
+                                        stroke: "var(--muted-foreground)",
+                                        strokeOpacity: 0.3,
+                                        strokeDasharray: "3 3",
+                                    }}
+                                />
+                                <Area
+                                    type="monotone"
+                                    dataKey="balance"
+                                    stroke={accountColor}
+                                    strokeWidth={2.25}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    fill={`url(#${gradId})`}
+                                    activeDot={{
+                                        r: 4,
+                                        strokeWidth: 2,
+                                        stroke: "var(--background)",
+                                    }}
+                                />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    )}
+                </CardContent>
+            </Card>
+
+            <Card>
+                <CardHeader>
+                    <CardTitle className="text-base">
+                        Activity per {BUCKET_LABEL[effectiveBucket].toLowerCase()}
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">
+                        Net money flowing into (green) or out of (red) this account.
+                    </p>
+                </CardHeader>
+                <CardContent className="h-[200px] px-1 sm:h-[240px] sm:px-4">
+                    {q.isLoading ? (
+                        <Skeleton className="h-full w-full" />
+                    ) : activity.length === 0 ? (
+                        <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                            No activity yet.
+                        </p>
+                    ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                                data={activity}
+                                margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+                            >
+                                <CartesianGrid
+                                    strokeDasharray="2 6"
+                                    stroke="var(--border)"
+                                    vertical={false}
+                                />
+                                <XAxis
+                                    dataKey="bucket"
+                                    tickFormatter={(v) =>
+                                        formatInAppTz(
+                                            v,
+                                            bucketTickPattern(effectiveBucket)
+                                        )
+                                    }
+                                    stroke="var(--muted-foreground)"
+                                    fontSize={11}
+                                    tickLine={false}
+                                    axisLine={{ stroke: "var(--border)" }}
+                                    tickMargin={8}
+                                />
+                                <YAxis
+                                    stroke="var(--muted-foreground)"
+                                    fontSize={11}
+                                    width={56}
+                                    tickFormatter={compactMoney}
+                                    tickLine={false}
+                                    axisLine={false}
+                                    tickMargin={4}
+                                />
+                                <RTooltip
+                                    contentStyle={{
+                                        background: "var(--popover)",
+                                        border: "1px solid var(--border)",
+                                        borderRadius: 8,
+                                    }}
+                                    labelFormatter={(v) =>
+                                        formatInAppTz(
+                                            v as string,
+                                            bucketLabelPattern(effectiveBucket)
+                                        )
+                                    }
+                                    formatter={(value) => {
+                                        const n = Number(value ?? 0);
+                                        return [
+                                            `${n >= 0 ? "+" : ""}${formatMoney(n)}`,
+                                            "Net change",
+                                        ];
+                                    }}
+                                    cursor={{
+                                        fill: "var(--muted-foreground)",
+                                        fillOpacity: 0.08,
+                                    }}
+                                />
+                                <Bar
+                                    dataKey="delta"
+                                    radius={[3, 3, 0, 0]}
+                                    maxBarSize={20}
+                                >
+                                    {activity.map((row, i) => (
+                                        <Cell
+                                            key={i}
+                                            fill={
+                                                row.delta > 0
+                                                    ? "var(--primary)"
+                                                    : row.delta < 0
+                                                      ? "var(--destructive)"
+                                                      : "var(--border)"
+                                            }
+                                        />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    );
+}
+
+function Stat({
+    label,
+    value,
+    variant = "neutral",
+    subtext,
+}: {
+    label: string;
+    value: number | null | undefined;
+    variant?: "neutral" | "income" | "expense";
+    subtext?: string;
+}) {
+    const Icon =
+        variant === "income"
+            ? TrendingUp
+            : variant === "expense"
+              ? TrendingDown
+              : null;
+    const tone =
+        variant === "income"
+            ? "text-emerald-500"
+            : variant === "expense"
+              ? "text-destructive"
+              : "text-foreground";
+    return (
+        <div className="rounded-lg border border-border/60 bg-card/40 p-3">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                {label}
+            </p>
+            <div className={`mt-1 flex items-baseline gap-2 text-lg font-bold ${tone}`}>
+                {Icon && <Icon className="size-4" />}
+                <span className="font-mono tabular-nums">
+                    {value == null ? "—" : formatMoney(value)}
+                </span>
+            </div>
+            {subtext && (
+                <p className="mt-0.5 text-xs text-muted-foreground">{subtext}</p>
+            )}
+        </div>
     );
 }

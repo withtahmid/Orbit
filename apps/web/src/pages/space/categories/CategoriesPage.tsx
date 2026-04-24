@@ -60,6 +60,15 @@ import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
+type Priority = "essential" | "important" | "discretionary" | "luxury";
+
+const PRIORITY_OPTIONS: Array<{ value: Priority; label: string; dot: string }> = [
+    { value: "essential", label: "Essential", dot: "#dc2626" },
+    { value: "important", label: "Important", dot: "#f59e0b" },
+    { value: "discretionary", label: "Discretionary", dot: "#3b82f6" },
+    { value: "luxury", label: "Luxury", dot: "#a855f7" },
+];
+
 interface CategoryUsage {
     id: string;
     space_id: string;
@@ -68,6 +77,7 @@ interface CategoryUsage {
     parent_id: string | null;
     color: string;
     icon: string;
+    priority: Priority | null;
     tx_count: number;
     spent_total: number;
     last_used: Date | string | null;
@@ -768,6 +778,7 @@ function CreateCategoryDialog({
     const [parentId, setParentId] = useState("");
     const [color, setColor] = useState<string>(DEFAULT_COLOR);
     const [icon, setIcon] = useState("folder");
+    const [priority, setPriority] = useState<Priority | "">("");
     const utils = trpc.useUtils();
     const create = trpc.expenseCategory.create.useMutation({
         onSuccess: async () => {
@@ -781,6 +792,7 @@ function CreateCategoryDialog({
             setParentId("");
             setColor(DEFAULT_COLOR);
             setIcon("folder");
+            setPriority("");
             setOpen(false);
         },
         onError: (e) => toast.error(e.message),
@@ -828,6 +840,7 @@ function CreateCategoryDialog({
                             parentId: parentId || undefined,
                             color,
                             icon,
+                            priority: priority === "" ? undefined : priority,
                         });
                     }}
                 >
@@ -877,6 +890,34 @@ function CreateCategoryDialog({
                             </p>
                         )}
                     </div>
+                    <div className="grid gap-1.5">
+                        <Label>Priority (optional)</Label>
+                        <Select
+                            value={priority === "" ? "__unset" : priority}
+                            onValueChange={(v) =>
+                                setPriority(v === "__unset" ? "" : (v as Priority))
+                            }
+                        >
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__unset">
+                                    Inherit from parent
+                                </SelectItem>
+                                {PRIORITY_OPTIONS.map((o) => (
+                                    <SelectItem key={o.value} value={o.value}>
+                                        {o.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                            Leave unset to inherit the nearest ancestor's tier.
+                            Override only where a sub-category genuinely
+                            differs (e.g. premium Groceries leaf as Luxury).
+                        </p>
+                    </div>
                     <EntityStyleFields
                         name={name}
                         color={color}
@@ -919,6 +960,9 @@ function EditCategoryDialog({
     const [name, setName] = useState(category.name);
     const [color, setColor] = useState(category.color);
     const [icon, setIcon] = useState(category.icon);
+    const [priority, setPriority] = useState<Priority | "">(
+        category.priority ?? ""
+    );
     const utils = trpc.useUtils();
     const update = trpc.expenseCategory.update.useMutation({
         onSuccess: async () => {
@@ -946,6 +990,7 @@ function EditCategoryDialog({
                             name: name.trim(),
                             color,
                             icon,
+                            priority: priority === "" ? null : priority,
                         });
                     }}
                 >
@@ -957,6 +1002,29 @@ function EditCategoryDialog({
                             maxLength={255}
                             required
                         />
+                    </div>
+                    <div className="grid gap-1.5">
+                        <Label>Priority</Label>
+                        <Select
+                            value={priority === "" ? "__unset" : priority}
+                            onValueChange={(v) =>
+                                setPriority(v === "__unset" ? "" : (v as Priority))
+                            }
+                        >
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="__unset">
+                                    Inherit from parent
+                                </SelectItem>
+                                {PRIORITY_OPTIONS.map((o) => (
+                                    <SelectItem key={o.value} value={o.value}>
+                                        {o.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
                     <EntityStyleFields
                         name={name}

@@ -16,6 +16,9 @@ export const createExpenseCategory = authorizedProcedure
             envelopId: z.string().uuid(),
             color: z.string().regex(HEX).optional(),
             icon: z.string().min(1).max(48).optional(),
+            priority: z
+                .enum(["essential", "important", "discretionary", "luxury"])
+                .optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -72,6 +75,7 @@ export const createExpenseCategory = authorizedProcedure
                         envelop_id: input.envelopId,
                         color: input.color,
                         icon: input.icon,
+                        priority: input.priority ?? null,
                     })
                     .returning([
                         "id",
@@ -81,6 +85,7 @@ export const createExpenseCategory = authorizedProcedure
                         "name",
                         "color",
                         "icon",
+                        "priority",
                         "created_at",
                         "updated_at",
                     ])

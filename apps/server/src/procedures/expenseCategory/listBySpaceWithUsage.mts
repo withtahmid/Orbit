@@ -45,6 +45,7 @@ export const listExpenseCategoriesBySpaceWithUsage = authorizedProcedure
                     name: string;
                     color: string;
                     icon: string;
+                    priority: string | null;
                     created_at: Date;
                     updated_at: Date;
                     tx_count: number;
@@ -93,6 +94,7 @@ export const listExpenseCategoriesBySpaceWithUsage = authorizedProcedure
                         ec.name,
                         ec.color,
                         ec.icon,
+                        ec.priority,
                         ec.created_at,
                         ec.updated_at,
                         COALESCE(u.tx_count, 0)::int AS tx_count,
@@ -113,6 +115,12 @@ export const listExpenseCategoriesBySpaceWithUsage = authorizedProcedure
                     name: r.name,
                     color: r.color,
                     icon: r.icon,
+                    priority: r.priority as
+                        | "essential"
+                        | "important"
+                        | "discretionary"
+                        | "luxury"
+                        | null,
                     created_at: r.created_at,
                     updated_at: r.updated_at,
                     tx_count: Number(r.tx_count),

@@ -192,6 +192,10 @@ const ACCOUNTS = [
 
 type AccountKey = (typeof ACCOUNTS)[number]["key"];
 
+type Priority = "essential" | "important" | "discretionary" | "luxury";
+
+// Envelopes keep cadence + carry_over. Priority lives on categories
+// (migration 031) — an envelope's tier is implicit from its children.
 const ENVELOPES = [
     // Family
     { key: "fam_groceries",     space: "family" as SpaceKey,    name: "Groceries",           cadence: "monthly" as const, carry: true,  color: "#22c55e", icon: "shopping-cart" },
@@ -237,6 +241,48 @@ const ENVELOPES = [
     { key: "tr_activity", space: "travel" as SpaceKey, name: "Activities",     cadence: "none" as const,    carry: false, color: "#22c55e", icon: "mountain" },
     { key: "tr_transit",  space: "travel" as SpaceKey, name: "Transit Abroad", cadence: "none" as const,    carry: false, color: "#0ea5e9", icon: "train" },
 ] as const;
+
+// Priority tier per envelope. Categories created under these envelopes
+// inherit via the NULL-walks-up-to-parent rule; tagging at the envelope's
+// root category is the simplest way to seed a coherent default. The
+// seed assigns this tier to each envelope's auto-created "root" category
+// so leaf categories inherit it without explicit per-leaf overrides.
+const ENVELOPE_PRIORITY: Record<string, Priority> = {
+    fam_groceries: "essential",
+    fam_rent: "essential",
+    fam_utilities: "essential",
+    fam_transport: "essential",
+    fam_eatout: "discretionary",
+    fam_entertainment: "discretionary",
+    fam_healthcare: "important",
+    fam_gifts: "discretionary",
+    fam_kids: "essential",
+    fam_home: "important",
+    fam_pets: "important",
+    fam_clothing: "discretionary",
+    per_subs: "discretionary",
+    per_selfcare: "important",
+    per_hobbies: "discretionary",
+    per_reading: "discretionary",
+    per_coffee: "discretionary",
+    per_fitness: "important",
+    per_tech: "luxury",
+    room_groceries: "essential",
+    room_utilities: "essential",
+    room_cleaning: "important",
+    room_supplies: "important",
+    room_enter: "discretionary",
+    biz_saas: "essential",
+    biz_office: "important",
+    biz_marketing: "important",
+    biz_travel: "discretionary",
+    biz_pros: "important",
+    tr_flights: "essential",
+    tr_lodging: "essential",
+    tr_dining: "discretionary",
+    tr_activity: "discretionary",
+    tr_transit: "essential",
+};
 
 type EnvelopeKey = (typeof ENVELOPES)[number]["key"];
 
@@ -1056,6 +1102,9 @@ async function seedCategories(
 ) {
     logger.info("Expense categories…");
     const byKey: Record<string, string> = {};
+    // Root categories get the envelope's priority tier. Children leave
+    // priority NULL so the recursive-inheritance rule in
+    // analytics.priorityBreakdown rolls them up via their parent chain.
     for (const c of CATEGORIES.filter((x) => !x.parent)) {
         const row = await db
             .insertInto("expense_categories")
@@ -1066,6 +1115,7 @@ async function seedCategories(
                 color: c.color,
                 icon: c.icon,
                 parent_id: null,
+                priority: ENVELOPE_PRIORITY[c.envelope] ?? null,
             })
             .returning("id")
             .executeTakeFirstOrThrow();

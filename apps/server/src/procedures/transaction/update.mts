@@ -4,6 +4,7 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
+import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
@@ -123,6 +124,13 @@ export const updateTransaction = authorizedProcedure
                     sourceAccountId: merged.sourceAccountId,
                     destinationAccountId: merged.destinationAccountId,
                     type: existing.type as unknown as Transactions["type"],
+                });
+
+                await resolveTransactionSpaceIntegrity({
+                    trx,
+                    spaceId: existing.space_id,
+                    sourceAccountId: merged.sourceAccountId,
+                    destinationAccountId: merged.destinationAccountId,
                 });
 
                 if (merged.expenseCategoryId) {

@@ -32,12 +32,26 @@ export const cashFlow = authorizedProcedure
                           ? "1 week"
                           : "1 month";
 
+                // Account-flow cash flow. The population is every
+                // transaction touching at least one account shared
+                // into this space (ignoring `transactions.space_id`,
+                // which is a categorization tag — see spec §12). The
+                // CASE branches then classify each leg via scope. A
+                // transfer that moves money from outside the space
+                // into it shows up as income here regardless of which
+                // space_id the row was stamped with; internal
+                // transfers (both legs in scope) net to zero.
                 const query = sql<{
                     bucket: Date;
                     income: string;
                     expense: string;
                 }>`
-                    WITH buckets AS (
+                    WITH scope_accounts AS (
+                        SELECT sa.account_id
+                        FROM space_accounts sa
+                        WHERE sa.space_id = ${input.spaceId}
+                    ),
+                    buckets AS (
                         SELECT generate_series(
                             date_trunc(${input.bucket}, ${input.periodStart}::timestamptz),
                             date_trunc(${input.bucket}, ${input.periodEnd}::timestamptz),
@@ -47,18 +61,41 @@ export const cashFlow = authorizedProcedure
                     deltas AS (
                         SELECT
                             date_trunc(${input.bucket}, transaction_datetime) AS bucket,
-                            SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
-                            -- Transfer fees count as expense (money leaving
-                            -- the space to the bank/processor) alongside
-                            -- regular expense transactions.
+                            SUM(CASE
+                                WHEN type = 'income'
+                                    AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                WHEN type = 'transfer'
+                                    AND destination_account_id IN (SELECT account_id FROM scope_accounts)
+                                    AND source_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount
+                                WHEN type = 'adjustment'
+                                    AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                ELSE 0
+                            END) AS income,
                             SUM(
-                                CASE WHEN type = 'expense' THEN amount ELSE 0 END
-                                + CASE WHEN type = 'transfer' AND fee_amount IS NOT NULL THEN fee_amount ELSE 0 END
+                                CASE
+                                    WHEN type = 'expense'
+                                        AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                    WHEN type = 'transfer'
+                                        AND source_account_id IN (SELECT account_id FROM scope_accounts)
+                                        AND destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount
+                                    WHEN type = 'adjustment'
+                                        AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                    ELSE 0
+                                END
+                                + CASE
+                                    WHEN type = 'transfer'
+                                        AND source_account_id IN (SELECT account_id FROM scope_accounts)
+                                        AND fee_amount IS NOT NULL THEN fee_amount
+                                    ELSE 0
+                                END
                             ) AS expense
                         FROM transactions
-                        WHERE space_id = ${input.spaceId}
-                          AND transaction_datetime >= ${input.periodStart}
+                        WHERE transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
+                          AND (
+                              source_account_id IN (SELECT account_id FROM scope_accounts)
+                              OR destination_account_id IN (SELECT account_id FROM scope_accounts)
+                          )
                         GROUP BY 1
                     )
                     SELECT

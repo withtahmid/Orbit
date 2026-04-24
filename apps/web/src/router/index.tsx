@@ -53,6 +53,9 @@ const AnalyticsHeatmapView = lazy(
 const AnalyticsAllocationsView = lazy(
     () => import("@/pages/space/analytics/views/AllocationsView")
 );
+const AnalyticsPriorityView = lazy(
+    () => import("@/pages/space/analytics/views/PriorityView")
+);
 const SpaceSettingsPage = lazy(() => import("@/pages/space/settings/SpaceSettingsPage"));
 
 const withSuspense = (children: React.ReactNode) => (
@@ -194,6 +197,10 @@ export const router = createBrowserRouter([
                                     {
                                         path: "analytics/allocations",
                                         element: withSuspense(<AnalyticsAllocationsView />),
+                                    },
+                                    {
+                                        path: "analytics/priority",
+                                        element: withSuspense(<AnalyticsPriorityView />),
                                     },
                                     {
                                         path: "settings",

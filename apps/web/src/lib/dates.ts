@@ -231,31 +231,44 @@ export function resolvePeriod(
     customEnd?: Date
 ): PeriodRange {
     const now = new Date();
+    // Non-custom presets produce nominal ranges that can extend past today
+    // (e.g. "This month" runs to the 1st of next month). Clamp the end to
+    // end-of-today so charts don't draw flat lines into the future and
+    // queries don't generate empty future buckets. Only "custom" keeps the
+    // user's chosen end — they opted in to a future range explicitly.
+    const clampEnd = (end: Date): Date => {
+        const todayEnd = endOfDay(now);
+        return end.getTime() > todayEnd.getTime() ? todayEnd : end;
+    };
     if (preset === "this-month") {
         const start = startOfMonth(now);
-        return { preset, start, end: addMonths(start, 1) };
+        return { preset, start, end: clampEnd(addMonths(start, 1)) };
     }
     if (preset === "last-month") {
         const end = startOfMonth(now);
-        return { preset, start: addMonths(end, -1), end };
+        return { preset, start: addMonths(end, -1), end: clampEnd(end) };
     }
     if (preset === "last-3-months") {
         const end = addMonths(startOfMonth(now), 1);
-        return { preset, start: addMonths(end, -3), end };
+        return { preset, start: addMonths(end, -3), end: clampEnd(end) };
     }
     if (preset === "last-6-months") {
         const end = addMonths(startOfMonth(now), 1);
-        return { preset, start: addMonths(end, -6), end };
+        return { preset, start: addMonths(end, -6), end: clampEnd(end) };
     }
     if (preset === "last-12-months") {
         const end = addMonths(startOfMonth(now), 1);
-        return { preset, start: addMonths(end, -12), end };
+        return { preset, start: addMonths(end, -12), end: clampEnd(end) };
     }
     if (preset === "this-year") {
-        return { preset, start: startOfYear(now), end: endOfYear(now) };
+        return { preset, start: startOfYear(now), end: clampEnd(endOfYear(now)) };
     }
     if (preset === "all-time") {
-        return { preset, start: new Date("1970-01-01"), end: new Date("9999-12-31") };
+        return {
+            preset,
+            start: new Date("1970-01-01"),
+            end: clampEnd(new Date("9999-12-31")),
+        };
     }
     // custom
     const start = customStart ?? startOfMonth(now);

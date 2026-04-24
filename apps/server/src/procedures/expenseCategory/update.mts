@@ -15,9 +15,17 @@ export const updateExpenseCategory = authorizedProcedure
                 name: z.string().min(1).max(255).optional(),
                 color: z.string().regex(HEX).optional(),
                 icon: z.string().min(1).max(48).optional(),
+                priority: z
+                    .enum(["essential", "important", "discretionary", "luxury"])
+                    .nullable()
+                    .optional(),
             })
             .refine(
-                (d) => d.name !== undefined || d.color !== undefined || d.icon !== undefined,
+                (d) =>
+                    d.name !== undefined ||
+                    d.color !== undefined ||
+                    d.icon !== undefined ||
+                    d.priority !== undefined,
                 { message: "At least one field must be provided" }
             )
     )
@@ -50,6 +58,7 @@ export const updateExpenseCategory = authorizedProcedure
                         name: input.name,
                         color: input.color,
                         icon: input.icon,
+                        priority: input.priority,
                         updated_at: new Date(),
                     })
                     .where("expense_categories.id", "=", input.categoryId)
@@ -61,6 +70,7 @@ export const updateExpenseCategory = authorizedProcedure
                         "name",
                         "color",
                         "icon",
+                        "priority",
                         "created_at",
                         "updated_at",
                     ])

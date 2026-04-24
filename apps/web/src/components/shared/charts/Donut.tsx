@@ -112,13 +112,17 @@ export function Donut({
     return (
         <div
             className={cn(
-                "grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]",
-                hideLegend && "sm:grid-cols-1",
+                // Layout is driven by the card's *own* width (container
+                // queries) rather than the viewport, so this works both
+                // in 3-up overview cards and wide detail views.
+                "@container grid gap-4",
+                !hideLegend &&
+                    "@md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]",
                 className
             )}
         >
             <div
-                className="relative min-w-0"
+                className="relative mx-auto w-full min-w-0 max-w-[18rem] @md:mx-0"
                 style={{ height }}
                 onMouseLeave={() => setActiveIndex(null)}
             >
@@ -203,22 +207,24 @@ export function Donut({
                                     onMouseEnter={() => setActiveIndex(i)}
                                     onClick={() => onSelect?.(d)}
                                     className={cn(
-                                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
+                                        "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors",
                                         isActive && "bg-accent/50"
                                     )}
                                 >
                                     <span
-                                        className="inline-block size-3 shrink-0 rounded-sm"
+                                        className="mt-[5px] inline-block size-2.5 shrink-0 rounded-sm"
                                         style={{ backgroundColor: d.color }}
                                     />
-                                    <span className="min-w-0 flex-1 truncate font-medium">
+                                    <span className="line-clamp-2 min-w-0 flex-1 break-words font-medium leading-snug">
                                         {d.name}
                                     </span>
-                                    <span className="shrink-0 text-right tabular-nums">
-                                        {format(d.value)}
-                                    </span>
-                                    <span className="w-10 shrink-0 text-right text-xs text-muted-foreground">
-                                        {pct.toFixed(0)}%
+                                    <span className="flex shrink-0 flex-col items-end leading-tight">
+                                        <span className="tabular-nums">
+                                            {format(d.value)}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground">
+                                            {pct.toFixed(0)}%
+                                        </span>
                                     </span>
                                 </button>
                             </li>
