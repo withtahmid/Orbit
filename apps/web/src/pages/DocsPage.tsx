@@ -227,11 +227,11 @@ function Hero({ isAuthed }: { isAuthed: boolean }) {
                 <Sparkles className="size-3.5" />
                 Product guide
             </span>
-            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
+            <h1 className="o-page-title">
                 Everything you need to know <br className="hidden sm:block" />
                 about <span className="text-gradient-brand">Orbit</span>
             </h1>
-            <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
+            <p className="o-page-sub max-w-2xl">
                 Orbit is a collaborative personal-finance app for small groups — families,
                 couples, roommates, shared projects. It combines <b>ledger accounting</b>,{" "}
                 <b>envelope budgeting</b>, and <b>goal-based planning</b> into a single
@@ -468,7 +468,7 @@ function Concepts() {
                 />
                 <ConceptCard
                     title="Allocation"
-                    body="A signed amount that says 'E has X dollars, optionally earmarked from Account A'."
+                    body="A signed amount that says 'envelope E holds X, optionally earmarked from account A'."
                 />
                 <ConceptCard
                     title="Transaction"
@@ -787,11 +787,11 @@ function Allocations() {
             <div className="grid gap-3 sm:grid-cols-2">
                 <InfoCard
                     title="1. Which envelope (or plan)?"
-                    body="Routes the money's purpose. 'This $500 is for Groceries.'"
+                    body="Routes the money's purpose. 'This 500 is for Groceries.'"
                 />
                 <InfoCard
                     title="2. Which account, if any?"
-                    body="Pins the money's location. 'And specifically, the $500 lives in my wallet.'"
+                    body="Pins the money's location. 'And specifically, the 500 lives in my wallet.'"
                 />
             </div>
             <Paragraph>
@@ -811,9 +811,9 @@ function Drift() {
             <SectionHeader id="drift" title="Drift & rebalancing" icon={Shield} />
             <Paragraph>
                 <b>Drift</b> is when an envelope-account partition has spent more than it's
-                been allocated. Example: you allocated $500 for Groceries from your wallet,
-                then accidentally spent $600 from it. The wallet-Groceries partition shows{" "}
-                <span className="text-[color:var(--expense)] font-medium">−$100 drift</span>
+                been allocated. Example: you allocated 500 for Groceries from your wallet,
+                then accidentally spent 600 from it. The wallet-Groceries partition shows{" "}
+                <span className="text-[color:var(--expense)] font-medium">−100 drift</span>
                 . It's a display concept, not an accounting error — your accounts are
                 correct, just the earmarking is off.
             </Paragraph>
@@ -821,7 +821,7 @@ function Drift() {
                 The <b>Overview</b> page shows a Drift Alerts card with the worst
                 offenders. Click one to jump into the envelope detail and rebalance:
                 transfer allocation from a healthy partition (e.g. wallet ⇒ Entertainment
-                has $200 spare) into the drifted one. No accounting gymnastics — just
+                has 200 spare) into the drifted one. No accounting gymnastics — just
                 re-label the earmark.
             </Paragraph>
             <ScreenshotPlaceholder label="Drift alerts card + rebalance dialog" />

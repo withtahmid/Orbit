@@ -31,31 +31,37 @@ export const EmailStep = observer(function EmailStep() {
     };
 
     return (
-        <div className="grid gap-5 py-2 text-center">
-            <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-brand-gradient-to/20 text-primary">
-                <Mail className="size-6" />
-            </div>
+        <div className="grid gap-6">
             <div>
-                <h2 className="text-xl font-bold">Create your account</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                    Enter your email to get a verification code
+                <p className="o-eyebrow mb-3 flex items-center gap-2">
+                    <Mail className="size-3.5" />
+                    <span>Create account</span>
+                </p>
+                <h1 className="o-page-title">Start tracking.</h1>
+                <p className="o-page-sub mt-3">
+                    Enter your email. We'll send a verification code so your account can't
+                    be impersonated.
                 </p>
             </div>
-            <form onSubmit={onSubmit} className="grid gap-3 text-left">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                    id="email"
-                    type="email"
-                    required
-                    autoComplete="email"
-                    autoFocus
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                />
+            <form onSubmit={onSubmit} className="grid gap-4">
+                <div className="grid gap-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                        id="email"
+                        type="email"
+                        required
+                        autoComplete="email"
+                        autoFocus
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@example.com"
+                    />
+                </div>
                 <Button
                     type="submit"
                     variant="gradient"
+                    size="lg"
+                    className="mt-2"
                     disabled={initiate.isPending || !email}
                 >
                     {initiate.isPending ? (
@@ -68,10 +74,10 @@ export const EmailStep = observer(function EmailStep() {
                     )}
                 </Button>
             </form>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
                 Already have an account?{" "}
-                <Link to={ROUTES.login} className="text-primary hover:underline">
-                    Log in
+                <Link to={ROUTES.login} className="text-(--o-emerald) hover:underline">
+                    Log in →
                 </Link>
             </p>
         </div>

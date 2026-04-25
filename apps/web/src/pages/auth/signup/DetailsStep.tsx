@@ -58,14 +58,16 @@ export const DetailsStep = observer(function DetailsStep() {
     };
 
     return (
-        <div className="grid gap-5 py-2">
-            <div className="text-center">
-                <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-brand-gradient-to/20 text-primary">
-                    <User className="size-6" />
-                </div>
-                <h2 className="mt-4 text-xl font-bold">Almost there</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                    Tell us a bit about you and choose a password
+        <div className="grid gap-6">
+            <div>
+                <p className="o-eyebrow mb-3 flex items-center gap-2">
+                    <User className="size-3.5" />
+                    <span>Almost there</span>
+                </p>
+                <h1 className="o-page-title">Tell us who you are.</h1>
+                <p className="o-page-sub mt-3">
+                    Your name and a password. This is the account you'll own across every
+                    space.
                 </p>
             </div>
             <form onSubmit={onSubmit} className="grid gap-4">
@@ -117,6 +119,8 @@ export const DetailsStep = observer(function DetailsStep() {
                 <Button
                     type="submit"
                     variant="gradient"
+                    size="lg"
+                    className="mt-2"
                     disabled={complete.isPending}
                 >
                     {complete.isPending ? (

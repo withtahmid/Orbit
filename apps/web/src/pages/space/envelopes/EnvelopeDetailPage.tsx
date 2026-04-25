@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { PageHeader } from "@/components/shared/PageHeader";
+import { DetailHead } from "@/components/shared/DetailHead";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
@@ -103,29 +103,35 @@ export default function EnvelopeDetailPage() {
                     All envelopes
                 </Link>
             </Button>
-            <PageHeader
-                title={envelope?.name ?? "Envelope"}
-                description={
-                    envelope ? (
-                        <span className="flex flex-wrap items-center gap-2">
-                            <EntityAvatar color={envelope.color} icon={envelope.icon} size="sm" />
-                            <span className="rounded-sm bg-secondary px-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {envelope ? (
+                <DetailHead
+                    hue="emerald"
+                    iconColor={envelope.color}
+                    icon={
+                        <EntityAvatar
+                            color={envelope.color}
+                            icon={envelope.icon}
+                            size="md"
+                        />
+                    }
+                    title={envelope.name}
+                    sub={
+                        <>
+                            <span className="o-chip">
                                 {envelope.cadence === "monthly" ? "Monthly" : "Rolling"}
                             </span>
                             {envelope.carryOver && (
-                                <span className="rounded-sm bg-secondary px-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                                    Carry-over
-                                </span>
+                                <span className="o-chip">Carry-over</span>
                             )}
-                            <span className="text-muted-foreground">
-                                {envelope.description ?? "Allocation history and utilization"}
-                            </span>
-                        </span>
-                    ) : (
-                        "Allocation history and utilization"
-                    )
-                }
-            />
+                            {envelope.description && (
+                                <span>{envelope.description}</span>
+                            )}
+                        </>
+                    }
+                />
+            ) : (
+                <div className="text-2xl font-semibold">Envelope</div>
+            )}
 
             {envelope && (
                 <>
@@ -188,6 +194,8 @@ export default function EnvelopeDetailPage() {
                         <CardContent>
                             <Progress
                                 value={periodPct}
+                                spent={envelope.consumed}
+                                allocated={envelope.allocated}
                                 indicatorColor={over ? "var(--destructive)" : envelope.color}
                             />
                             <p className="mt-2 text-xs text-muted-foreground">

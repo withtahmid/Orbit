@@ -3,7 +3,7 @@ import { lazy, Suspense } from "react";
 import { RootLayout } from "@/layouts/RootLayout";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { AppShellLayout } from "@/layouts/AppShellLayout";
-import { SpaceLayout } from "@/layouts/SpaceLayout";
+import { SpaceShellLayout } from "@/layouts/SpaceShellLayout";
 import { GuestOnlyRoute } from "@/router/guards/GuestOnlyRoute";
 import { ProtectedRoute } from "@/router/guards/ProtectedRoute";
 import { CurrentSpaceProvider } from "@/providers/CurrentSpaceProvider";
@@ -127,7 +127,7 @@ export const router = createBrowserRouter([
                         element: <CurrentSpaceProvider />,
                         children: [
                             {
-                                element: <SpaceLayout />,
+                                element: <SpaceShellLayout />,
                                 children: [
                                     { index: true, element: withSuspense(<SpaceOverviewPage />) },
                                     {

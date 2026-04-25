@@ -167,7 +167,7 @@ export default function EnvelopesPage() {
         <div className="grid gap-6">
             <PageHeader
                 title="Envelopes"
-                description="Every dollar committed to a purpose. Monthly envelopes reset on the 1st; rolling envelopes accumulate."
+                description="Every unit of money committed to a purpose. Monthly envelopes reset on the 1st; rolling envelopes accumulate."
                 actions={
                     <PermissionGate roles={["owner"]}>
                         <CreateOrEditEnvelopeDialog />

@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Plus } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
     Sheet,
@@ -9,7 +9,6 @@ import {
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +23,6 @@ import {
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { FileUploadField } from "@/components/file-upload-field";
 import { UserAvatar } from "@/components/shared/UserAvatar";
-import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { trpc } from "@/trpc";
 import type { RouterOutput } from "@/trpc";
 import { cn } from "@/lib/utils";
@@ -66,123 +64,165 @@ const TAB_TITLE: Record<TxTab, string> = {
     adjustment: "Balance adjustment",
 };
 
-const TAB_TRIGGER_CLASS: Record<TxTab, string> = {
-    income: "data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-600 data-[state=active]:border-emerald-500/40",
-    expense: "data-[state=active]:bg-rose-500/10 data-[state=active]:text-rose-600 data-[state=active]:border-rose-500/40",
-    transfer: "data-[state=active]:bg-sky-500/10 data-[state=active]:text-sky-600 data-[state=active]:border-sky-500/40",
-    adjustment: "data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:border-border",
+const TAB_SUBTITLE: Record<TxTab, string> = {
+    income: "Record money coming in.",
+    expense: "Record money going out.",
+    transfer: "Move money between your own accounts.",
+    adjustment: "Correct an account balance when the ledger drifted.",
 };
 
-const TAB_BORDER_CLASS: Record<TxTab, string> = {
-    income: "border-emerald-500/60",
-    expense: "border-rose-500/60",
-    transfer: "border-sky-500/60",
-    adjustment: "border-border",
+const TAB_SUBMIT: Record<TxTab, string> = {
+    income: "Record income",
+    expense: "Record expense",
+    transfer: "Record transfer",
+    adjustment: "Adjust balance",
 };
 
-export function NewTransactionSheet() {
-    const [open, setOpen] = useState(false);
+// Every form submits through the same `id`; the footer button references it
+// via `form="new-tx-form"` so the footer lives outside the scrolling body
+// while still firing the right mutation.  Radix Sheet portals put both the
+// form and the footer button in the same document root, so the native
+// form-linkage attribute works across the portal boundary.
+const FORM_ID = "new-tx-form";
+
+export function NewTransactionSheet({
+    open: controlledOpen,
+    onOpenChange: controlledOnOpenChange,
+    hideTrigger,
+}: {
+    /** External open state. When provided, the internal trigger is ignored. */
+    open?: boolean;
+    onOpenChange?: (v: boolean) => void;
+    /** Hide the built-in "New transaction" Button trigger. Use this when a
+     *  parent (e.g. the app topbar) renders its own trigger and drives
+     *  `open` / `onOpenChange` from the outside. */
+    hideTrigger?: boolean;
+} = {}) {
+    const [internalOpen, setInternalOpen] = useState(false);
+    const isControlled = controlledOpen !== undefined;
+    const open = isControlled ? controlledOpen : internalOpen;
+    const setOpen = isControlled
+        ? (controlledOnOpenChange ?? (() => {}))
+        : setInternalOpen;
     const [activeType, setActiveType] = useState<TxTab>("expense");
+    // Tracks the active form's mutation state so the footer submit button
+    // can disable + spin while the request is in flight.  Each form pushes
+    // its pending state up via `onPendingChange`.
+    const [pending, setPending] = useState(false);
+
+    // When the sheet closes or the type changes, reset pending — the old
+    // form unmounts and its effect won't fire "false" before the new one
+    // mounts, so we clear manually.
+    useEffect(() => {
+        if (!open) setPending(false);
+    }, [open]);
+    useEffect(() => {
+        setPending(false);
+    }, [activeType]);
+
+    const onDone = () => setOpen(false);
+
     return (
         <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-                <Button variant="gradient">
-                    <Plus />
-                    <span className="hidden sm:inline">New transaction</span>
-                    <span className="sm:hidden">New</span>
-                </Button>
-            </SheetTrigger>
+            {!hideTrigger && (
+                <SheetTrigger asChild>
+                    <Button variant="gradient">
+                        <Plus />
+                        <span className="hidden sm:inline">New transaction</span>
+                        <span className="sm:hidden">New</span>
+                    </Button>
+                </SheetTrigger>
+            )}
             <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
-                <SheetHeader className="border-b border-border p-5">
-                    <SheetTitle className="flex items-center gap-2">
+                <SheetHeader className="border-b border-border p-5 sm:p-6">
+                    <SheetTitle className="text-[22px] font-semibold tracking-tight">
                         {TAB_TITLE[activeType]}
-                        <TransactionTypeBadge type={activeType} />
                     </SheetTitle>
-                    <SheetDescription>
-                        Record income, an expense, a transfer, or a balance adjustment.
+                    <SheetDescription className="text-xs">
+                        {TAB_SUBTITLE[activeType]}
                     </SheetDescription>
                 </SheetHeader>
-                <div className="flex-1 overflow-y-auto p-5">
-                    <Tabs
-                        value={activeType}
-                        onValueChange={(v) => setActiveType(v as TxTab)}
+
+                <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+                    <div
+                        className="o-segmented mb-5 flex w-full"
+                        role="tablist"
+                        aria-label="Transaction type"
                     >
-                        <TabsList className="grid w-full grid-cols-4">
-                            <TabsTrigger
-                                value="income"
-                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.income)}
-                            >
-                                Income
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="expense"
-                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.expense)}
-                            >
-                                Expense
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="transfer"
-                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.transfer)}
-                            >
-                                Transfer
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="adjustment"
-                                className={cn(
-                                    "border border-transparent",
-                                    TAB_TRIGGER_CLASS.adjustment
-                                )}
-                            >
-                                Adjust
-                            </TabsTrigger>
-                        </TabsList>
-                        <TabsContent value="income">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.income
-                                )}
-                            >
-                                <IncomeForm onDone={() => setOpen(false)} />
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="expense">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.expense
-                                )}
-                            >
-                                <ExpenseForm onDone={() => setOpen(false)} />
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="transfer">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.transfer
-                                )}
-                            >
-                                <TransferForm onDone={() => setOpen(false)} />
-                            </div>
-                        </TabsContent>
-                        <TabsContent value="adjustment">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.adjustment
-                                )}
-                            >
-                                <AdjustmentForm onDone={() => setOpen(false)} />
-                            </div>
-                        </TabsContent>
-                    </Tabs>
+                        {(["income", "expense", "transfer", "adjustment"] as const).map(
+                            (t) => (
+                                <button
+                                    key={t}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={activeType === t}
+                                    onClick={() => setActiveType(t)}
+                                    className={cn(
+                                        "flex-1",
+                                        activeType === t && "is-active"
+                                    )}
+                                >
+                                    {t === "income"
+                                        ? "Income"
+                                        : t === "expense"
+                                          ? "Expense"
+                                          : t === "transfer"
+                                            ? "Transfer"
+                                            : "Adjust"}
+                                </button>
+                            )
+                        )}
+                    </div>
+
+                    {activeType === "income" && (
+                        <IncomeForm onDone={onDone} onPendingChange={setPending} />
+                    )}
+                    {activeType === "expense" && (
+                        <ExpenseForm onDone={onDone} onPendingChange={setPending} />
+                    )}
+                    {activeType === "transfer" && (
+                        <TransferForm onDone={onDone} onPendingChange={setPending} />
+                    )}
+                    {activeType === "adjustment" && (
+                        <AdjustmentForm onDone={onDone} onPendingChange={setPending} />
+                    )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t border-border bg-card p-4 sm:p-5">
+                    <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => setOpen(false)}
+                        disabled={pending}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        type="submit"
+                        form={FORM_ID}
+                        variant="gradient"
+                        disabled={pending}
+                    >
+                        {pending ? (
+                            <>
+                                <Loader2 className="animate-spin" />
+                                Saving…
+                            </>
+                        ) : (
+                            TAB_SUBMIT[activeType]
+                        )}
+                    </Button>
                 </div>
             </SheetContent>
         </Sheet>
     );
 }
 
+/**
+ * Shared field block used by income / expense / transfer.  Renders the
+ * hero amount input, then the date-time and description fields.  Each
+ * individual form adds its own entity pickers above/below this block.
+ */
 function BaseFields({
     amount,
     setAmount,
@@ -204,23 +244,30 @@ function BaseFields({
 }) {
     return (
         <>
-            <div className="grid gap-1.5">
-                <Label htmlFor="amount">Amount</Label>
-                <Input
-                    id="amount"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                    placeholder="0.00"
-                    autoFocus
-                />
+            <div className="grid gap-2">
+                <Label htmlFor="amount" className="o-eyebrow">
+                    Amount
+                </Label>
+                <div className="o-amount">
+                    <input
+                        id="amount"
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={amount}
+                        onChange={(e) => setAmount(e.target.value)}
+                        required
+                        placeholder="0.00"
+                        autoFocus
+                        className="o-amount__input"
+                    />
+                </div>
             </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="datetime">Date &amp; time</Label>
+            <div className="grid gap-2">
+                <Label htmlFor="datetime" className="o-eyebrow">
+                    Date &amp; time
+                </Label>
                 <Input
                     id="datetime"
                     type="datetime-local"
@@ -228,8 +275,10 @@ function BaseFields({
                     onChange={(e) => setDatetime(e.target.value)}
                 />
             </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="description">Description</Label>
+            <div className="grid gap-2">
+                <Label htmlFor="description" className="o-eyebrow">
+                    Description
+                </Label>
                 <Textarea
                     id="description"
                     value={description}
@@ -239,8 +288,10 @@ function BaseFields({
                 />
             </div>
             {setLocation && (
-                <div className="grid gap-1.5">
-                    <Label htmlFor="location">Location (optional)</Label>
+                <div className="grid gap-2">
+                    <Label htmlFor="location" className="o-eyebrow">
+                        Location <span className="normal-case">(optional)</span>
+                    </Label>
                     <Input
                         id="location"
                         value={location ?? ""}
@@ -265,8 +316,10 @@ function EventPicker({
     const eventsQuery = trpc.event.listBySpace.useQuery({ spaceId });
     if (!eventsQuery.data || eventsQuery.data.length === 0) return null;
     return (
-        <div className="grid gap-1.5">
-            <Label>Event (optional)</Label>
+        <div className="grid gap-2">
+            <Label className="o-eyebrow">
+                Event <span className="normal-case">(optional)</span>
+            </Label>
             <Select
                 value={value || "none"}
                 onValueChange={(v) => onChange(v === "none" ? "" : v)}
@@ -293,7 +346,12 @@ function defaultDateTime(): string {
     return toInputDateTime(d);
 }
 
-function IncomeForm({ onDone }: { onDone: () => void }) {
+type FormProps = {
+    onDone: () => void;
+    onPendingChange: (pending: boolean) => void;
+};
+
+function IncomeForm({ onDone, onPendingChange }: FormProps) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const utils = trpc.useUtils();
@@ -317,9 +375,14 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
         onError: (e) => toast.error(e.message),
     });
 
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
+
     return (
         <form
-            className="mt-4 grid gap-4"
+            id={FORM_ID}
+            className="grid gap-4"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!accountId) {
@@ -351,8 +414,8 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                     setLocation,
                 }}
             />
-            <div className="grid gap-1.5">
-                <Label>Into account</Label>
+            <div className="grid gap-2">
+                <Label className="o-eyebrow">Into account</Label>
                 <Select value={accountId} onValueChange={setAccountId}>
                     <SelectTrigger>
                         <SelectValue placeholder="Choose account" />
@@ -377,14 +440,11 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                 onChange={setAttachmentFileIds}
                 label="Receipts"
             />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Record income"}
-            </Button>
         </form>
     );
 }
 
-function ExpenseForm({ onDone }: { onDone: () => void }) {
+function ExpenseForm({ onDone, onPendingChange }: FormProps) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
@@ -413,13 +473,18 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
         onError: (e) => toast.error(e.message),
     });
 
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
+
     const availableAccounts = (accountsQuery.data ?? [])
         .filter((a) => a.account_type !== "locked")
         .filter(ownedByMe);
 
     return (
         <form
-            className="mt-4 grid gap-4"
+            id={FORM_ID}
+            className="grid gap-4"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!sourceAccountId || !categoryId) {
@@ -452,8 +517,8 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     setLocation,
                 }}
             />
-            <div className="grid gap-1.5">
-                <Label>From account</Label>
+            <div className="grid gap-2">
+                <Label className="o-eyebrow">From account</Label>
                 <Select value={sourceAccountId} onValueChange={setSource}>
                     <SelectTrigger>
                         <SelectValue placeholder="Choose account" />
@@ -467,8 +532,8 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     </SelectContent>
                 </Select>
             </div>
-            <div className="grid gap-1.5">
-                <Label>Category</Label>
+            <div className="grid gap-2">
+                <Label className="o-eyebrow">Category</Label>
                 <CategoryTreeSelect
                     categories={(categoriesQuery.data ?? []) as any}
                     value={categoryId}
@@ -484,14 +549,11 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 onChange={setAttachmentFileIds}
                 label="Receipts"
             />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Record expense"}
-            </Button>
         </form>
     );
 }
 
-function TransferForm({ onDone }: { onDone: () => void }) {
+function TransferForm({ onDone, onPendingChange }: FormProps) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
@@ -526,6 +588,10 @@ function TransferForm({ onDone }: { onDone: () => void }) {
         onError: (e) => toast.error(e.message),
     });
 
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
+
     const spendable = (accountsQuery.data ?? [])
         .filter((a) => a.account_type !== "locked")
         .filter(ownedByMe);
@@ -536,7 +602,8 @@ function TransferForm({ onDone }: { onDone: () => void }) {
 
     return (
         <form
-            className="mt-4 grid gap-4"
+            id={FORM_ID}
+            className="grid gap-4"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!sourceAccountId || !destinationAccountId) {
@@ -576,8 +643,8 @@ function TransferForm({ onDone }: { onDone: () => void }) {
             <BaseFields
                 {...{ amount, setAmount, description, setDescription, datetime, setDatetime }}
             />
-            <div className="grid gap-1.5">
-                <Label>From account</Label>
+            <div className="grid gap-2">
+                <Label className="o-eyebrow">From account</Label>
                 <Select value={sourceAccountId} onValueChange={setSource}>
                     <SelectTrigger>
                         <SelectValue placeholder="Choose account" />
@@ -591,8 +658,8 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     </SelectContent>
                 </Select>
             </div>
-            <div className="grid gap-1.5">
-                <Label>To account</Label>
+            <div className="grid gap-2">
+                <Label className="o-eyebrow">To account</Label>
                 <Select value={destinationAccountId} onValueChange={setDest}>
                     <SelectTrigger>
                         <SelectValue placeholder="Choose account" />
@@ -608,8 +675,8 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
-                    Transfers out of your money can land in any account — your own,
-                    a shared household pot, or a locked savings account.
+                    Transfers move money between your own accounts — they don't count
+                    as income or expense.
                 </p>
             </div>
 
@@ -633,8 +700,10 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                 </label>
                 {feeEnabled && (
                     <div className="mt-3 grid gap-3">
-                        <div className="grid gap-1.5">
-                            <Label htmlFor="fee-amount">Fee amount</Label>
+                        <div className="grid gap-2">
+                            <Label htmlFor="fee-amount" className="o-eyebrow">
+                                Fee amount
+                            </Label>
                             <Input
                                 id="fee-amount"
                                 type="number"
@@ -646,8 +715,8 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                                 placeholder="0.00"
                             />
                         </div>
-                        <div className="grid gap-1.5">
-                            <Label>Fee category</Label>
+                        <div className="grid gap-2">
+                            <Label className="o-eyebrow">Fee category</Label>
                             <CategoryTreeSelect
                                 categories={(categoriesQuery.data ?? []) as any}
                                 value={feeCategoryId}
@@ -689,14 +758,11 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                 onChange={setAttachmentFileIds}
                 label="Receipts"
             />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Record transfer"}
-            </Button>
         </form>
     );
 }
 
-function AdjustmentForm({ onDone }: { onDone: () => void }) {
+function AdjustmentForm({ onDone, onPendingChange }: FormProps) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const utils = trpc.useUtils();
@@ -718,11 +784,16 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
         onError: (e) => toast.error(e.message),
     });
 
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
+
     const selected = (accountsQuery.data ?? []).find((a) => a.id === accountId);
 
     return (
         <form
-            className="mt-4 grid gap-4"
+            id={FORM_ID}
+            className="grid gap-4"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!accountId) {
@@ -740,8 +811,8 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                 });
             }}
         >
-            <div className="grid gap-1.5">
-                <Label>Account</Label>
+            <div className="grid gap-2">
+                <Label className="o-eyebrow">Account</Label>
                 <Select value={accountId} onValueChange={setAccountId}>
                     <SelectTrigger>
                         <SelectValue placeholder="Choose account" />
@@ -760,21 +831,28 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     </p>
                 )}
             </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="new-balance">New balance</Label>
-                <Input
-                    id="new-balance"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    value={newBalance}
-                    onChange={(e) => setNewBalance(e.target.value)}
-                    placeholder="0.00"
-                    required
-                />
+            <div className="grid gap-2">
+                <Label htmlFor="new-balance" className="o-eyebrow">
+                    New balance
+                </Label>
+                <div className="o-amount">
+                    <input
+                        id="new-balance"
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        value={newBalance}
+                        onChange={(e) => setNewBalance(e.target.value)}
+                        placeholder="0.00"
+                        required
+                        className="o-amount__input"
+                    />
+                </div>
             </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="adj-datetime">Date &amp; time</Label>
+            <div className="grid gap-2">
+                <Label htmlFor="adj-datetime" className="o-eyebrow">
+                    Date &amp; time
+                </Label>
                 <Input
                     id="adj-datetime"
                     type="datetime-local"
@@ -782,8 +860,10 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     onChange={(e) => setDatetime(e.target.value)}
                 />
             </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="adj-desc">Reason (optional)</Label>
+            <div className="grid gap-2">
+                <Label htmlFor="adj-desc" className="o-eyebrow">
+                    Reason <span className="normal-case">(optional)</span>
+                </Label>
                 <Textarea
                     id="adj-desc"
                     rows={2}
@@ -798,9 +878,6 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                 onChange={setAttachmentFileIds}
                 label="Receipts"
             />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Adjust balance"}
-            </Button>
         </form>
     );
 }

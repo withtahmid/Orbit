@@ -5,65 +5,118 @@
 
 :root,
 .dark {
-    /* Base surfaces — warmer near-black with subtle green hint */
-    --background: hsl(180 10% 5%);
-    --foreground: hsl(180 15% 96%);
+    /* =====================================================================
+       Orbit tokens — refined dark-emerald palette (oklch, perceptually tuned)
+       ===================================================================== */
 
-    --card: hsl(180 10% 9%);
-    --card-foreground: hsl(180 15% 96%);
+    /* Neutrals — warm cool ramp tuned for long-session readability */
+    --o-bg-0: oklch(0.17 0.01 180);
+    --o-bg-1: oklch(0.205 0.012 180);
+    --o-bg-2: oklch(0.24 0.012 180);
+    --o-bg-3: oklch(0.29 0.012 180);
 
-    --popover: hsl(180 10% 8%);
-    --popover-foreground: hsl(180 15% 96%);
+    --o-fg: oklch(0.96 0.01 180);
+    --o-fg-mid: oklch(0.78 0.012 180);
+    --o-fg-dim: oklch(0.58 0.01 180);
+    --o-fg-faint: oklch(0.42 0.01 180);
 
-    /* Premium emerald primary — feels like money */
-    --primary: hsl(160 84% 50%);
-    --primary-foreground: hsl(180 40% 6%);
+    --o-line: oklch(0.30 0.012 180);
+    --o-line-soft: oklch(0.25 0.01 180);
 
-    --secondary: hsl(180 8% 14%);
-    --secondary-foreground: hsl(180 15% 96%);
+    /* Brand — quieter, warmer emerald */
+    --o-emerald: oklch(0.76 0.14 165);
 
-    --muted: hsl(180 8% 13%);
-    --muted-foreground: hsl(180 10% 64%);
+    /* Functional accents — all share chroma */
+    --o-bad: oklch(0.70 0.17 20);
+    --o-warn: oklch(0.80 0.13 75);
+    --o-info: oklch(0.76 0.13 230);
+    --o-plan: oklch(0.72 0.13 295);
 
-    /* --accent is the *hover surface* for buttons, menus, tabs — keep it a
-       dim dark tone so text stays readable. The brand gradient partner lives
-       in --brand-gradient-to below. */
-    --accent: hsl(180 8% 15%);
-    --accent-foreground: hsl(180 15% 96%);
+    /* Priority tiers */
+    --o-pri-essential: oklch(0.70 0.09 160);
+    --o-pri-important: oklch(0.75 0.11 80);
+    --o-pri-discretionary: oklch(0.70 0.12 250);
+    --o-pri-luxury: oklch(0.70 0.15 340);
+
+    /* Shadows — 2-layer treatment from the design bundle:
+       --o-sh-1 adds a subtle 1px inset highlight at the top plus a soft drop;
+       --o-sh-2 is a longer, deeper blur used on modals, sheets, and the
+       floating controls.  --o-sh-modal layers both for real elevation. */
+    --o-sh-1: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 2px 6px rgba(0, 0, 0, 0.25);
+    --o-sh-2: 0 10px 40px -14px rgba(0, 0, 0, 0.5);
+    --o-sh-modal:
+        0 1px 0 rgba(255, 255, 255, 0.025) inset,
+        0 30px 80px -20px rgba(0, 0, 0, 0.65),
+        0 10px 40px -14px rgba(0, 0, 0, 0.5);
+
+    /* Radius tier — purposeful ladder used by chips, inputs, cards, panels,
+       and modals.  Each surface class below picks its own step. */
+    --o-r-xs: 4px;
+    --o-r-sm: 6px;
+    --o-r: 10px;
+    --o-r-lg: 14px;
+    --o-r-xl: 20px;
+
+    /* =====================================================================
+       shadcn/Tailwind tokens — mapped to the Orbit palette so every
+       existing component inherits the refined dark-emerald look for free.
+       ===================================================================== */
+    --background: var(--o-bg-0);
+    --foreground: var(--o-fg);
+
+    --card: var(--o-bg-1);
+    --card-foreground: var(--o-fg);
+
+    --popover: var(--o-bg-1);
+    --popover-foreground: var(--o-fg);
+
+    /* Primary — emerald. Foreground sits on the brand (needs deep contrast). */
+    --primary: var(--o-emerald);
+    --primary-foreground: oklch(0.20 0.02 180);
+
+    --secondary: var(--o-bg-2);
+    --secondary-foreground: var(--o-fg);
+
+    --muted: var(--o-bg-1);
+    --muted-foreground: var(--o-fg-dim);
+
+    /* --accent is the *hover surface* for buttons, menus, tabs. */
+    --accent: var(--o-bg-2);
+    --accent-foreground: var(--o-fg);
 
     /* Brand gradient second stop — pairs with --primary for CTAs. */
-    --brand-gradient-to: hsl(175 70% 45%);
+    --brand-gradient-to: oklch(0.72 0.12 195);
 
-    --destructive: hsl(0 75% 58%);
-    --destructive-foreground: hsl(0 0% 100%);
+    --destructive: var(--o-bad);
+    --destructive-foreground: oklch(0.98 0 0);
 
-    --border: hsl(180 8% 17%);
-    --input: hsl(180 8% 13%);
-    --ring: hsl(160 84% 50%);
+    --border: var(--o-line);
+    --input: var(--o-bg-1);
+    --ring: var(--o-emerald);
 
-    /* Money states */
-    --income: hsl(152 70% 55%);
-    --expense: hsl(4 78% 62%);
-    --transfer: hsl(200 70% 60%);
-    --warning: hsl(38 92% 58%);
+    /* Money states — align with functional accents */
+    --income: var(--o-emerald);
+    --expense: var(--o-bad);
+    --transfer: var(--o-info);
+    --warning: var(--o-warn);
 
-    /* Fallback chart colors (entities that don't yet have a color) */
-    --chart-1: hsl(160 84% 50%);
-    --chart-2: hsl(175 70% 50%);
-    --chart-3: hsl(200 80% 60%);
-    --chart-4: hsl(260 70% 65%);
-    --chart-5: hsl(38 92% 60%);
-    --chart-6: hsl(330 75% 65%);
+    /* Fallback chart colors */
+    --chart-1: var(--o-emerald);
+    --chart-2: var(--o-info);
+    --chart-3: var(--o-plan);
+    --chart-4: var(--o-warn);
+    --chart-5: oklch(0.76 0.11 205);
+    --chart-6: oklch(0.75 0.14 340);
 
     /* Sidebar a shade darker than bg for subtle lift */
-    --sidebar: hsl(180 10% 4%);
-    --sidebar-foreground: hsl(180 15% 96%);
-    --sidebar-primary: hsl(160 84% 50%);
-    --sidebar-primary-foreground: hsl(180 40% 6%);
-    --sidebar-accent: hsl(180 8% 12%);
-    --sidebar-accent-foreground: hsl(180 15% 96%);
-    --sidebar-border: hsl(180 8% 14%);
-    --sidebar-ring: hsl(160 84% 50%);
+    --sidebar: color-mix(in oklch, var(--o-bg-0) 92%, black);
+    --sidebar-foreground: var(--o-fg);
+    --sidebar-primary: var(--o-emerald);
+    --sidebar-primary-foreground: oklch(0.20 0.02 180);
+    --sidebar-accent: var(--o-bg-2);
+    --sidebar-accent-foreground: var(--o-fg);
+    --sidebar-border: var(--o-line);
+    --sidebar-ring: var(--o-emerald);
 
     --radius: 0.75rem;
 }
@@ -114,9 +167,11 @@
     --radius-xl: calc(var(--radius) + 4px);
 
     --font-sans:
-        "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-        Roboto, "Helvetica Neue", Arial, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+        "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono:
+        "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+        monospace;
 }
 
 @layer base {
@@ -216,4 +271,703 @@
     .safe-pb {
         padding-bottom: env(safe-area-inset-bottom);
     }
+}
+
+/* =========================================================================
+   Orbit redesign — shared classes used by the new shell and pages built
+   against the refined dark-emerald system (see index.css :root tokens).
+   ========================================================================= */
+@layer components {
+    /* Eyebrow — all-caps tiny label */
+    .o-eyebrow {
+        color: var(--o-fg-dim);
+        font-size: 10.5px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-weight: 500;
+    }
+
+    /* Page title — big near-display sans; scales down on mobile so it doesn't
+       wrap awkwardly inside the content column on a phone. */
+    .o-page-title {
+        font-weight: 600;
+        font-size: 28px;
+        line-height: 1.1;
+        letter-spacing: -0.025em;
+        color: var(--o-fg);
+    }
+    @media (min-width: 640px) {
+        .o-page-title {
+            font-size: 36px;
+        }
+    }
+    .o-page-sub {
+        color: var(--o-fg-mid);
+        font-size: 14px;
+        line-height: 1.55;
+    }
+    @media (min-width: 640px) {
+        .o-page-sub {
+            font-size: 14.5px;
+        }
+    }
+
+    /* Numeric display — used for KPIs, envelope amounts */
+    .o-num-xl {
+        font-weight: 600;
+        font-size: 28px;
+        line-height: 1.15;
+        letter-spacing: -0.02em;
+        color: var(--o-fg);
+    }
+    .o-num-lg {
+        font-weight: 600;
+        font-size: 20px;
+        line-height: 1.15;
+        letter-spacing: -0.015em;
+        color: var(--o-fg);
+    }
+
+    /* Todo row — home page "what to act on" list. Mobile: drop the right
+       arrow column so the amount has room; reduce horizontal padding. */
+    .o-todo-row {
+        display: grid;
+        grid-template-columns: 24px 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 14px 14px;
+        border-bottom: 1px solid var(--o-line);
+        border-left: 3px solid var(--o-todo-hue, transparent);
+        transition: background 0.12s;
+    }
+    @media (min-width: 640px) {
+        .o-todo-row {
+            grid-template-columns: 28px 1fr auto auto;
+            gap: 16px;
+            padding: 16px 20px;
+        }
+    }
+    .o-todo-row__trail {
+        display: none;
+    }
+    @media (min-width: 640px) {
+        .o-todo-row__trail {
+            display: inline-flex;
+        }
+    }
+    .o-todo-row:hover {
+        background: var(--o-bg-2);
+    }
+    .o-todo-row:last-child {
+        border-bottom: 0;
+    }
+    .o-todo-row--bad {
+        --o-todo-hue: var(--o-bad);
+    }
+    .o-todo-row--warn {
+        --o-todo-hue: var(--o-warn);
+    }
+    .o-todo-row--info {
+        --o-todo-hue: var(--o-info);
+    }
+    .o-todo-row--plan {
+        --o-todo-hue: var(--o-plan);
+    }
+    .o-todo-row--good {
+        --o-todo-hue: var(--o-emerald);
+    }
+    .o-todo-row__ic {
+        width: 28px;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: color-mix(in oklch, var(--o-todo-hue) 18%, var(--o-bg-2));
+        color: var(--o-todo-hue);
+        font-weight: 600;
+    }
+    .o-todo-row__amount {
+        font-weight: 600;
+        font-size: 17px;
+        letter-spacing: -0.01em;
+        color: var(--o-todo-hue);
+        min-width: 80px;
+        text-align: right;
+    }
+
+    /* Topbar space chip */
+    .o-space-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--o-line);
+        background: var(--o-bg-1);
+        transition: background 0.15s;
+    }
+    .o-space-chip:hover {
+        background: var(--o-bg-2);
+    }
+    .o-space-chip__dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 2px;
+    }
+    .o-space-chip__name {
+        font-size: 12.5px;
+        color: var(--o-fg);
+        font-weight: 500;
+        line-height: 1.1;
+    }
+    .o-space-chip__role {
+        font-size: 10px;
+        color: var(--o-fg-dim);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        line-height: 1.1;
+    }
+
+    /* Rail — collapsible grouped icon sidebar */
+    .o-rail {
+        display: flex;
+        flex-direction: column;
+        padding: 16px 10px 10px;
+        background: color-mix(in oklch, var(--o-bg-0) 92%, black);
+        border-right: 1px solid var(--o-line);
+        overflow-y: auto;
+    }
+    .o-rail__section {
+        font-size: 10px;
+        color: var(--o-fg-faint);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        padding: 14px 12px 6px;
+        font-weight: 500;
+    }
+    .o-rail__item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-radius: 8px;
+        color: var(--o-fg-mid);
+        font-size: 13.5px;
+        background: transparent;
+        border: 0;
+        width: 100%;
+        text-align: left;
+        transition:
+            background 0.12s,
+            color 0.12s;
+    }
+    .o-rail__item:hover {
+        background: var(--o-bg-2);
+        color: var(--o-fg);
+    }
+    .o-rail__item.is-active {
+        background: color-mix(in oklch, var(--o-emerald) 12%, var(--o-bg-1));
+        color: var(--o-fg);
+    }
+    .o-rail__item.is-active svg {
+        color: var(--o-emerald);
+    }
+    .o-rail--compact .o-rail__item {
+        justify-content: center;
+        padding: 10px;
+    }
+    .o-rail--compact .o-rail__item span,
+    .o-rail--compact .o-rail__section {
+        display: none;
+    }
+
+    /* Detail head — gradient-tinted hero for account / envelope / plan detail.
+       Stacks vertically on mobile so actions don't get squashed. */
+    .o-detail-head {
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 14px;
+        padding: 18px;
+        border: 1px solid var(--o-line);
+        border-radius: 14px;
+        background:
+            linear-gradient(
+                90deg,
+                color-mix(in oklch, var(--o-dh-hue, var(--o-emerald)) 9%, transparent),
+                transparent 60%
+            ),
+            var(--o-bg-1);
+    }
+    @media (min-width: 640px) {
+        .o-detail-head {
+            flex-direction: row;
+            align-items: center;
+            gap: 20px;
+            padding: 22px 24px;
+        }
+    }
+    .o-detail-head--info {
+        --o-dh-hue: var(--o-info);
+    }
+    .o-detail-head--warn {
+        --o-dh-hue: var(--o-warn);
+    }
+    .o-detail-head--bad {
+        --o-dh-hue: var(--o-bad);
+    }
+    .o-detail-head--plan {
+        --o-dh-hue: var(--o-plan);
+    }
+    .o-detail-head--emerald {
+        --o-dh-hue: var(--o-emerald);
+    }
+    .o-detail-head__ic {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 56px;
+        height: 56px;
+        border-radius: 14px;
+        background: color-mix(in oklch, var(--o-dh-hue, var(--o-emerald)) 18%, var(--o-bg-2));
+        color: var(--o-dh-hue, var(--o-emerald));
+        box-shadow: inset 0 0 0 1px
+            color-mix(in oklch, var(--o-dh-hue, var(--o-emerald)) 25%, transparent);
+        flex-shrink: 0;
+    }
+    .o-detail-head__title {
+        font-weight: 600;
+        font-size: 22px;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+        margin-bottom: 6px;
+        color: var(--o-fg);
+    }
+    @media (min-width: 640px) {
+        .o-detail-head__title {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+    }
+    .o-detail-head__sub {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        font-size: 12.5px;
+        color: var(--o-fg-dim);
+        flex-wrap: wrap;
+    }
+
+    /* Priority chip — nested-category leaves use these to show priority */
+    .o-pri-chip {
+        display: inline-flex;
+        align-items: center;
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 2px 6px;
+        border-radius: 3px;
+        color: var(--o-pri, var(--o-fg-dim));
+        background: color-mix(in oklch, var(--o-pri, var(--o-fg-dim)) 14%, transparent);
+        border: 1px solid color-mix(in oklch, var(--o-pri, var(--o-fg-dim)) 30%, transparent);
+        font-weight: 500;
+        white-space: nowrap;
+    }
+    .o-pri-chip--essential {
+        --o-pri: var(--o-pri-essential);
+    }
+    .o-pri-chip--important {
+        --o-pri: var(--o-pri-important);
+    }
+    .o-pri-chip--discretionary {
+        --o-pri: var(--o-pri-discretionary);
+    }
+    .o-pri-chip--luxury {
+        --o-pri: var(--o-pri-luxury);
+    }
+
+    /* Plan card — grid card with left hue stripe */
+    .o-plan-card {
+        background: var(--o-bg-1);
+        border: 1px solid var(--o-line);
+        border-radius: 14px;
+        padding: 18px;
+        transition:
+            border-color 0.12s,
+            transform 0.12s;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        position: relative;
+        overflow: hidden;
+    }
+    .o-plan-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--o-plan-hue, var(--o-emerald));
+    }
+    .o-plan-card:hover {
+        border-color: var(--o-fg-faint);
+    }
+
+    /* Chip tones — used across pages for status/labels */
+    .o-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 10.5px;
+        line-height: 1.5;
+        color: var(--o-fg-mid);
+        background: var(--o-bg-2);
+        border: 1px solid var(--o-line);
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        text-transform: uppercase;
+    }
+    .o-chip--good {
+        color: var(--o-emerald);
+        background: color-mix(in oklch, var(--o-emerald) 10%, transparent);
+        border-color: color-mix(in oklch, var(--o-emerald) 25%, var(--o-line));
+    }
+    .o-chip--bad {
+        color: var(--o-bad);
+        background: color-mix(in oklch, var(--o-bad) 10%, transparent);
+        border-color: color-mix(in oklch, var(--o-bad) 25%, var(--o-line));
+    }
+    .o-chip--warn {
+        color: var(--o-warn);
+        background: color-mix(in oklch, var(--o-warn) 10%, transparent);
+        border-color: color-mix(in oklch, var(--o-warn) 25%, var(--o-line));
+    }
+    .o-chip--info {
+        color: var(--o-info);
+        background: color-mix(in oklch, var(--o-info) 10%, transparent);
+        border-color: color-mix(in oklch, var(--o-info) 25%, var(--o-line));
+    }
+    .o-chip--plan {
+        color: var(--o-plan);
+        background: color-mix(in oklch, var(--o-plan) 10%, transparent);
+        border-color: color-mix(in oklch, var(--o-plan) 25%, var(--o-line));
+    }
+
+    /* Brand mark — radial-gradient emerald chip used on auth / onboarding */
+    .o-brand-mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(
+            circle at 30% 30%,
+            color-mix(in oklch, var(--o-emerald) 75%, white),
+            var(--o-emerald)
+        );
+        color: oklch(0.20 0.02 180);
+        font-size: 20px;
+        font-weight: 600;
+        box-shadow:
+            inset 0 0 0 1px color-mix(in oklch, var(--o-emerald) 40%, white),
+            0 4px 20px -8px color-mix(in oklch, var(--o-emerald) 80%, transparent);
+    }
+
+    /* Toast — Sonner skin tied to Orbit tokens */
+    .o-toast[data-sonner-toast] {
+        background: var(--o-bg-1) !important;
+        color: var(--o-fg) !important;
+        border: 1px solid var(--o-line) !important;
+        border-radius: 12px !important;
+        padding: 14px 16px !important;
+        font-size: 13.5px !important;
+        font-family: var(--font-sans) !important;
+        box-shadow:
+            0 1px 0 rgba(255, 255, 255, 0.02) inset,
+            0 14px 40px -14px rgba(0, 0, 0, 0.55) !important;
+        gap: 12px !important;
+    }
+    .o-toast[data-sonner-toast][data-type="success"] {
+        border-color: color-mix(in oklch, var(--o-emerald) 30%, var(--o-line)) !important;
+        background: linear-gradient(
+                90deg,
+                color-mix(in oklch, var(--o-emerald) 9%, transparent),
+                transparent 60%
+            ),
+            var(--o-bg-1) !important;
+    }
+    .o-toast[data-sonner-toast][data-type="error"] {
+        border-color: color-mix(in oklch, var(--o-bad) 30%, var(--o-line)) !important;
+        background: linear-gradient(
+                90deg,
+                color-mix(in oklch, var(--o-bad) 9%, transparent),
+                transparent 60%
+            ),
+            var(--o-bg-1) !important;
+    }
+    .o-toast[data-sonner-toast][data-type="warning"] {
+        border-color: color-mix(in oklch, var(--o-warn) 30%, var(--o-line)) !important;
+        background: linear-gradient(
+                90deg,
+                color-mix(in oklch, var(--o-warn) 9%, transparent),
+                transparent 60%
+            ),
+            var(--o-bg-1) !important;
+    }
+    .o-toast[data-sonner-toast][data-type="info"] {
+        border-color: color-mix(in oklch, var(--o-info) 30%, var(--o-line)) !important;
+        background: linear-gradient(
+                90deg,
+                color-mix(in oklch, var(--o-info) 9%, transparent),
+                transparent 60%
+            ),
+            var(--o-bg-1) !important;
+    }
+    .o-toast [data-title] {
+        font-weight: 500 !important;
+        letter-spacing: -0.005em !important;
+    }
+    .o-toast__desc {
+        color: var(--o-fg-dim) !important;
+        font-size: 12.5px !important;
+        line-height: 1.5 !important;
+        margin-top: 2px !important;
+    }
+    /* Color the leading icon by toast type */
+    .o-toast[data-sonner-toast][data-type="success"] [data-icon] {
+        color: var(--o-emerald) !important;
+    }
+    .o-toast[data-sonner-toast][data-type="error"] [data-icon] {
+        color: var(--o-bad) !important;
+    }
+    .o-toast[data-sonner-toast][data-type="warning"] [data-icon] {
+        color: var(--o-warn) !important;
+    }
+    .o-toast[data-sonner-toast][data-type="info"] [data-icon] {
+        color: var(--o-info) !important;
+    }
+    .o-toast__action {
+        background: var(--o-emerald) !important;
+        color: oklch(0.20 0.02 180) !important;
+        border-radius: 6px !important;
+        padding: 6px 10px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+    }
+    .o-toast__cancel {
+        background: var(--o-bg-2) !important;
+        color: var(--o-fg-mid) !important;
+        border: 1px solid var(--o-line) !important;
+        border-radius: 6px !important;
+        padding: 6px 10px !important;
+        font-size: 12px !important;
+    }
+
+    /* =====================================================================
+       Tier 1/2/3 additions — the richer components we hadn't applied yet.
+       ===================================================================== */
+
+    /* Amount input — large display-weight numeric field.
+       Orbit is currency-agnostic per space, so this does NOT render a
+       currency symbol — just the big number.  The containing dialog
+       owns labelling. */
+    .o-amount {
+        display: flex;
+        align-items: stretch;
+        width: 100%;
+    }
+    .o-amount__input {
+        flex: 1;
+        min-width: 0;
+        width: 100%;
+        padding: 14px 16px;
+        background: var(--o-bg-1);
+        border: 1px solid var(--o-line);
+        border-radius: 7px;
+        color: var(--o-fg);
+        font-family: var(--font-sans);
+        font-weight: 500;
+        font-size: 28px;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        outline: none;
+        text-align: right;
+        transition: border-color 0.15s;
+        font-variant-numeric: tabular-nums;
+    }
+    @media (min-width: 640px) {
+        .o-amount__input {
+            font-size: 36px;
+        }
+    }
+    .o-amount__input:focus {
+        border-color: var(--o-emerald);
+    }
+    .o-amount__input::-webkit-inner-spin-button,
+    .o-amount__input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    /* Segmented control — compact pill-in-pill toggle.
+       Usage: <div class="o-segmented"><button class="is-active">…</button>…</div> */
+    .o-segmented {
+        display: inline-flex;
+        background: var(--o-bg-1);
+        border: 1px solid var(--o-line);
+        border-radius: 8px;
+        padding: 2px;
+        gap: 2px;
+    }
+    .o-segmented > button {
+        padding: 5px 12px;
+        font-size: 12px;
+        color: var(--o-fg-dim);
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.12s;
+        font-family: inherit;
+    }
+    .o-segmented > button:hover {
+        color: var(--o-fg);
+    }
+    .o-segmented > button.is-active,
+    .o-segmented > button[aria-selected="true"],
+    .o-segmented > button[data-state="active"] {
+        background: var(--o-bg-3);
+        color: var(--o-fg);
+    }
+
+    /* Striped placeholder — crafted empty-state backdrop.  Used on skeleton
+       blocks, unimplemented widgets, empty chart frames. */
+    .o-striped {
+        background-image: repeating-linear-gradient(
+            45deg,
+            transparent,
+            transparent 8px,
+            color-mix(in oklch, var(--o-fg-faint) 10%, transparent) 8px,
+            color-mix(in oklch, var(--o-fg-faint) 10%, transparent) 9px
+        );
+        background-color: var(--o-bg-2);
+        border: 1px dashed var(--o-line);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--o-fg-faint);
+        font-family: var(--font-mono);
+        font-size: 11px;
+        border-radius: 8px;
+    }
+
+    /* Radial emerald glow — depth utility for hero surfaces.
+       Apply to a container to get the auth/brand glow effect. */
+    .o-radial-emerald {
+        background: radial-gradient(
+            ellipse at 70% 30%,
+            color-mix(in oklch, var(--o-emerald) 15%, var(--o-bg-0)),
+            var(--o-bg-0) 70%
+        );
+    }
+
+    /* CSS conic-gradient donut — lightweight replacement for recharts donuts.
+       Set `--o-donut-slices` to the conic-gradient color-stop string and
+       optional `--o-donut-size` / `--o-donut-track` to resize / change ring
+       thickness. */
+    .o-donut {
+        width: var(--o-donut-size, 180px);
+        height: var(--o-donut-size, 180px);
+        border-radius: 50%;
+        background: conic-gradient(var(--o-donut-slices));
+        position: relative;
+        flex-shrink: 0;
+    }
+    .o-donut::before {
+        content: "";
+        position: absolute;
+        inset: var(--o-donut-track, 22px);
+        border-radius: 50%;
+        background: var(--o-bg-1);
+    }
+    .o-donut__center {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        pointer-events: none;
+    }
+
+    /* Bar with explicit over-state.  When spent > allocated, render two
+       segments: emerald up to 100% of the allocation, red for the overage. */
+    .o-bar {
+        height: 6px;
+        width: 100%;
+        background: var(--o-bg-3);
+        border-radius: 3px;
+        overflow: hidden;
+        display: flex;
+    }
+    .o-bar--lg {
+        height: 10px;
+        border-radius: 5px;
+    }
+    .o-bar__fill {
+        height: 100%;
+        border-radius: inherit;
+        transition: width 0.3s;
+    }
+    .o-bar__fill--good {
+        background: var(--o-emerald);
+    }
+    .o-bar__fill--over {
+        background: var(--o-bad);
+    }
+
+    /* Ledger table — applied to a standard <table> via .o-ledger wrapper.
+       Uppercase 10.5px tracked column headers, mono tabular numerals on
+       any <td> or <th> with .o-td-num.  Row hover is very subtle. */
+    .o-ledger {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .o-ledger th {
+        text-align: left;
+        padding: 12px 16px;
+        font-size: 10.5px;
+        color: var(--o-fg-dim);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        font-weight: 500;
+        border-bottom: 1px solid var(--o-line);
+        background: var(--o-bg-1);
+    }
+    .o-ledger td {
+        padding: 14px 16px;
+        font-size: 13.5px;
+        border-bottom: 1px solid var(--o-line);
+        color: var(--o-fg-mid);
+        vertical-align: middle;
+    }
+    .o-ledger tr:last-child td {
+        border-bottom: 0;
+    }
+    .o-ledger tr:hover td {
+        background: var(--o-bg-2);
+    }
+    .o-td-num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        font-family: var(--font-mono);
+    }
+
 }

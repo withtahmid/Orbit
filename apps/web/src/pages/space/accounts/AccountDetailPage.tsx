@@ -10,6 +10,8 @@ import {
     UserPlus,
     Target,
     Mail,
+    Wallet as WalletIcon,
+    Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useMemo, useState } from "react";
@@ -37,7 +39,7 @@ import {
     type Bucket,
     type BucketSelection,
 } from "@/lib/chartBucket";
-import { PageHeader } from "@/components/shared/PageHeader";
+import { DetailHead } from "@/components/shared/DetailHead";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -144,16 +146,34 @@ export default function AccountDetailPage() {
                     All accounts
                 </Link>
             </Button>
-            <PageHeader
+            <DetailHead
+                hue={
+                    account.account_type === "liability"
+                        ? "bad"
+                        : account.account_type === "locked"
+                          ? "plan"
+                          : "emerald"
+                }
+                iconColor={account.color}
+                icon={
+                    account.account_type === "liability" ? (
+                        <TrendingDown className="size-6" />
+                    ) : account.account_type === "locked" ? (
+                        <Lock className="size-6" />
+                    ) : (
+                        <WalletIcon className="size-6" />
+                    )
+                }
                 title={account.name}
-                description={
-                    <span className="flex items-center gap-2">
+                sub={
+                    <>
                         <AccountTypeBadge type={account.account_type} />
-                        <span className="text-sm text-muted-foreground">
-                            Current balance:
-                        </span>
-                        <MoneyDisplay amount={account.balance} className="text-sm" />
-                    </span>
+                        <span>Current balance</span>
+                        <MoneyDisplay
+                            amount={account.balance}
+                            className="font-mono text-sm text-foreground"
+                        />
+                    </>
                 }
             />
 

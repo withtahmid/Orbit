@@ -11,7 +11,6 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -137,19 +136,24 @@ export function EnvelopeAllocateDialog({
                     }}
                 >
                     <div className="grid gap-1.5">
-                        <Label htmlFor="alloc-amount">Amount</Label>
-                        <Input
-                            id="alloc-amount"
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={amount}
-                            onChange={(e) => setAmount(e.target.value)}
-                            placeholder="0.00"
-                            autoFocus
-                            required
-                        />
+                        <Label htmlFor="alloc-amount" className="o-eyebrow">
+                            Amount
+                        </Label>
+                        <div className="o-amount">
+                            <input
+                                id="alloc-amount"
+                                type="number"
+                                inputMode="decimal"
+                                min="0"
+                                step="0.01"
+                                value={amount}
+                                onChange={(e) => setAmount(e.target.value)}
+                                placeholder="0.00"
+                                autoFocus
+                                required
+                                className="o-amount__input"
+                            />
+                        </div>
                     </div>
                     <div className="grid gap-1.5">
                         <Label>From account</Label>

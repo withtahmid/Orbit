@@ -4,27 +4,31 @@ export function PageHeader({
     title,
     description,
     actions,
+    eyebrow,
     className,
 }: {
     title: string;
     description?: React.ReactNode;
+    /** Small all-caps label rendered above the title (e.g. "Family Budget"). */
+    eyebrow?: React.ReactNode;
     actions?: React.ReactNode;
     className?: string;
 }) {
     return (
         <div
             className={cn(
-                "flex flex-col gap-4 border-b border-border/60 pb-5 md:flex-row md:items-center md:justify-between",
+                "flex flex-col gap-4 pb-6 md:flex-row md:items-start md:justify-between",
                 className
             )}
         >
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{title}</h1>
+            <div className="max-w-3xl">
+                {eyebrow && <p className="o-eyebrow mb-2">{eyebrow}</p>}
+                <h1 className="o-page-title">{title}</h1>
                 {description && (
-                    <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+                    <p className="o-page-sub mt-3 max-w-160">{description}</p>
                 )}
             </div>
-            {actions && <div className="flex items-center gap-2">{actions}</div>}
+            {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </div>
     );
 }

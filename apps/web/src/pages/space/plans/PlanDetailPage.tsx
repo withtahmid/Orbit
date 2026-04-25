@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { PageHeader } from "@/components/shared/PageHeader";
+import { DetailHead } from "@/components/shared/DetailHead";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -61,17 +61,24 @@ export default function PlanDetailPage() {
                     All plans
                 </Link>
             </Button>
-            <PageHeader
-                title={plan?.name ?? "Plan"}
-                description={
-                    plan ? (
-                        <span className="flex items-center gap-2">
-                            <EntityAvatar color={plan.color} icon={plan.icon} size="sm" />
-                            {plan.description ?? "Long-term goal progress"}
-                        </span>
-                    ) : null
-                }
-            />
+            {plan ? (
+                <DetailHead
+                    hue="plan"
+                    iconColor={plan.color}
+                    icon={
+                        <EntityAvatar color={plan.color} icon={plan.icon} size="md" />
+                    }
+                    title={plan.name}
+                    sub={
+                        <>
+                            <span className="o-chip o-chip--plan">Plan</span>
+                            {plan.description && <span>{plan.description}</span>}
+                        </>
+                    }
+                />
+            ) : (
+                <div className="text-2xl font-semibold">Plan</div>
+            )}
 
             {plan && (
                 <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
