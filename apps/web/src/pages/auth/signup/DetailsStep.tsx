@@ -1,14 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { observer } from "mobx-react-lite";
-import { Loader2, User } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { trpc } from "@/trpc";
 import { useStore } from "@/stores/useStore";
 import { ROUTES } from "@/router/routes";
+import { ArrowRight } from "@/pages/auth/AuthShell";
 
 export const DetailsStep = observer(function DetailsStep() {
     const { signupStore, authStore } = useStore();
@@ -58,77 +55,84 @@ export const DetailsStep = observer(function DetailsStep() {
     };
 
     return (
-        <div className="grid gap-5 py-2">
-            <div className="text-center">
-                <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-brand-gradient-to/20 text-primary">
-                    <User className="size-6" />
+        <form
+            onSubmit={onSubmit}
+            style={{ display: "flex", flexDirection: "column", gap: 28 }}
+        >
+            <div className="oa-fields" style={{ gap: 14 }}>
+                <div className="oa-row-2">
+                    <label className="oa-field">
+                        <span className="oa-field-label">First name</span>
+                        <span className="oa-field-input-wrap">
+                            <input
+                                className="od-input"
+                                required
+                                autoFocus
+                                placeholder="Jane"
+                                value={firstName}
+                                onChange={(e) => setFirstName(e.target.value)}
+                            />
+                        </span>
+                    </label>
+                    <label className="oa-field">
+                        <span className="oa-field-label">Last name</span>
+                        <span className="oa-field-input-wrap">
+                            <input
+                                className="od-input"
+                                required
+                                placeholder="Doe"
+                                value={lastName}
+                                onChange={(e) => setLastName(e.target.value)}
+                            />
+                        </span>
+                    </label>
                 </div>
-                <h2 className="mt-4 text-xl font-bold">Almost there</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                    Tell us a bit about you and choose a password
-                </p>
+
+                <label className="oa-field">
+                    <div className="oa-field-header">
+                        <span className="oa-field-label">Password</span>
+                        <span className="oa-field-hint">
+                            At least 8 characters.
+                        </span>
+                    </div>
+                    <span className="oa-field-input-wrap">
+                        <input
+                            className="od-input"
+                            type="password"
+                            required
+                            minLength={8}
+                            placeholder="••••••••••"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                        />
+                    </span>
+                </label>
+
+                <label className="oa-field">
+                    <span className="oa-field-label">Confirm password</span>
+                    <span className="oa-field-input-wrap">
+                        <input
+                            className="od-input"
+                            type="password"
+                            required
+                            minLength={8}
+                            placeholder="••••••••••"
+                            value={confirmPassword}
+                            onChange={(e) => setConfirmPassword(e.target.value)}
+                        />
+                    </span>
+                </label>
             </div>
-            <form onSubmit={onSubmit} className="grid gap-4">
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="grid gap-2">
-                        <Label htmlFor="first">First name</Label>
-                        <Input
-                            id="first"
-                            required
-                            value={firstName}
-                            onChange={(e) => setFirstName(e.target.value)}
-                            placeholder="Jane"
-                        />
-                    </div>
-                    <div className="grid gap-2">
-                        <Label htmlFor="last">Last name</Label>
-                        <Input
-                            id="last"
-                            required
-                            value={lastName}
-                            onChange={(e) => setLastName(e.target.value)}
-                            placeholder="Doe"
-                        />
-                    </div>
-                </div>
-                <div className="grid gap-2">
-                    <Label htmlFor="pw">Password</Label>
-                    <Input
-                        id="pw"
-                        type="password"
-                        required
-                        minLength={8}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="At least 8 characters"
-                    />
-                </div>
-                <div className="grid gap-2">
-                    <Label htmlFor="pwc">Confirm password</Label>
-                    <Input
-                        id="pwc"
-                        type="password"
-                        required
-                        minLength={8}
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                    />
-                </div>
-                <Button
-                    type="submit"
-                    variant="gradient"
-                    disabled={complete.isPending}
-                >
-                    {complete.isPending ? (
-                        <>
-                            <Loader2 className="animate-spin" />
-                            Creating your account…
-                        </>
-                    ) : (
-                        "Create account"
-                    )}
-                </Button>
-            </form>
-        </div>
+
+            <button
+                type="submit"
+                className="od-btn od-btn-primary od-btn-lg"
+                style={{ width: "100%", justifyContent: "center" }}
+                disabled={complete.isPending}
+            >
+                {complete.isPending ? "Creating account…" : "Create account"}
+                <ArrowRight size={14} color="var(--brand-fg)" />
+            </button>
+        </form>
     );
 });

@@ -7,6 +7,7 @@ import { personalCategoryBreakdown } from "../procedures/personal/categoryBreakd
 import { personalEnvelopeUtilization } from "../procedures/personal/envelopeUtilization.mjs";
 import { personalListCategories } from "../procedures/personal/listCategories.mjs";
 import { personalPlanProgress } from "../procedures/personal/planProgress.mjs";
+import { personalSpaceBreakdown } from "../procedures/personal/spaceBreakdown.mjs";
 import { personalSpendingHeatmap } from "../procedures/personal/spendingHeatmap.mjs";
 import { personalSummary } from "../procedures/personal/summary.mjs";
 import { personalTopCategories } from "../procedures/personal/topCategories.mjs";
@@ -35,4 +36,5 @@ export const personalRouter = router({
     transactions: personalTransactions,
     ownedAccounts: personalOwnedAccounts,
     listCategories: personalListCategories,
+    spaceBreakdown: personalSpaceBreakdown,
 });

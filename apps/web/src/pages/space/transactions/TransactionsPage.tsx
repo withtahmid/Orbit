@@ -1,52 +1,38 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { useSearchParams } from "react-router-dom";
+import { useMemo, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
-    ArrowLeftRight,
-    Filter,
-    Loader2,
+    Plus,
     Search,
-    Trash2,
     X,
+    Filter as FilterIcon,
+    ChevronDown,
+    Trash2,
+    Wallet,
+    Folder,
+    Calendar as CalendarIcon,
+    FileText,
+    ArrowDown,
+    ArrowUp,
+    ArrowRightLeft,
+    Edit3,
+    Loader2,
+    Check,
 } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
 import { toast } from "sonner";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { PermissionGate } from "@/components/shared/PermissionGate";
-import { Card } from "@/components/ui/card";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+    OrbitFormStyles,
+    OrbitInput,
+    OrbitSelect,
+    OrbitFieldRow,
+} from "@/components/orbit/OrbitForm";
+import { OrbitField } from "@/components/orbit/OrbitModalShell";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-import {
-    Sheet,
-    SheetContent,
-    SheetHeader,
-    SheetTitle,
-    SheetTrigger,
-} from "@/components/ui/sheet";
-import { EmptyState } from "@/components/shared/EmptyState";
-import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
-import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
-import { EntityAvatar } from "@/components/shared/EntityAvatar";
-import { UserAvatar } from "@/components/shared/UserAvatar";
-import { PeriodSelector } from "@/components/shared/PeriodSelector";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
+import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+import { PermissionGate } from "@/components/shared/PermissionGate";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { usePeriod } from "@/hooks/usePeriod";
@@ -56,16 +42,32 @@ import { EditTransactionSheet } from "@/features/transactions/EditTransactionShe
 import { TransactionDetailsSheet } from "@/features/transactions/TransactionDetailsSheet";
 import { ROUTES } from "@/router/routes";
 import { useStore } from "@/stores/useStore";
-import { colorTint, UNALLOCATED_COLOR } from "@/lib/entityStyle";
-import { cn } from "@/lib/utils";
+import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
 type TxType = "income" | "expense" | "transfer" | "adjustment";
+
+const TYPE_OPTIONS: Array<{ value: TxType | null; label: string }> = [
+    { value: null, label: "All" },
+    { value: "income", label: "Income" },
+    { value: "expense", label: "Expense" },
+    { value: "transfer", label: "Transfer" },
+    { value: "adjustment", label: "Adjustment" },
+];
+
+const PERIOD_PRESETS: Array<{ value: string; label: string }> = [
+    { value: "this-month", label: "This month" },
+    { value: "last-month", label: "Last month" },
+    { value: "last-3-months", label: "Last 3 months" },
+    { value: "last-12-months", label: "Last 12 months" },
+    { value: "this-year", label: "This year" },
+    { value: "all-time", label: "All time" },
+];
 
 export default function TransactionsPage() {
     const { space } = useCurrentSpace();
     const isPersonal = space.isPersonal;
     const { authStore } = useStore();
-    const { period } = usePeriod("this-month");
+    const { period, preset, setPreset, setCustom } = usePeriod("this-month");
 
     const [params, setParams] = useSearchParams();
     const setParam = (key: string, v: string | null) =>
@@ -89,10 +91,6 @@ export default function TransactionsPage() {
     const amountMax = params.get("max");
     const search = useDebouncedValue(searchRaw, 300);
 
-    // Accounts / categories have parallel real-space and personal
-    // queries. Events and members are space-scoped concepts; their
-    // filters are hidden in the virtual space (no single space to
-    // enumerate events or members of).
     const accountsSpaceQuery = trpc.account.listBySpace.useQuery(
         { spaceId: space.id },
         { enabled: !isPersonal }
@@ -126,10 +124,6 @@ export default function TransactionsPage() {
         : categoriesSpaceQuery.data ?? [];
 
     const eventsQuery = trpc.event.listBySpace.useQuery(
-        { spaceId: space.id },
-        { enabled: !isPersonal }
-    );
-    const membersQuery = trpc.space.memberList.useQuery(
         { spaceId: space.id },
         { enabled: !isPersonal }
     );
@@ -221,11 +215,52 @@ export default function TransactionsPage() {
         amountMax,
     ].filter(Boolean).length;
 
+    const items = listQuery.data?.items ?? [];
+
+    /* IN/OUT/NET/AVG-DAY summary computed from the visible page items.
+       TODO(api): a dedicated filtered-totals procedure would let this
+       reflect the *full* filtered set, not just the current page. */
+    const summary = useMemo(() => {
+        let inTotal = 0;
+        let outTotal = 0;
+        for (const t of items) {
+            const amt = Number(t.amount);
+            const tt = (t.type as unknown as string) ?? "expense";
+            if (tt === "income") inTotal += amt;
+            else if (tt === "expense") outTotal += amt;
+        }
+        const net = inTotal - outTotal;
+        const days = Math.max(
+            1,
+            Math.round(
+                (period.end.getTime() - period.start.getTime()) / (1000 * 60 * 60 * 24)
+            )
+        );
+        const avg = outTotal / days;
+        return { inTotal, outTotal, net, avg };
+    }, [items, period.start, period.end]);
+
+    const periodLabel = useMemo(() => {
+        if (preset === "this-month") return formatInAppTz(period.start, "MMMM yyyy");
+        if (preset === "last-month") return formatInAppTz(period.start, "MMMM yyyy");
+        if (preset === "this-year") return formatInAppTz(period.start, "yyyy");
+        if (preset === "all-time") return "All time";
+        const found = PERIOD_PRESETS.find((p) => p.value === preset);
+        if (found) return found.label;
+        return `${formatInAppTz(period.start, "MMM d")} → ${formatInAppTz(period.end, "MMM d, yyyy")}`;
+    }, [preset, period.start, period.end]);
+
+    const periodChipLabel = useMemo(() => {
+        const found = PERIOD_PRESETS.find((p) => p.value === preset);
+        if (found) return found.label;
+        /* Custom range — show the dates compactly. */
+        return `${formatInAppTz(period.start, "MMM d")} → ${formatInAppTz(period.end, "MMM d")}`;
+    }, [preset, period.start, period.end]);
+
     const resetFilters = () => {
         setParams(
             (p) => {
                 const next = new URLSearchParams();
-                // keep period if present
                 const period = p.get("period");
                 const from = p.get("from");
                 const to = p.get("to");
@@ -239,37 +274,187 @@ export default function TransactionsPage() {
         setPageCursors([null]);
     };
 
-    return (
-        <div className="grid gap-5 sm:gap-6">
-            <PageHeader
-                title="Transactions"
-                description={
-                    isPersonal
-                        ? "Every transaction that touched an account you own, across every space you're in"
-                        : "All money movement in this space"
-                }
-                actions={
-                    <PermissionGate roles={["owner", "editor"]}>
-                        <NewTransactionSheet />
-                    </PermissionGate>
-                }
-            />
+    /* Active filter chips (for the row beneath the filter dropdowns). */
+    const activeChips: Array<{ key: string; label: string; color?: string; icon?: string; onRemove: () => void }> = [];
+    if (type) {
+        activeChips.push({
+            key: "type",
+            label: TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type,
+            onRemove: () => setParam("type", null),
+        });
+    }
+    if (accountId) {
+        const a = accountsById.get(accountId);
+        activeChips.push({
+            key: "account",
+            label: a?.name ?? "Account",
+            color: a?.color,
+            icon: a?.icon,
+            onRemove: () => setParam("account", null),
+        });
+    }
+    if (categoryId) {
+        const c = categoriesById.get(categoryId);
+        activeChips.push({
+            key: "category",
+            label: c?.name ?? "Category",
+            color: c?.color,
+            icon: c?.icon,
+            onRemove: () => setParam("category", null),
+        });
+    }
+    if (eventId) {
+        const ev = eventsById.get(eventId);
+        activeChips.push({
+            key: "event",
+            label: ev?.name ?? "Event",
+            color: ev?.color,
+            onRemove: () => setParam("event", null),
+        });
+    }
 
-            {/* Filter bar */}
-            <Card className="p-3 sm:p-4">
-                <div className="grid gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <div className="relative flex-1 min-w-[12rem]">
-                            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
+    return (
+        <div className="orbit-design tx-root">
+            <style>{TX_STYLES}</style>
+
+            {/* Topbar */}
+            <header className="tx-topbar">
+                <div className="tx-topbar-text">
+                    <span className="eyebrow">
+                        {items.length} results · {periodLabel}
+                    </span>
+                    <h1 className="display tx-title">Transactions</h1>
+                    <p className="tx-sub">
+                        {isPersonal
+                            ? "Every transaction across the accounts you own."
+                            : "All money movement in this space."}
+                    </p>
+                </div>
+                <div className="tx-topbar-actions">
+                    <PeriodChip
+                        preset={preset}
+                        period={period}
+                        label={periodChipLabel}
+                        onPresetChange={setPreset}
+                        onCustomChange={setCustom}
+                    />
+                    <button type="button" className="od-btn">
+                        <FileText className="size-3.5" /> Export
+                    </button>
+                    <PermissionGate roles={["owner", "editor"]}>
+                        <NewTransactionSheet
+                            trigger={
+                                <button
+                                    type="button"
+                                    className="od-btn od-btn-primary"
+                                >
+                                    <Plus className="size-3.5" /> New transaction
+                                </button>
+                            }
+                        />
+                    </PermissionGate>
+                </div>
+            </header>
+
+            <div className="tx-scroll">
+                {/* Filter strip */}
+                <div className="od-card tx-filters">
+                    <div className="tx-filter-row1">
+                        <label className="tx-search">
+                            <Search
+                                className="size-3.5"
+                                style={{ color: "var(--fg-4)" }}
+                            />
+                            <input
+                                className="od-input tx-search-input"
+                                placeholder="Search description, location, or amount…"
                                 value={searchRaw}
                                 onChange={(e) => setParam("q", e.target.value)}
-                                placeholder="Search description or location"
-                                className="pl-8"
                             />
+                        </label>
+                        <PeriodChip
+                            preset={preset}
+                            period={period}
+                            label={periodChipLabel}
+                            onPresetChange={setPreset}
+                            onCustomChange={setCustom}
+                            icon={<CalendarIcon className="size-3.5" />}
+                        />
+                        <FilterChipPicker
+                            label={
+                                accountId
+                                    ? accountsById.get(accountId)?.name ?? "Account"
+                                    : "All accounts"
+                            }
+                            icon={<Wallet className="size-3.5" />}
+                            options={[
+                                { value: null, label: "All accounts" },
+                                ...accountsData.map((a) => ({
+                                    value: a.id,
+                                    label: a.name,
+                                })),
+                            ]}
+                            value={accountId}
+                            onChange={(v) => setParam("account", v)}
+                        />
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <button type="button" className="od-btn">
+                                    <Folder className="size-3.5" />
+                                    {categoryId
+                                        ? categoriesById.get(categoryId)?.name ??
+                                          "Category"
+                                        : "Any category"}
+                                </button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="orbit-design w-72 p-3">
+                                <CategoryTreeSelect
+                                    categories={categoriesData as any}
+                                    value={categoryId}
+                                    onChange={(id) => setParam("category", id)}
+                                />
+                            </PopoverContent>
+                        </Popover>
+                    </div>
+
+                    <div className="tx-filter-row2">
+                        <div className="tx-typebar">
+                            {TYPE_OPTIONS.map((o) => (
+                                <button
+                                    key={String(o.value)}
+                                    type="button"
+                                    className={`tx-typebar-cell ${type === o.value ? "is-active" : ""}`}
+                                    onClick={() => setParam("type", o.value)}
+                                >
+                                    {o.label}
+                                </button>
+                            ))}
                         </div>
-                        <PeriodSelector />
-                        <MobileFilters
+
+                        {activeChips.length > 0 && (
+                            <span className="tx-filter-divider" />
+                        )}
+                        {activeChips.map((c) => (
+                            <button
+                                key={c.key}
+                                type="button"
+                                onClick={c.onRemove}
+                                className="tx-active-chip"
+                                style={
+                                    c.color
+                                        ? {
+                                              background: `color-mix(in oklab, ${c.color} 12%, transparent)`,
+                                              borderColor: `color-mix(in oklab, ${c.color} 30%, transparent)`,
+                                              color: c.color,
+                                          }
+                                        : undefined
+                                }
+                            >
+                                {c.label}
+                                <X className="size-3" />
+                            </button>
+                        ))}
+                        <MoreFiltersSheet
                             type={type}
                             setType={(v) => setParam("type", v)}
                             accountId={accountId}
@@ -278,8 +463,6 @@ export default function TransactionsPage() {
                             setCategoryId={(v) => setParam("category", v)}
                             eventId={eventId}
                             setEventId={(v) => setParam("event", v)}
-                            userId={userId}
-                            setUserId={(v) => setParam("user", v)}
                             amountMin={amountMin}
                             setAmountMin={(v) => setParam("min", v)}
                             amountMax={amountMax}
@@ -287,340 +470,235 @@ export default function TransactionsPage() {
                             accounts={accountsData}
                             categories={categoriesData as any}
                             events={eventsQuery.data ?? []}
-                            members={membersQuery.data ?? []}
                             activeFilterCount={activeFilterCount}
                             hideEvents={isPersonal}
-                            hideMembers={isPersonal}
                         />
                         {activeFilterCount > 0 && (
-                            <Button size="sm" variant="ghost" onClick={resetFilters}>
-                                <X className="size-3.5" />
-                                Clear
-                            </Button>
-                        )}
-                    </div>
-                    {/* Desktop inline filters */}
-                    <div className="hidden flex-wrap items-center gap-2 md:flex">
-                        <TypeFilter value={type} onChange={(v) => setParam("type", v)} />
-                        <Select
-                            value={accountId ?? "all"}
-                            onValueChange={(v) => setParam("account", v === "all" ? null : v)}
-                        >
-                            <SelectTrigger className="w-44">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All accounts</SelectItem>
-                                {accountsData.map((a) => (
-                                    <SelectItem key={a.id} value={a.id}>
-                                        {a.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <div className="w-56">
-                            <CategoryTreeSelect
-                                categories={categoriesData as any}
-                                value={categoryId}
-                                onChange={(id) => setParam("category", id)}
-                                placeholder="Any category"
-                            />
-                        </div>
-                        {!isPersonal && (
-                            <Select
-                                value={eventId ?? "all"}
-                                onValueChange={(v) =>
-                                    setParam("event", v === "all" ? null : v)
-                                }
+                            <button
+                                type="button"
+                                className="od-btn od-btn-ghost od-btn-sm"
+                                style={{ color: "var(--fg-3)" }}
+                                onClick={resetFilters}
                             >
-                                <SelectTrigger className="w-44">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">Any event</SelectItem>
-                                    {(eventsQuery.data ?? []).map((e) => (
-                                        <SelectItem key={e.id} value={e.id}>
-                                            {e.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                <X className="size-3.5" /> Clear
+                            </button>
                         )}
+                        <span className="tx-filter-count">
+                            {items.length}
+                            {listQuery.data?.nextCursor ? "+" : ""} transactions
+                        </span>
                     </div>
                 </div>
-            </Card>
 
-            {/* Results */}
-            <Card className="p-0">
-                {listQuery.isLoading ? (
-                    <div className="flex items-center justify-center p-10">
-                        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                    </div>
-                ) : !listQuery.data || listQuery.data.items.length === 0 ? (
-                    <EmptyState
-                        icon={ArrowLeftRight}
-                        title="No transactions match"
-                        description={
-                            activeFilterCount > 0
-                                ? "Try clearing some filters."
-                                : "Create an income, expense, or transfer to get started."
-                        }
-                        action={
-                            activeFilterCount === 0 ? (
-                                <PermissionGate roles={["owner", "editor"]}>
-                                    <NewTransactionSheet />
-                                </PermissionGate>
-                            ) : null
-                        }
+                {/* Daily summary strip */}
+                <div className="od-card tx-summary">
+                    <SummaryCell
+                        label="In"
+                        amount={summary.inTotal}
+                        variant="income"
+                        signed
                     />
-                ) : (
-                    <>
-                        {/* Desktop table */}
-                        <div className="hidden md:block">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Date</TableHead>
-                                        <TableHead>Type</TableHead>
-                                        <TableHead>From / To</TableHead>
-                                        <TableHead>Category</TableHead>
-                                        <TableHead>Event</TableHead>
-                                        <TableHead>Description</TableHead>
-                                        <TableHead>Spent by</TableHead>
-                                        <TableHead className="text-right">Amount</TableHead>
-                                        <TableHead className="w-20" />
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {listQuery.data.items.map((t) => {
-                                        const tType = t.type as unknown as TxType;
-                                        const variant =
-                                            tType === "income"
-                                                ? "income"
-                                                : tType === "expense"
-                                                  ? "expense"
-                                                  : "transfer";
-                                        const cat = t.expense_category_id
-                                            ? categoriesById.get(t.expense_category_id)
-                                            : null;
-                                        const ev = t.event_id
-                                            ? eventsById.get(t.event_id)
-                                            : null;
-                                        const canDelete =
-                                            t.created_by === authStore.user?.id;
-                                        return (
-                                            <TableRow
-                                                key={t.id}
-                                                className="cursor-pointer"
-                                                onClick={() => setSelectedTx(t)}
-                                            >
-                                                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                                                    {formatInAppTz(
-                                                        t.transaction_datetime,
-                                                        "MMM d, HH:mm"
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>
-                                                    <TransactionTypeBadge type={tType} />
-                                                </TableCell>
-                                                <TableCell className="text-sm">
-                                                    <AccountFlow
-                                                        spaceId={
-                                                            // In the virtual space, the transaction
-                                                            // row carries its real home space; use
-                                                            // that for drill-down so the account
-                                                            // detail route resolves to a real space.
-                                                            (t as { space_id?: string })
-                                                                .space_id ?? space.id
-                                                        }
-                                                        from={t.source_account_id}
-                                                        to={t.destination_account_id}
-                                                        accountsById={accountsById}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="text-sm">
-                                                    {cat ? (
-                                                        <span className="inline-flex items-center gap-1.5">
-                                                            <EntityAvatar
-                                                                size="sm"
-                                                                color={cat.color}
-                                                                icon={cat.icon}
-                                                            />
-                                                            <span className="truncate">
-                                                                {cat.name}
-                                                            </span>
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-muted-foreground">
-                                                            —
-                                                        </span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-sm">
-                                                    {ev ? (
-                                                        <span
-                                                            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs"
-                                                            style={{
-                                                                backgroundColor: colorTint(
-                                                                    ev.color,
-                                                                    0.15
-                                                                ),
-                                                                color: ev.color,
-                                                            }}
-                                                        >
-                                                            {ev.name}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-muted-foreground">
-                                                            —
-                                                        </span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground max-w-64 truncate">
-                                                    {t.description ?? ""}
-                                                </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                                                    <span className="inline-flex items-center gap-1.5">
-                                                        <UserAvatar
-                                                            fileId={t.created_by_avatar_file_id}
-                                                            firstName={t.created_by_first_name}
-                                                            lastName={t.created_by_last_name}
-                                                            size="xs"
-                                                        />
-                                                        <span className="truncate">
-                                                            {t.created_by_first_name ?? "—"}
-                                                        </span>
-                                                    </span>
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                    <MoneyDisplay
-                                                        amount={t.amount}
-                                                        variant={variant as any}
-                                                    />
-                                                </TableCell>
-                                                <TableCell onClick={(e) => e.stopPropagation()}>
-                                                    <div className="flex items-center justify-end gap-0.5">
-                                                        {canDelete && (
-                                                            <EditTransactionSheet
-                                                                transaction={t}
-                                                            />
-                                                        )}
-                                                        {canDelete && (
-                                                            <ConfirmDialog
-                                                                trigger={
-                                                                    <Button
-                                                                        size="icon"
-                                                                        variant="ghost"
-                                                                        className="size-7"
-                                                                    >
-                                                                        <Trash2 className="size-3.5 text-destructive" />
-                                                                    </Button>
-                                                                }
-                                                                title="Delete transaction?"
-                                                                description="Balances will update automatically."
-                                                                confirmLabel="Delete"
-                                                                destructive
-                                                                onConfirm={() =>
-                                                                    del.mutate({
-                                                                        transactionId: t.id,
-                                                                    })
-                                                                }
-                                                            />
-                                                        )}
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </div>
+                    <SummaryCell
+                        label="Out"
+                        amount={summary.outTotal}
+                        variant="expense"
+                    />
+                    <SummaryCell
+                        label="Net"
+                        amount={summary.net}
+                        variant={summary.net >= 0 ? "income" : "expense"}
+                        signed
+                    />
+                    <SummaryCell
+                        label="Avg / day"
+                        amount={summary.avg}
+                        variant="neutral"
+                    />
+                </div>
 
-                        {/* Mobile list */}
-                        <div className="divide-y divide-border md:hidden">
-                            {listQuery.data.items.map((t) => {
-                                const tType = t.type as unknown as TxType;
-                                const variant =
-                                    tType === "income"
-                                        ? "income"
-                                        : tType === "expense"
-                                          ? "expense"
-                                          : "transfer";
-                                const cat = t.expense_category_id
-                                    ? categoriesById.get(t.expense_category_id)
-                                    : null;
-                                const canDelete = t.created_by === authStore.user?.id;
-                                return (
-                                    <div
-                                        key={t.id}
-                                        className="flex cursor-pointer items-start gap-3 p-3"
-                                        onClick={() => setSelectedTx(t)}
-                                    >
-                                        {cat ? (
-                                            <EntityAvatar
-                                                color={cat.color}
-                                                icon={cat.icon}
-                                                size="md"
-                                            />
-                                        ) : (
-                                            <EntityAvatar
-                                                color={UNALLOCATED_COLOR}
-                                                icon="banknote"
-                                                size="md"
-                                            />
-                                        )}
-                                        <div className="min-w-0 flex-1">
-                                            <div className="flex items-center gap-2">
-                                                <TransactionTypeBadge type={tType} />
-                                                <span className="text-xs text-muted-foreground">
+                {/* Table */}
+                <div className="od-card tx-table-card">
+                    <div className="tx-table-head tx-row-grid">
+                        {[
+                            "Date",
+                            "Type",
+                            "From / To",
+                            "Category",
+                            "Event",
+                            "By",
+                            "Amount",
+                            "",
+                        ].map((h, i) => (
+                            <span
+                                key={i}
+                                className="tx-th"
+                                style={{ textAlign: i === 6 ? "right" : "left" }}
+                            >
+                                {h}
+                            </span>
+                        ))}
+                    </div>
+                    {listQuery.isLoading ? (
+                        <div className="tx-empty">
+                            <Loader2 className="size-4 animate-spin" />
+                            Loading…
+                        </div>
+                    ) : items.length === 0 ? (
+                        <div className="tx-empty">
+                            {activeFilterCount > 0
+                                ? "No transactions match your filters."
+                                : "No transactions yet."}
+                        </div>
+                    ) : (
+                        <>
+                            {/* Desktop rows */}
+                            <div className="tx-rows tx-rows-desktop">
+                                {items.map((t, i) => {
+                                    const tt = (t.type as unknown as TxType) ?? "expense";
+                                    const cat = t.expense_category_id
+                                        ? categoriesById.get(t.expense_category_id)
+                                        : null;
+                                    const ev = t.event_id
+                                        ? eventsById.get(t.event_id)
+                                        : null;
+                                    const canDelete =
+                                        t.created_by === authStore.user?.id;
+                                    return (
+                                        <div
+                                            key={t.id}
+                                            className="tx-row tx-row-grid"
+                                            onClick={() => setSelectedTx(t)}
+                                            style={{
+                                                borderBottom:
+                                                    i < items.length - 1
+                                                        ? "1px solid var(--line-soft)"
+                                                        : "none",
+                                            }}
+                                        >
+                                            <span className="tx-cell-date">
+                                                <span className="tx-date">
                                                     {formatInAppTz(
                                                         t.transaction_datetime,
                                                         "MMM d"
                                                     )}
                                                 </span>
-                                            </div>
-                                            <p className="mt-1 truncate text-sm font-medium">
-                                                {cat?.name ?? "—"}
-                                            </p>
-                                            {t.description && (
-                                                <p className="truncate text-xs text-muted-foreground">
-                                                    {t.description}
-                                                </p>
-                                            )}
-                                            <p className="mt-0.5 flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-                                                <UserAvatar
-                                                    fileId={t.created_by_avatar_file_id}
-                                                    firstName={t.created_by_first_name}
-                                                    lastName={t.created_by_last_name}
-                                                    size="xs"
-                                                />
-                                                {t.created_by_first_name ?? "—"}
-                                            </p>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-1">
-                                            <MoneyDisplay
-                                                amount={t.amount}
-                                                variant={variant as any}
+                                                <span className="tx-time mono">
+                                                    {formatInAppTz(
+                                                        t.transaction_datetime,
+                                                        "HH:mm"
+                                                    )}
+                                                </span>
+                                            </span>
+                                            <span>
+                                                <TxBadge type={tt} />
+                                            </span>
+                                            <AccountFlow
+                                                spaceId={
+                                                    (t as { space_id?: string })
+                                                        .space_id ?? space.id
+                                                }
+                                                from={t.source_account_id}
+                                                to={t.destination_account_id}
+                                                accountsById={accountsById}
                                             />
-                                            {canDelete && (
-                                                <div
-                                                    className="flex"
-                                                    onClick={(e) => e.stopPropagation()}
+                                            <span className="tx-cell-cat">
+                                                {cat ? (
+                                                    <>
+                                                        <Avatar
+                                                            color={cat.color}
+                                                            icon={cat.icon}
+                                                            size={20}
+                                                        />
+                                                        <span style={{ color: "var(--fg-2)" }}>
+                                                            {cat.name}
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <span style={{ color: "var(--fg-4)" }}>
+                                                        —
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span style={{ color: "var(--fg-4)" }}>
+                                                {ev ? (
+                                                    <span
+                                                        className="tx-event-chip"
+                                                        style={{
+                                                            background: `color-mix(in oklab, ${ev.color} 12%, transparent)`,
+                                                            color: ev.color,
+                                                            borderColor: `color-mix(in oklab, ${ev.color} 30%, transparent)`,
+                                                        }}
+                                                    >
+                                                        {ev.name}
+                                                    </span>
+                                                ) : (
+                                                    "—"
+                                                )}
+                                            </span>
+                                            <span className="tx-cell-by">
+                                                <UserBubble
+                                                    initial={
+                                                        t.created_by_first_name?.[0]?.toUpperCase() ??
+                                                        "?"
+                                                    }
+                                                />
+                                                <span
+                                                    style={{
+                                                        color: "var(--fg-3)",
+                                                        fontSize: 12,
+                                                    }}
                                                 >
+                                                    {t.created_by_first_name ?? "—"}
+                                                </span>
+                                            </span>
+                                            <span className="tx-cell-amt">
+                                                <Money
+                                                    amount={
+                                                        tt === "expense"
+                                                            ? -Number(t.amount)
+                                                            : Number(t.amount)
+                                                    }
+                                                    variant={
+                                                        tt === "income"
+                                                            ? "income"
+                                                            : tt === "transfer"
+                                                              ? "transfer"
+                                                              : tt === "adjustment"
+                                                                ? "warn"
+                                                                : "expense"
+                                                    }
+                                                    signed={tt === "income"}
+                                                    size={13}
+                                                    weight={500}
+                                                />
+                                                {t.description && (
+                                                    <span className="tx-cell-desc">
+                                                        {t.description}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span
+                                                className="tx-cell-actions"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                {canDelete && (
                                                     <EditTransactionSheet
                                                         transaction={t}
                                                     />
+                                                )}
+                                                {canDelete && (
                                                     <ConfirmDialog
                                                         trigger={
                                                             <Button
                                                                 size="icon"
                                                                 variant="ghost"
-                                                                className="size-6"
+                                                                className="size-7"
                                                             >
-                                                                <Trash2 className="size-3 text-destructive" />
+                                                                <Trash2 className="size-3.5" />
                                                             </Button>
                                                         }
                                                         title="Delete transaction?"
+                                                        description="Balances will update automatically."
                                                         confirmLabel="Delete"
                                                         destructive
                                                         onConfirm={() =>
@@ -629,43 +707,112 @@ export default function TransactionsPage() {
                                                             })
                                                         }
                                                     />
-                                                </div>
-                                            )}
+                                                )}
+                                            </span>
                                         </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
+                                    );
+                                })}
+                            </div>
 
-                        <div className="flex items-center justify-between border-t border-border p-3">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={pageCursors.length <= 1}
-                                onClick={() => setPageCursors((p) => p.slice(0, -1))}
-                            >
-                                Previous
-                            </Button>
-                            <span className="text-xs text-muted-foreground">
-                                Page {pageCursors.length}
-                            </span>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={!listQuery.data?.nextCursor}
-                                onClick={() =>
-                                    setPageCursors((p) => [
-                                        ...p,
-                                        listQuery.data!.nextCursor!,
-                                    ])
-                                }
-                            >
-                                Next
-                            </Button>
-                        </div>
-                    </>
-                )}
-            </Card>
+                            {/* Mobile rows — compressed list */}
+                            <div className="tx-rows-mobile">
+                                {items.map((t) => {
+                                    const tt = (t.type as unknown as TxType) ?? "expense";
+                                    const cat = t.expense_category_id
+                                        ? categoriesById.get(t.expense_category_id)
+                                        : null;
+                                    return (
+                                        <button
+                                            key={t.id}
+                                            type="button"
+                                            className="tx-mrow"
+                                            onClick={() => setSelectedTx(t)}
+                                        >
+                                            <Avatar
+                                                color={cat?.color ?? UNALLOCATED_COLOR}
+                                                icon={cat?.icon ?? "wallet"}
+                                                size={32}
+                                            />
+                                            <div className="tx-mrow-text">
+                                                <div className="tx-mrow-top">
+                                                    <TxBadge type={tt} />
+                                                    <span className="tx-mrow-date">
+                                                        {formatInAppTz(
+                                                            t.transaction_datetime,
+                                                            "MMM d"
+                                                        )}
+                                                    </span>
+                                                </div>
+                                                <div className="tx-mrow-name">
+                                                    {cat?.name ?? t.description ?? "—"}
+                                                </div>
+                                                {t.description && cat && (
+                                                    <div className="tx-mrow-desc">
+                                                        {t.description}
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <Money
+                                                amount={
+                                                    tt === "expense"
+                                                        ? -Number(t.amount)
+                                                        : Number(t.amount)
+                                                }
+                                                variant={
+                                                    tt === "income"
+                                                        ? "income"
+                                                        : tt === "transfer"
+                                                          ? "transfer"
+                                                          : tt === "adjustment"
+                                                            ? "warn"
+                                                            : "expense"
+                                                }
+                                                signed={tt === "income"}
+                                                size={13}
+                                                weight={500}
+                                            />
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="tx-table-foot">
+                                <span style={{ fontSize: 12, color: "var(--fg-4)" }}>
+                                    Showing {items.length}
+                                    {listQuery.data?.nextCursor ? "+" : ""}{" "}
+                                    transactions
+                                </span>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                    <button
+                                        type="button"
+                                        className="od-btn od-btn-sm"
+                                        disabled={pageCursors.length <= 1}
+                                        onClick={() =>
+                                            setPageCursors((p) => p.slice(0, -1))
+                                        }
+                                    >
+                                        Previous
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="od-btn od-btn-sm"
+                                        disabled={!listQuery.data?.nextCursor}
+                                        onClick={() =>
+                                            setPageCursors((p) => [
+                                                ...p,
+                                                listQuery.data!.nextCursor!,
+                                            ])
+                                        }
+                                    >
+                                        Load 50 more
+                                    </button>
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+
             <TransactionDetailsSheet
                 transaction={selectedTx}
                 open={selectedTx !== null}
@@ -679,235 +826,177 @@ export default function TransactionsPage() {
     );
 }
 
-function TypeFilter({
-    value,
-    onChange,
+/* ============================================================
+   Helper components
+   ============================================================ */
+
+function Money({
+    amount,
+    variant = "neutral",
+    signed = false,
+    size = 13,
+    weight = 500,
+    decimals = 2,
 }: {
-    value: TxType | null;
-    onChange: (v: string | null) => void;
+    amount: number;
+    variant?:
+        | "neutral"
+        | "income"
+        | "expense"
+        | "transfer"
+        | "muted"
+        | "warn";
+    signed?: boolean;
+    size?: number;
+    weight?: number;
+    decimals?: number;
 }) {
-    const options: Array<{ value: TxType | null; label: string }> = [
-        { value: null, label: "All" },
-        { value: "income", label: "Income" },
-        { value: "expense", label: "Expense" },
-        { value: "transfer", label: "Transfer" },
-        { value: "adjustment", label: "Adjustment" },
-    ];
+    const colorMap: Record<string, string> = {
+        income: "var(--income)",
+        expense: "var(--expense)",
+        transfer: "var(--transfer)",
+        warn: "var(--warn)",
+        muted: "var(--fg-3)",
+        neutral: "var(--fg)",
+    };
+    const abs = Math.abs(amount).toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+    });
+    let text = abs;
+    if (amount < 0) text = "−" + abs;
+    else if (signed && amount > 0) text = "+" + abs;
     return (
-        <div className="flex gap-1 rounded-md border border-border p-0.5">
-            {options.map((o) => (
-                <button
-                    key={String(o.value)}
-                    type="button"
-                    onClick={() => onChange(o.value)}
-                    className={cn(
-                        "rounded px-2.5 py-1 text-xs font-medium transition-colors",
-                        value === o.value
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                    )}
-                >
-                    {o.label}
-                </button>
-            ))}
-        </div>
+        <span
+            className="tabular"
+            style={{ color: colorMap[variant], fontSize: size, fontWeight: weight }}
+        >
+            {text}
+        </span>
     );
 }
 
-function MobileFilters({
-    type,
-    setType,
-    accountId,
-    setAccountId,
-    categoryId,
-    setCategoryId,
-    eventId,
-    setEventId,
-    userId,
-    setUserId,
-    amountMin,
-    setAmountMin,
-    amountMax,
-    setAmountMax,
-    accounts,
-    categories,
-    events,
-    members,
-    activeFilterCount,
-    hideEvents = false,
-    hideMembers = false,
-}: {
-    type: TxType | null;
-    setType: (v: string | null) => void;
-    accountId: string | null;
-    setAccountId: (v: string | null) => void;
-    categoryId: string | null;
-    setCategoryId: (v: string | null) => void;
-    eventId: string | null;
-    setEventId: (v: string | null) => void;
-    userId: string | null;
-    setUserId: (v: string | null) => void;
-    amountMin: string | null;
-    setAmountMin: (v: string | null) => void;
-    amountMax: string | null;
-    setAmountMax: (v: string | null) => void;
-    accounts: Array<{ id: string; name: string }>;
-    categories: Array<{
-        id: string;
-        name: string;
-        parent_id: string | null;
-        color: string;
-        icon: string;
-    }>;
-    events: Array<{ id: string; name: string }>;
-    members: Array<{
-        id: string;
-        first_name: string;
-        last_name: string;
-        avatar_file_id: string | null;
-    }>;
-    activeFilterCount: number;
-    /** Hide the event filter (no cross-space event concept). */
-    hideEvents?: boolean;
-    /** Hide the member filter (no single space to enumerate). */
-    hideMembers?: boolean;
-}) {
-    const [open, setOpen] = useState(false);
+function TxBadge({ type }: { type: TxType }) {
+    const map: Record<
+        TxType,
+        { color: string; label: string; icon: ReactNode }
+    > = {
+        income: { color: "var(--income)", label: "Income", icon: <ArrowDown className="size-3" /> },
+        expense: { color: "var(--expense)", label: "Expense", icon: <ArrowUp className="size-3" /> },
+        transfer: { color: "var(--transfer)", label: "Transfer", icon: <ArrowRightLeft className="size-3" /> },
+        adjustment: { color: "var(--warn)", label: "Adjustment", icon: <Edit3 className="size-3" /> },
+    };
+    const m = map[type];
     return (
-        <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className="md:hidden">
-                    <Filter className="size-4" />
-                    Filters
-                    {activeFilterCount > 0 && (
-                        <span className="ml-1 inline-flex size-5 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                            {activeFilterCount}
-                        </span>
-                    )}
-                </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="flex flex-col gap-4 p-5">
-                <SheetHeader className="p-0">
-                    <SheetTitle>Filters</SheetTitle>
-                </SheetHeader>
-                <div className="grid gap-3 overflow-y-auto">
-                    <div className="grid gap-1.5">
-                        <Label>Type</Label>
-                        <TypeFilter value={type} onChange={setType} />
-                    </div>
-                    <div className="grid gap-1.5">
-                        <Label>Account</Label>
-                        <Select
-                            value={accountId ?? "all"}
-                            onValueChange={(v) => setAccountId(v === "all" ? null : v)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="all">All accounts</SelectItem>
-                                {accounts.map((a) => (
-                                    <SelectItem key={a.id} value={a.id}>
-                                        {a.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                    <div className="grid gap-1.5">
-                        <Label>Category</Label>
-                        <CategoryTreeSelect
-                            categories={categories}
-                            value={categoryId}
-                            onChange={setCategoryId}
-                        />
-                    </div>
-                    {!hideEvents && (
-                        <div className="grid gap-1.5">
-                            <Label>Event</Label>
-                            <Select
-                                value={eventId ?? "all"}
-                                onValueChange={(v) =>
-                                    setEventId(v === "all" ? null : v)
-                                }
-                            >
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">Any event</SelectItem>
-                                    {events.map((e) => (
-                                        <SelectItem key={e.id} value={e.id}>
-                                            {e.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-                    {!hideMembers && (
-                        <div className="grid gap-1.5">
-                            <Label>Created by</Label>
-                            <Select
-                                value={userId ?? "all"}
-                                onValueChange={(v) =>
-                                    setUserId(v === "all" ? null : v)
-                                }
-                            >
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">Anyone</SelectItem>
-                                    {members.map((m) => (
-                                        <SelectItem key={m.id} value={m.id}>
-                                            <span className="inline-flex items-center gap-2">
-                                                <UserAvatar
-                                                    fileId={m.avatar_file_id}
-                                                    firstName={m.first_name}
-                                                    lastName={m.last_name}
-                                                    size="xs"
-                                                />
-                                                {m.first_name} {m.last_name}
-                                            </span>
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    )}
-                    <div className="grid gap-1.5 sm:grid-cols-2">
-                        <div className="grid gap-1.5">
-                            <Label>Min amount</Label>
-                            <Input
-                                type="number"
-                                inputMode="decimal"
-                                step="0.01"
-                                value={amountMin ?? ""}
-                                onChange={(e) =>
-                                    setAmountMin(e.target.value || null)
-                                }
-                            />
-                        </div>
-                        <div className="grid gap-1.5">
-                            <Label>Max amount</Label>
-                            <Input
-                                type="number"
-                                inputMode="decimal"
-                                step="0.01"
-                                value={amountMax ?? ""}
-                                onChange={(e) =>
-                                    setAmountMax(e.target.value || null)
-                                }
-                            />
-                        </div>
-                    </div>
-                </div>
-                <Button onClick={() => setOpen(false)} variant="gradient">
-                    Apply
-                </Button>
-            </SheetContent>
-        </Sheet>
+        <span
+            className="tx-badge"
+            style={{
+                color: m.color,
+                background: `color-mix(in oklab, ${m.color} 12%, transparent)`,
+                borderColor: `color-mix(in oklab, ${m.color} 30%, transparent)`,
+            }}
+        >
+            {m.icon} {m.label}
+        </span>
+    );
+}
+
+function Avatar({
+    icon,
+    color,
+    size = 22,
+}: {
+    icon: string;
+    color: string;
+    size?: number;
+}) {
+    return (
+        <span
+            style={{
+                width: size,
+                height: size,
+                borderRadius: 6,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: `color-mix(in oklab, ${color} 18%, transparent)`,
+                border: `1px solid color-mix(in oklab, ${color} 30%, transparent)`,
+                color: color,
+                flexShrink: 0,
+            }}
+        >
+            <AvatarIcon name={icon} size={size * 0.5} color={color} />
+        </span>
+    );
+}
+
+const AVATAR_ICONS: Record<string, string> = {
+    home: "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
+    wallet:
+        "M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1h2v8h-2v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm14 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z",
+    cart: "M3 4h2l3 12h11l2-8H7M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm9 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
+    car: "M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13m-14 0v5h2v-2h10v2h2v-5m-14 0h14M7 16h.01M17 16h.01",
+    book: "M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3zM4 17a3 3 0 0 1 3-3h11",
+    coffee:
+        "M5 8h12v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zm12 1h2a2 2 0 1 1 0 4h-2zM7 4v2M11 4v2M15 4v2",
+    flame: "M12 22s7-4 7-10c0-3-2-5-3-6 0 2-1 3-2 3-1-3-3-5-3-7-2 1-6 5-6 10 0 6 7 10 7 10z",
+    music: "M9 18V5l11-2v13M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3zm11-2a3 3 0 1 1-3-3 3 3 0 0 1 3 3z",
+    camera: "M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+    heart: "M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z",
+    bolt: "M13 2 3 14h7l-1 8 10-12h-7z",
+    terminal: "m4 6 6 6-6 6m8 0h8",
+    layers: "m12 3 9 5-9 5-9-5zm-9 9 9 5 9-5M3 17l9 5 9-5",
+    target: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-4a6 6 0 1 0 0-12 6 6 0 0 0 0 12zm0-4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    folder: "M3 6a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
+    share: "M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4m4-4v13",
+    edit: "M4 20h4l10-10-4-4L4 16zM14 6l4 4",
+    dot: "M12 12h.01",
+};
+
+function AvatarIcon({
+    name,
+    size = 11,
+    color = "currentColor",
+}: {
+    name: string;
+    size?: number;
+    color?: string;
+}) {
+    const d = AVATAR_ICONS[name] ?? AVATAR_ICONS.dot;
+    return (
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke={color}
+            strokeWidth={1.7}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <path d={d} />
+        </svg>
+    );
+}
+
+function UserBubble({ initial }: { initial: string }) {
+    return (
+        <span
+            style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: "linear-gradient(135deg, var(--ent-3), var(--ent-4))",
+                display: "grid",
+                placeItems: "center",
+                fontSize: 9.5,
+                fontWeight: 600,
+                color: "white",
+                flexShrink: 0,
+            }}
+        >
+            {initial}
+        </span>
     );
 }
 
@@ -922,30 +1011,899 @@ function AccountFlow({
     to: string | null;
     accountsById: Map<string, { name: string; color: string; icon: string }>;
 }) {
-    const renderRef = (id: string | null) =>
-        id ? (
-            <Link
-                to={ROUTES.spaceAccountDetail(spaceId, id)}
-                className="inline-flex items-center gap-1 hover:text-primary"
-            >
-                <EntityAvatar
-                    size="sm"
-                    color={accountsById.get(id)?.color ?? UNALLOCATED_COLOR}
-                    icon={accountsById.get(id)?.icon ?? "wallet"}
-                />
-                <span className="truncate max-w-[8rem]">
-                    {accountsById.get(id)?.name ?? "Account"}
-                </span>
-            </Link>
-        ) : (
-            <span className="text-muted-foreground">—</span>
-        );
-
+    const fromAcc = from ? accountsById.get(from) : null;
+    const toAcc = to ? accountsById.get(to) : null;
     return (
-        <span className="flex items-center gap-2">
-            {renderRef(from)}
-            <span className="text-muted-foreground">→</span>
-            {renderRef(to)}
+        <span
+            className="tx-cell-flow"
+            onClick={(e) => e.stopPropagation()}
+        >
+            {fromAcc ? (
+                <Link
+                    to={ROUTES.spaceAccountDetail(spaceId, from!)}
+                    className="tx-flow-acct"
+                >
+                    <span style={{ color: "var(--fg-2)" }}>{fromAcc.name}</span>
+                </Link>
+            ) : (
+                <span style={{ color: "var(--fg-4)" }}>—</span>
+            )}
+            {toAcc && (
+                <>
+                    <ArrowRightLeft className="size-3" style={{ color: "var(--fg-4)" }} />
+                    <Link
+                        to={ROUTES.spaceAccountDetail(spaceId, to!)}
+                        className="tx-flow-acct"
+                    >
+                        <span style={{ color: "var(--fg)" }}>{toAcc.name}</span>
+                    </Link>
+                </>
+            )}
         </span>
     );
 }
+
+function SummaryCell({
+    label,
+    amount,
+    variant,
+    signed,
+}: {
+    label: string;
+    amount: number;
+    variant: "income" | "expense" | "neutral";
+    signed?: boolean;
+}) {
+    return (
+        <div className="tx-summary-cell">
+            <span className="tx-summary-label">{label}</span>
+            <span className="tx-summary-amt">
+                <Money
+                    amount={amount}
+                    variant={variant}
+                    signed={signed}
+                    size={20}
+                    weight={500}
+                />
+            </span>
+        </div>
+    );
+}
+
+function PeriodChip({
+    period,
+    label,
+    onCustomChange,
+    icon,
+}: {
+    preset: string;
+    period: { start: Date; end: Date };
+    label: string;
+    onPresetChange: (preset: any) => void;
+    onCustomChange: (start: Date, end: Date) => void;
+    icon?: ReactNode;
+}) {
+    const [open, setOpen] = useState(false);
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <button type="button" className="od-btn">
+                    {icon ?? <FilterIcon className="size-3.5" />}
+                    {label}
+                    <ChevronDown
+                        className="size-3"
+                        style={{ color: "var(--fg-4)" }}
+                    />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent
+                align="end"
+                className="orbit-design p-0 border-0 bg-transparent shadow-none"
+                style={{ width: "min(640px, calc(100vw - 32px))" }}
+            >
+                <DateRangePicker
+                    start={period.start}
+                    end={period.end}
+                    onChange={() => {}}
+                    onApply={(s, e) => {
+                        onCustomChange(s, e);
+                        setOpen(false);
+                    }}
+                    onCancel={() => setOpen(false)}
+                />
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+function FilterChipPicker({
+    label,
+    icon,
+    options,
+    value,
+    onChange,
+}: {
+    label: string;
+    icon?: ReactNode;
+    options: Array<{ value: string | null; label: string }>;
+    value: string | null;
+    onChange: (v: string | null) => void;
+}) {
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <button type="button" className="od-btn">
+                    {icon}
+                    {label}
+                </button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="orbit-design w-56 p-1">
+                {options.map((o) => (
+                    <button
+                        key={String(o.value)}
+                        type="button"
+                        className="tx-popover-item"
+                        onClick={() => onChange(o.value)}
+                    >
+                        {o.label}
+                        {value === o.value && (
+                            <Check
+                                className="size-3.5 ml-auto"
+                                style={{ color: "var(--brand)" }}
+                            />
+                        )}
+                    </button>
+                ))}
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+function MoreFiltersSheet({
+    type,
+    setType,
+    accountId,
+    setAccountId,
+    categoryId,
+    setCategoryId,
+    eventId,
+    setEventId,
+    amountMin,
+    setAmountMin,
+    amountMax,
+    setAmountMax,
+    accounts,
+    categories,
+    events,
+    activeFilterCount,
+    hideEvents = false,
+}: {
+    type: TxType | null;
+    setType: (v: string | null) => void;
+    accountId: string | null;
+    setAccountId: (v: string | null) => void;
+    categoryId: string | null;
+    setCategoryId: (v: string | null) => void;
+    eventId: string | null;
+    setEventId: (v: string | null) => void;
+    amountMin: string | null;
+    setAmountMin: (v: string | null) => void;
+    amountMax: string | null;
+    setAmountMax: (v: string | null) => void;
+    accounts: Array<{ id: string; name: string }>;
+    categories: Array<{
+        id: string;
+        name: string;
+        parent_id: string | null;
+        color: string;
+        icon: string;
+    }>;
+    events: Array<{ id: string; name: string }>;
+    activeFilterCount: number;
+    hideEvents?: boolean;
+}) {
+    const [open, setOpen] = useState(false);
+    const reset = () => {
+        setType(null);
+        setAccountId(null);
+        setCategoryId(null);
+        setEventId(null);
+        setAmountMin(null);
+        setAmountMax(null);
+    };
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <button type="button" className="tx-add-filter">
+                    <Plus className="size-3" /> Add filter
+                    {activeFilterCount > 0 && (
+                        <span className="tx-filter-badge">{activeFilterCount}</span>
+                    )}
+                </button>
+            </PopoverTrigger>
+            <PopoverContent
+                align="end"
+                sideOffset={6}
+                className="orbit-design tx-filter-pop"
+            >
+                <OrbitFormStyles />
+                <style>{TX_FILTER_POP_STYLES}</style>
+
+                <div className="tx-filter-pop-head">
+                    <span className="tx-filter-pop-eyebrow">Filter transactions</span>
+                    <button
+                        type="button"
+                        className="orbit-btn orbit-btn-ghost orbit-btn-sm"
+                        onClick={reset}
+                        disabled={activeFilterCount === 0}
+                    >
+                        Reset
+                    </button>
+                </div>
+
+                <OrbitField label="Type">
+                    <div className="tx-filter-pop-types">
+                        {TYPE_OPTIONS.filter((o) => o.value !== null).map((o) => {
+                            const active = type === o.value;
+                            const tone =
+                                o.value === "income"
+                                    ? { c: "var(--income)", soft: "var(--income-soft)", I: ArrowDown }
+                                    : o.value === "expense"
+                                      ? { c: "var(--expense)", soft: "var(--expense-soft)", I: ArrowUp }
+                                      : o.value === "transfer"
+                                        ? { c: "var(--transfer)", soft: "var(--transfer-soft, color-mix(in oklab, var(--transfer) 14%, transparent))", I: ArrowRightLeft }
+                                        : { c: "var(--gold)", soft: "var(--gold-soft)", I: Edit3 };
+                            return (
+                                <button
+                                    key={String(o.value)}
+                                    type="button"
+                                    onClick={() => setType(active ? null : o.value)}
+                                    className="tx-filter-pop-type-chip"
+                                    style={
+                                        active
+                                            ? {
+                                                  background: tone.soft,
+                                                  borderColor: tone.c,
+                                                  color: tone.c,
+                                              }
+                                            : undefined
+                                    }
+                                >
+                                    <tone.I className="size-3" />
+                                    {o.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </OrbitField>
+
+                <OrbitField label="Account">
+                    <OrbitSelect
+                        value={accountId ?? "__all"}
+                        onValueChange={(v) =>
+                            setAccountId(v === "__all" ? null : v)
+                        }
+                        items={[
+                            { value: "__all", label: "All accounts" },
+                            ...accounts.map((a) => ({
+                                value: a.id,
+                                label: a.name,
+                                leadIcon: <Wallet className="size-3.5" />,
+                                leadColor: "var(--ent-1)",
+                            })),
+                        ]}
+                        placeholder="All accounts"
+                        leadIcon={<Wallet className="size-3.5" />}
+                        leadColor="var(--ent-1)"
+                    />
+                </OrbitField>
+
+                <OrbitField label="Category">
+                    <CategoryTreeSelect
+                        categories={categories}
+                        value={categoryId}
+                        onChange={setCategoryId}
+                        placeholder="Any category"
+                    />
+                </OrbitField>
+
+                {!hideEvents && events.length > 0 && (
+                    <OrbitField label="Event">
+                        <OrbitSelect
+                            value={eventId ?? "__any"}
+                            onValueChange={(v) =>
+                                setEventId(v === "__any" ? null : v)
+                            }
+                            items={[
+                                { value: "__any", label: "Any event" },
+                                ...events.map((e) => ({
+                                    value: e.id,
+                                    label: e.name,
+                                    leadIcon: <CalendarIcon className="size-3.5" />,
+                                    leadColor: "var(--ent-5)",
+                                })),
+                            ]}
+                            placeholder="Any event"
+                            leadIcon={<CalendarIcon className="size-3.5" />}
+                            leadColor="var(--ent-5)"
+                        />
+                    </OrbitField>
+                )}
+
+                <OrbitField label="Amount" hint="Inclusive range">
+                    <OrbitFieldRow>
+                        <OrbitInput
+                            type="number"
+                            step="0.01"
+                            value={amountMin ?? ""}
+                            onChange={(e) => setAmountMin(e.target.value || null)}
+                            placeholder="0"
+                            prefix="$"
+                        />
+                        <OrbitInput
+                            type="number"
+                            step="0.01"
+                            value={amountMax ?? ""}
+                            onChange={(e) => setAmountMax(e.target.value || null)}
+                            placeholder="∞"
+                            prefix="$"
+                        />
+                    </OrbitFieldRow>
+                </OrbitField>
+
+                <div className="tx-filter-pop-foot">
+                    <button
+                        type="button"
+                        className="orbit-btn"
+                        style={{ flex: 1 }}
+                        onClick={() => setOpen(false)}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="orbit-btn orbit-btn-primary"
+                        style={{ flex: 1 }}
+                        onClick={() => setOpen(false)}
+                    >
+                        Apply
+                        {activeFilterCount > 0 && ` · ${activeFilterCount}`}
+                    </button>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+const TX_FILTER_POP_STYLES = `
+.tx-filter-pop {
+    width: 360px;
+    background: var(--bg-elev-2) !important;
+    border: 1px solid var(--line-strong) !important;
+    border-radius: 14px !important;
+    box-shadow: 0 24px 60px -16px rgb(0 0 0 / 0.7), 0 1px 0 0 var(--inset-hi) inset !important;
+    padding: 16px !important;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    color: var(--fg);
+    font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+}
+.tx-filter-pop-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.tx-filter-pop-eyebrow {
+    font-size: 10px;
+    color: var(--fg-3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+.tx-filter-pop-types {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.tx-filter-pop-type-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 99px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--line);
+    color: var(--fg-2);
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.tx-filter-pop-type-chip:hover { border-color: var(--line-strong); }
+
+.tx-filter-pop-foot {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+`;
+
+const TX_STYLES = `
+.tx-root {
+    margin: -1.5rem -1rem;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+}
+@media (min-width: 768px) {
+    .tx-root { margin: -2rem; }
+}
+
+/* Topbar */
+.tx-topbar {
+    padding: 26px 32px 18px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    background: var(--bg);
+    flex-wrap: wrap;
+}
+.tx-topbar-text { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tx-title {
+    font-size: 26px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--fg);
+    margin: 0;
+}
+.tx-sub { font-size: 13px; color: var(--fg-3); margin: 0; }
+.tx-topbar-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+@media (max-width: 720px) {
+    .tx-topbar { padding: 18px 18px 14px; }
+}
+
+/* Scroll body */
+.tx-scroll {
+    flex: 1;
+    padding: 22px 32px 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+@media (max-width: 720px) {
+    .tx-scroll { padding: 16px 18px 28px; }
+}
+
+/* Filters */
+.orbit-design .od-card.tx-filters {
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.tx-filter-row1 {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.tx-search {
+    position: relative;
+    flex: 1;
+    min-width: 240px;
+    display: flex;
+    align-items: center;
+}
+.tx-search > svg {
+    position: absolute;
+    left: 12px;
+    pointer-events: none;
+    z-index: 1;
+    color: var(--fg-4);
+}
+/* Doubled selector beats .orbit-design .od-input (0,2,0) so the
+   left padding actually applies and the icon doesn't overlap text. */
+.orbit-design .od-input.tx-search-input {
+    flex: 1;
+    width: 100%;
+    padding-left: 36px;
+}
+.tx-filter-row2 {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.tx-filter-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--line);
+    margin: 0 6px;
+}
+.tx-filter-count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--fg-4);
+}
+.tx-typebar {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+.tx-typebar-cell {
+    height: 26px;
+    padding: 0 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line-soft);
+    background: transparent;
+    color: var(--fg-3);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 140ms ease;
+}
+.tx-typebar-cell:hover {
+    color: var(--fg-2);
+    border-color: var(--line);
+}
+.tx-typebar-cell.is-active {
+    background: var(--bg-elev-3);
+    border-color: var(--line-strong);
+    color: var(--fg);
+}
+.tx-active-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
+    background: var(--brand-soft);
+    color: var(--brand);
+    cursor: pointer;
+    font-family: inherit;
+    transition: filter 140ms ease;
+}
+.tx-active-chip:hover { filter: brightness(1.08); }
+.tx-add-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    border: 1px dashed var(--line-strong);
+    background: transparent;
+    color: var(--fg-3);
+    cursor: pointer;
+    font-family: inherit;
+}
+.tx-add-filter:hover { color: var(--fg); border-color: var(--brand); }
+.tx-filter-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--brand);
+    color: var(--brand-fg);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 0 4px;
+}
+
+/* Popover items */
+.tx-popover-item {
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: transparent;
+    border: 0;
+    font-size: 13px;
+    color: var(--fg-2);
+    cursor: pointer;
+    font-family: inherit;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tx-popover-item:hover { background: var(--bg-elev-2); color: var(--fg); }
+
+/* Period picker popover */
+.tx-period-pop {
+    width: 320px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.tx-period-section-label {
+    font-size: 10px;
+    color: var(--fg-4);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+    padding: 0 4px 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.tx-period-active-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: none;
+}
+.tx-period-presets {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.tx-period-divider {
+    height: 1px;
+    background: var(--line-soft);
+    margin: 2px 0;
+}
+.tx-period-custom {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.tx-period-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.tx-period-input-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.tx-period-input-wrap > span {
+    font-size: 10.5px;
+    color: var(--fg-4);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding-left: 2px;
+}
+.orbit-design .od-input.tx-period-input {
+    height: 36px;
+    font-size: 12.5px;
+    padding: 0 10px;
+    color-scheme: dark;
+}
+.orbit-design .od-input.tx-period-input::-webkit-calendar-picker-indicator {
+    filter: invert(0.85);
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 140ms ease;
+}
+.orbit-design .od-input.tx-period-input::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
+}
+
+/* Daily summary strip */
+.orbit-design .od-card.tx-summary {
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+@media (max-width: 720px) {
+    .orbit-design .od-card.tx-summary { grid-template-columns: repeat(2, 1fr); }
+}
+.tx-summary-cell { display: flex; flex-direction: column; gap: 6px; }
+.tx-summary-label {
+    font-size: 10px;
+    color: var(--fg-4);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+.tx-summary-amt { line-height: 1; }
+
+/* Table */
+.orbit-design .od-card.tx-table-card {
+    padding: 0;
+    overflow: hidden;
+}
+.tx-row-grid {
+    display: grid;
+    grid-template-columns: 110px 130px minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 0.6fr) 100px 130px 60px;
+    align-items: center;
+}
+.tx-table-head {
+    padding: 12px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-elev-2);
+}
+.tx-th {
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-4);
+    font-weight: 500;
+}
+.tx-rows-desktop { display: block; }
+.tx-rows-mobile { display: none; }
+@media (max-width: 900px) {
+    .tx-rows-desktop, .tx-table-head { display: none; }
+    .tx-rows-mobile { display: block; }
+}
+.tx-row {
+    padding: 13px 18px;
+    font-size: 13px;
+    transition: background 120ms ease;
+    cursor: pointer;
+}
+.tx-row:hover { background: var(--bg-elev-2); }
+.tx-cell-date {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+}
+.tx-date { color: var(--fg); }
+.tx-time {
+    font-size: 10.5px;
+    color: var(--fg-4);
+    font-family: "Geist Mono", monospace;
+}
+.tx-cell-flow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--fg-2);
+    min-width: 0;
+}
+.tx-flow-acct {
+    text-decoration: none;
+    color: inherit;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: color 140ms ease;
+}
+.tx-flow-acct:hover { color: var(--brand); }
+.tx-cell-cat {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+.tx-event-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid;
+    font-size: 11px;
+}
+.tx-cell-by { display: inline-flex; align-items: center; gap: 6px; }
+.tx-cell-amt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+}
+.tx-cell-desc {
+    font-size: 11px;
+    color: var(--fg-4);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 130px;
+}
+.tx-cell-actions {
+    display: inline-flex;
+    justify-content: flex-end;
+    gap: 4px;
+}
+.tx-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    border: 1px solid;
+    font-size: 11px;
+    font-weight: 500;
+}
+.tx-empty {
+    padding: 60px 18px;
+    text-align: center;
+    color: var(--fg-3);
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+}
+.tx-table-foot {
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--bg-elev-2);
+    border-top: 1px solid var(--line-soft);
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+/* Mobile rows */
+.tx-mrow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border: 0;
+    border-bottom: 1px solid var(--line-soft);
+    background: transparent;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    color: inherit;
+}
+.tx-mrow:last-child { border-bottom: 0; }
+.tx-mrow:hover { background: var(--bg-elev-2); }
+.tx-mrow-text { flex: 1; min-width: 0; }
+.tx-mrow-top {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.tx-mrow-date { font-size: 11px; color: var(--fg-4); }
+.tx-mrow-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.tx-mrow-desc {
+    font-size: 11px;
+    color: var(--fg-4);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Tighter table at <1280 — drop event + by columns */
+@media (max-width: 1280px) and (min-width: 901px) {
+    .tx-row-grid {
+        grid-template-columns: 100px 120px minmax(0, 1.4fr) minmax(0, 1.2fr) 130px 60px;
+    }
+    .tx-row-grid > :nth-child(5),
+    .tx-row-grid > :nth-child(6) { display: none; }
+}
+`;

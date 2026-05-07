@@ -90,13 +90,16 @@ export const router = createBrowserRouter([
             {
                 element: <ProtectedRoute />,
                 children: [
+                    // Space selector renders its own full-viewport chrome
+                    // (logo header + grid). It deliberately sits outside
+                    // AppShellLayout so it isn't double-wrapped.
+                    {
+                        path: "/spaces",
+                        element: withSuspense(<SpaceSelectorPage />),
+                    },
                     {
                         element: <AppShellLayout />,
                         children: [
-                            {
-                                path: "/spaces",
-                                element: withSuspense(<SpaceSelectorPage />),
-                            },
                             {
                                 path: "/settings",
                                 element: <Navigate to="/settings/profile" replace />,

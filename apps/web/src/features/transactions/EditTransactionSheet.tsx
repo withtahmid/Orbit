@@ -1,44 +1,52 @@
-import { useState, type FormEvent } from "react";
-import { Pencil } from "lucide-react";
+import { useMemo, useState, type FormEvent } from "react";
+import {
+    Pencil,
+    ArrowDown,
+    ArrowUp,
+    ArrowLeftRight,
+    SlidersHorizontal,
+    Calendar,
+    Wallet,
+    Check,
+} from "lucide-react";
 import { toast } from "sonner";
+import { OrbitDrawerShell, OrbitField } from "@/components/orbit/OrbitModalShell";
+import {
+    OrbitAmountCard,
+    OrbitFieldRow,
+    OrbitFormStyles,
+    OrbitInfoPill,
+    OrbitInput,
+    OrbitSelect,
+    OrbitTextarea,
+    OrbitToggle,
+    type OrbitSelectItem,
+} from "@/components/orbit/OrbitForm";
 import {
     Sheet,
     SheetContent,
-    SheetDescription,
-    SheetHeader,
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
-import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { trpc } from "@/trpc";
 import type { RouterOutput } from "@/trpc";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
+import { getIcon } from "@/lib/entityIcons";
 
 type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
 const ownedByMe = (a: SpaceAccount) => a.myRole === "owner";
 
-function AccountOption({ account }: { account: SpaceAccount }) {
+function AccountLabel({ account }: { account: SpaceAccount }) {
     const first = account.owners?.[0];
     const extra = (account.owners?.length ?? 0) - 1;
     return (
-        <span className="inline-flex items-center gap-2">
-            <span>{account.name}</span>
+        <span className="of-acc-label">
+            <span className="of-acc-name">{account.name}</span>
             {first && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    ·
+                <span className="of-acc-meta">
                     <UserAvatar
                         fileId={first.avatar_file_id}
                         firstName={first.first_name}
@@ -52,14 +60,18 @@ function AccountOption({ account }: { account: SpaceAccount }) {
     );
 }
 
+function toAccountItem(a: SpaceAccount): OrbitSelectItem {
+    const Icon = getIcon(a.icon ?? null);
+    return {
+        value: a.id,
+        label: <AccountLabel account={a} />,
+        leadIcon: <Icon className="size-3.5" />,
+        leadColor: a.color ?? "var(--ent-1)",
+    };
+}
+
 type TxType = "income" | "expense" | "transfer" | "adjustment";
 
-/**
- * Shape returned by `transaction.listBySpace` that this sheet needs.
- * `type` is `unknown` because kysely's enum codegen surfaces it as
- * `ArrayType<"income" | ...>` — see spec §14.1. We narrow at read time
- * via `transaction.type as unknown as TxType` inside the component.
- */
 export interface EditableTransaction {
     id: string;
     space_id: string;
@@ -81,19 +93,45 @@ export interface EditableTransaction {
     fee_expense_category_id?: string | null;
 }
 
-/**
- * Edit an existing transaction. Single adaptive form: shows the fields
- * appropriate for the transaction's type (which is immutable — the CHECK
- * constraints on `transactions` don't allow changing it, so neither do we).
- *
- * For adjustment, only amount/datetime/description are editable — the
- * account pairing is decided at creation and the balance delta is
- * encoded in the sign, so editing it would require re-deriving a new
- * newBalance (out of scope here).
- */
-export function EditTransactionSheet({ transaction }: { transaction: EditableTransaction }) {
+const EDIT_META: Record<
+    TxType,
+    { title: string; color: string; icon: typeof ArrowDown; tone: "fg" | "income" | "brand" | "gold" }
+> = {
+    expense: {
+        title: "Edit expense",
+        color: "var(--expense)",
+        icon: ArrowUp,
+        tone: "fg",
+    },
+    income: {
+        title: "Edit income",
+        color: "var(--income)",
+        icon: ArrowDown,
+        tone: "income",
+    },
+    transfer: {
+        title: "Edit transfer",
+        color: "var(--transfer)",
+        icon: ArrowLeftRight,
+        tone: "brand",
+    },
+    adjustment: {
+        title: "Edit adjustment",
+        color: "var(--gold)",
+        icon: SlidersHorizontal,
+        tone: "gold",
+    },
+};
+
+export function EditTransactionSheet({
+    transaction,
+}: {
+    transaction: EditableTransaction;
+}) {
     const [open, setOpen] = useState(false);
     const type = transaction.type as unknown as TxType;
+    const meta = EDIT_META[type];
+    const LeadIcon = meta.icon;
 
     return (
         <Sheet open={open} onOpenChange={setOpen}>
@@ -102,23 +140,45 @@ export function EditTransactionSheet({ transaction }: { transaction: EditableTra
                     <Pencil className="size-3.5" />
                 </Button>
             </SheetTrigger>
-            <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
-                <SheetHeader className="border-b border-border p-5">
-                    <SheetTitle className="flex items-center gap-2">
-                        Edit transaction
-                        <TransactionTypeBadge type={type} />
-                    </SheetTitle>
-                    <SheetDescription>
-                        Balances and envelope usage will recompute automatically.
-                    </SheetDescription>
-                </SheetHeader>
-                <div className="flex-1 overflow-y-auto p-5">
+            <SheetContent
+                side="right"
+                className="orbit-shell-host !p-0 sm:max-w-[520px]"
+            >
+                <SheetTitle className="sr-only">{meta.title}</SheetTitle>
+                <OrbitDrawerShell
+                    eyebrow="Edit transaction"
+                    title={meta.title}
+                    subtitle="Balances and envelope usage will recompute automatically."
+                    leadIcon={<LeadIcon className="size-4" />}
+                    leadColor={meta.color}
+                    onClose={() => setOpen(false)}
+                    footer={
+                        <>
+                            <button
+                                type="button"
+                                className="nt-btn"
+                                onClick={() => setOpen(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                form="edit-tx-form"
+                                className="nt-btn nt-btn-primary"
+                            >
+                                <Check className="size-3.5" />
+                                Save changes
+                            </button>
+                        </>
+                    }
+                >
+                    <OrbitFormStyles />
                     <EditForm
                         key={transaction.id}
                         transaction={transaction}
                         onDone={() => setOpen(false)}
                     />
-                </div>
+                </OrbitDrawerShell>
             </SheetContent>
         </Sheet>
     );
@@ -133,6 +193,7 @@ function EditForm({
 }) {
     const spaceId = transaction.space_id;
     const type = transaction.type as unknown as TxType;
+    const meta = EDIT_META[type];
     const utils = trpc.useUtils();
 
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
@@ -145,7 +206,9 @@ function EditForm({
     const [datetime, setDatetime] = useState(initialDatetime);
     const [description, setDescription] = useState(transaction.description ?? "");
     const [location, setLocation] = useState(transaction.location ?? "");
-    const [sourceAccountId, setSource] = useState(transaction.source_account_id ?? "");
+    const [sourceAccountId, setSource] = useState(
+        transaction.source_account_id ?? ""
+    );
     const [destinationAccountId, setDest] = useState(
         transaction.destination_account_id ?? ""
     );
@@ -154,18 +217,46 @@ function EditForm({
     );
     const [eventId, setEventId] = useState(transaction.event_id ?? "");
 
-    // Transfer fee state. Initialized from the transaction's existing
-    // fee columns (if any) so editing a fee-bearing transfer shows the
-    // current values. Only surfaced in the transfer branch.
     const initialFeeAmount =
         transaction.fee_amount != null ? String(transaction.fee_amount) : "";
-    const [feeEnabled, setFeeEnabled] = useState(
-        transaction.fee_amount != null
-    );
+    const [feeEnabled, setFeeEnabled] = useState(transaction.fee_amount != null);
     const [feeAmount, setFeeAmount] = useState(initialFeeAmount);
     const [feeCategoryId, setFeeCategoryId] = useState<string | null>(
         transaction.fee_expense_category_id ?? null
     );
+
+    const allItems = useMemo(
+        () => (accountsQuery.data ?? []).map(toAccountItem),
+        [accountsQuery.data]
+    );
+    const spendableItems = useMemo(
+        () =>
+            (accountsQuery.data ?? [])
+                .filter((a) => a.account_type !== "locked")
+                .filter(ownedByMe)
+                .map(toAccountItem),
+        [accountsQuery.data]
+    );
+    const destItems = useMemo(
+        () =>
+            (accountsQuery.data ?? [])
+                .filter((a) => a.id !== sourceAccountId)
+                .map(toAccountItem),
+        [accountsQuery.data, sourceAccountId]
+    );
+
+    const eventItems: OrbitSelectItem[] = useMemo(() => {
+        const evs = eventsQuery.data ?? [];
+        return [
+            { value: "__none", label: "No event" },
+            ...evs.map((ev) => ({
+                value: ev.id,
+                label: ev.name,
+                leadIcon: <Calendar className="size-3.5" />,
+                leadColor: "var(--ent-5)",
+            })),
+        ];
+    }, [eventsQuery.data]);
 
     const mutate = trpc.transaction.update.useMutation({
         onSuccess: async () => {
@@ -180,10 +271,6 @@ function EditForm({
         },
         onError: (e) => toast.error(e.message),
     });
-
-    const spendable = (accountsQuery.data ?? [])
-        .filter((a) => a.account_type !== "locked")
-        .filter(ownedByMe);
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
@@ -227,9 +314,6 @@ function EditForm({
             datetime: fromInputDateTime(datetime),
             description: description.trim() === "" ? null : description.trim(),
             location: location.trim() === "" ? null : location.trim(),
-            // Only include fields that are meaningful for the transaction's
-            // type. `update` merges with existing values, so undefined =
-            // don't change.
             sourceAccountId:
                 type === "income" || type === "adjustment"
                     ? undefined
@@ -241,8 +325,6 @@ function EditForm({
             expenseCategoryId: type === "expense" ? categoryId : undefined,
             eventId:
                 type === "adjustment" ? undefined : eventId === "" ? null : eventId,
-            // Fee fields only meaningful for transfers. `null` clears
-            // both server-side (CHECK enforces they move together).
             feeAmount:
                 type === "transfer"
                     ? feeEnabled
@@ -258,159 +340,106 @@ function EditForm({
         });
     };
 
-    const accountLabel =
-        type === "income"
-            ? "Into account"
-            : type === "expense"
-              ? "From account"
-              : "From / to";
-
     return (
-        <form className="mt-1 grid gap-4" onSubmit={submit}>
-            <div className="grid gap-1.5">
-                <Label htmlFor="edit-amount">Amount</Label>
-                <Input
-                    id="edit-amount"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                    autoFocus
-                />
-            </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="edit-datetime">Date &amp; time</Label>
-                <Input
-                    id="edit-datetime"
-                    type="datetime-local"
-                    value={datetime}
-                    onChange={(e) => setDatetime(e.target.value)}
-                />
-            </div>
+        <form id="edit-tx-form" className="nt-form" onSubmit={submit}>
+            <OrbitAmountCard
+                value={amount}
+                onChange={setAmount}
+                tone={meta.tone}
+                autoFocus
+            />
 
             {type !== "adjustment" && (
-                <div className="grid gap-1.5">
-                    <Label>{accountLabel}</Label>
-                    {type === "income" ? (
-                        <Select
-                            value={destinationAccountId}
-                            onValueChange={setDest}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="Choose account" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {(accountsQuery.data ?? []).map((a) => (
-                                    <SelectItem key={a.id} value={a.id}>
-                                        <AccountOption account={a} />
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    ) : type === "expense" ? (
-                        <Select value={sourceAccountId} onValueChange={setSource}>
-                            <SelectTrigger>
-                                <SelectValue placeholder="Choose account" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {spendable.map((a) => (
-                                    <SelectItem key={a.id} value={a.id}>
-                                        <AccountOption account={a} />
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    ) : (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                            <div className="grid gap-1.5">
-                                <Label className="text-xs text-muted-foreground">
-                                    From
-                                </Label>
-                                <Select
-                                    value={sourceAccountId}
-                                    onValueChange={setSource}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Source" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {spendable.map((a) => (
-                                            <SelectItem key={a.id} value={a.id}>
-                                                <AccountOption account={a} />
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="grid gap-1.5">
-                                <Label className="text-xs text-muted-foreground">
-                                    To
-                                </Label>
-                                <Select
-                                    value={destinationAccountId}
-                                    onValueChange={setDest}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Destination" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {(accountsQuery.data ?? [])
-                                            .filter((a) => a.id !== sourceAccountId)
-                                            .map((a) => (
-                                                <SelectItem key={a.id} value={a.id}>
-                                                    <AccountOption account={a} />
-                                                </SelectItem>
-                                            ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <OrbitField label="Date">
+                    <OrbitInput
+                        type="datetime-local"
+                        value={datetime}
+                        onChange={(e) => setDatetime(e.target.value)}
+                        leadIcon={<Calendar className="size-3.5" />}
+                    />
+                </OrbitField>
+            )}
+
+            {type === "income" && (
+                <OrbitField label="Into account" required>
+                    <OrbitSelect
+                        value={destinationAccountId}
+                        onValueChange={setDest}
+                        items={allItems}
+                        placeholder="Choose account"
+                        leadIcon={<Wallet className="size-3.5" />}
+                        leadColor="var(--ent-1)"
+                    />
+                </OrbitField>
             )}
 
             {type === "expense" && (
-                <div className="grid gap-1.5">
-                    <Label>Category</Label>
-                    <CategoryTreeSelect
-                        categories={(categoriesQuery.data ?? []) as any}
-                        value={categoryId}
-                        onChange={setCategoryId}
-                        placeholder="Choose category"
-                        allowAll={false}
-                    />
-                </div>
+                <>
+                    <OrbitField label="From account" required>
+                        <OrbitSelect
+                            value={sourceAccountId}
+                            onValueChange={setSource}
+                            items={spendableItems}
+                            placeholder="Choose account"
+                            leadIcon={<Wallet className="size-3.5" />}
+                            leadColor="var(--ent-1)"
+                        />
+                    </OrbitField>
+                    <OrbitField
+                        label="Category"
+                        hint="Envelope is inferred from the category"
+                        required
+                    >
+                        <CategoryTreeSelect
+                            categories={(categoriesQuery.data ?? []) as any}
+                            value={categoryId}
+                            onChange={setCategoryId}
+                            placeholder="Choose category"
+                            allowAll={false}
+                        />
+                    </OrbitField>
+                </>
             )}
 
             {type === "transfer" && (
-                <div className="rounded-md border border-border bg-card/50 p-3">
-                    <label className="flex cursor-pointer items-start gap-3">
-                        <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={feeEnabled}
-                            onChange={(e) => setFeeEnabled(e.target.checked)}
+                <>
+                    <OrbitField label="From" required>
+                        <OrbitSelect
+                            value={sourceAccountId}
+                            onValueChange={setSource}
+                            items={spendableItems}
+                            placeholder="Choose source"
+                            leadIcon={<Wallet className="size-3.5" />}
+                            leadColor="var(--ent-1)"
                         />
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium">
-                                There's a fee on this transfer
-                            </p>
-                            <p className="text-[11px] text-muted-foreground">
-                                The fee is deducted from the source account on top
-                                of the transfer amount and counts as a regular
-                                expense in the category you pick.
-                            </p>
-                        </div>
-                    </label>
+                    </OrbitField>
+                    <div className="nt-swap" aria-hidden>
+                        <span>
+                            <ArrowDown className="size-3.5" />
+                        </span>
+                    </div>
+                    <OrbitField label="To" required>
+                        <OrbitSelect
+                            value={destinationAccountId}
+                            onValueChange={setDest}
+                            items={destItems}
+                            placeholder="Choose destination"
+                            leadIcon={<Wallet className="size-3.5" />}
+                            leadColor="var(--ent-3)"
+                        />
+                    </OrbitField>
+
+                    <OrbitToggle
+                        checked={feeEnabled}
+                        onChange={setFeeEnabled}
+                        label="There's a fee on this transfer"
+                        hint="Deducted from source on top of the amount; logged as a regular expense."
+                    />
+
                     {feeEnabled && (
-                        <div className="mt-3 grid gap-3">
-                            <div className="grid gap-1.5">
-                                <Label htmlFor="edit-fee-amount">Fee amount</Label>
-                                <Input
-                                    id="edit-fee-amount"
+                        <OrbitFieldRow>
+                            <OrbitField label="Fee amount" hint="Charged by source">
+                                <OrbitInput
                                     type="number"
                                     inputMode="decimal"
                                     min="0"
@@ -418,72 +447,80 @@ function EditForm({
                                     value={feeAmount}
                                     onChange={(e) => setFeeAmount(e.target.value)}
                                     placeholder="0.00"
+                                    prefix="$"
                                 />
-                            </div>
-                            <div className="grid gap-1.5">
-                                <Label>Fee category</Label>
+                            </OrbitField>
+                            <OrbitField
+                                label="Fee category"
+                                hint="Where the fee is logged"
+                            >
                                 <CategoryTreeSelect
                                     categories={(categoriesQuery.data ?? []) as any}
                                     value={feeCategoryId}
                                     onChange={setFeeCategoryId}
-                                    placeholder="Pick a category"
+                                    placeholder="Pick category"
                                     allowAll={false}
                                 />
-                            </div>
-                        </div>
+                            </OrbitField>
+                        </OrbitFieldRow>
                     )}
-                </div>
+                </>
             )}
 
-            <div className="grid gap-1.5">
-                <Label htmlFor="edit-desc">Description</Label>
-                <Textarea
-                    id="edit-desc"
+            {(type === "expense" || type === "income") && (
+                <OrbitField label="Location" hint="Optional">
+                    <OrbitInput
+                        value={location}
+                        onChange={(e) => setLocation(e.target.value)}
+                        placeholder="Where did this happen?"
+                    />
+                </OrbitField>
+            )}
+
+            <OrbitField label="Description" hint="Optional">
+                <OrbitTextarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     placeholder="Optional note"
                     rows={2}
                 />
-            </div>
+            </OrbitField>
 
-            {(type === "expense" || type === "income") && (
-                <div className="grid gap-1.5">
-                    <Label htmlFor="edit-location">Location (optional)</Label>
-                    <Input
-                        id="edit-location"
-                        value={location}
-                        onChange={(e) => setLocation(e.target.value)}
-                        placeholder="Where did this happen?"
+            {type !== "adjustment" && (eventsQuery.data?.length ?? 0) > 0 && (
+                <OrbitField label="Link to event" hint="Optional">
+                    <OrbitSelect
+                        value={eventId || "__none"}
+                        onValueChange={(v) => setEventId(v === "__none" ? "" : v)}
+                        items={eventItems}
+                        placeholder="No event"
                     />
-                </div>
+                </OrbitField>
             )}
 
-            {type !== "adjustment" &&
-                (eventsQuery.data?.length ?? 0) > 0 && (
-                    <div className="grid gap-1.5">
-                        <Label>Event (optional)</Label>
-                        <Select
-                            value={eventId || "none"}
-                            onValueChange={(v) => setEventId(v === "none" ? "" : v)}
-                        >
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
-                                {(eventsQuery.data ?? []).map((ev) => (
-                                    <SelectItem key={ev.id} value={ev.id}>
-                                        {ev.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                )}
+            {type === "adjustment" && (
+                <OrbitField label="Date">
+                    <OrbitInput
+                        type="datetime-local"
+                        value={datetime}
+                        onChange={(e) => setDatetime(e.target.value)}
+                        leadIcon={<Calendar className="size-3.5" />}
+                    />
+                </OrbitField>
+            )}
 
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Save changes"}
-            </Button>
+            {type === "transfer" && (
+                <OrbitInfoPill tone="transfer">
+                    Transfers don't show up in income/expense totals. They're recorded
+                    as a paired (out, in) ledger entry.
+                </OrbitInfoPill>
+            )}
+
+            {type === "adjustment" && (
+                <OrbitInfoPill tone="gold">
+                    Adjustments don't appear in income or expense totals — they
+                    correct your account balance only.
+                </OrbitInfoPill>
+            )}
         </form>
     );
 }
