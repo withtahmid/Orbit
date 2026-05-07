@@ -53,6 +53,15 @@ const AnalyticsHeatmapView = lazy(
 const AnalyticsAllocationsView = lazy(
     () => import("@/pages/space/analytics/views/AllocationsView")
 );
+const AnalyticsMatrixView = lazy(
+    () => import("@/pages/space/analytics/views/MatrixView")
+);
+const AnalyticsTrendsView = lazy(
+    () => import("@/pages/space/analytics/views/TrendsView")
+);
+const AnalyticsAnomaliesView = lazy(
+    () => import("@/pages/space/analytics/views/AnomaliesView")
+);
 const AnalyticsPriorityView = lazy(
     () => import("@/pages/space/analytics/views/PriorityView")
 );
@@ -200,6 +209,18 @@ export const router = createBrowserRouter([
                                     {
                                         path: "analytics/allocations",
                                         element: withSuspense(<AnalyticsAllocationsView />),
+                                    },
+                                    {
+                                        path: "analytics/matrix",
+                                        element: withSuspense(<AnalyticsMatrixView />),
+                                    },
+                                    {
+                                        path: "analytics/trends",
+                                        element: withSuspense(<AnalyticsTrendsView />),
+                                    },
+                                    {
+                                        path: "analytics/anomalies",
+                                        element: withSuspense(<AnalyticsAnomaliesView />),
                                     },
                                     {
                                         path: "analytics/priority",

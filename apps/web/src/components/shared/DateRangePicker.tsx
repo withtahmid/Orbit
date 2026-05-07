@@ -131,9 +131,24 @@ export function DateRangePicker({
             compute: () => ({ s: startOfDay(addDays(today, -6)), e: today }),
         },
         {
+            id: "last-14",
+            label: "Last 14 days",
+            compute: () => ({ s: startOfDay(addDays(today, -13)), e: today }),
+        },
+        {
             id: "last-30",
             label: "Last 30 days",
             compute: () => ({ s: startOfDay(addDays(today, -29)), e: today }),
+        },
+        {
+            id: "last-60",
+            label: "Last 60 days",
+            compute: () => ({ s: startOfDay(addDays(today, -59)), e: today }),
+        },
+        {
+            id: "last-90",
+            label: "Last 90 days",
+            compute: () => ({ s: startOfDay(addDays(today, -89)), e: today }),
         },
         {
             id: "this-month",
@@ -150,6 +165,30 @@ export function DateRangePicker({
                 );
                 return { s: start, e: end };
             },
+        },
+        {
+            id: "last-3-months",
+            label: "Last 3 months",
+            compute: () => ({
+                s: startOfMonth(addMonths(today, -2)),
+                e: today,
+            }),
+        },
+        {
+            id: "last-6-months",
+            label: "Last 6 months",
+            compute: () => ({
+                s: startOfMonth(addMonths(today, -5)),
+                e: today,
+            }),
+        },
+        {
+            id: "last-12-months",
+            label: "Last 12 months",
+            compute: () => ({
+                s: startOfMonth(addMonths(today, -11)),
+                e: today,
+            }),
         },
         {
             id: "this-quarter",
@@ -583,6 +622,11 @@ const DATE_PICKER_STYLES = `
     gap: 1px;
     width: 130px;
     flex-shrink: 0;
+    /* Scroll inside the sidebar when the preset list outgrows the
+       calendar height (which it does once we surface more recent-day
+       options). Keeps the popover a fixed size on every screen. */
+    max-height: 360px;
+    overflow-y: auto;
 }
 @media (max-width: 720px) {
     .op-date-presets {
@@ -591,6 +635,9 @@ const DATE_PICKER_STYLES = `
         width: 100%;
         border-right: 0;
         border-bottom: 1px solid var(--line-soft);
+        /* On mobile the presets wrap into rows above the calendar; cap
+           the height so they don't push the calendar off-screen. */
+        max-height: 140px;
     }
 }
 .op-date-preset {

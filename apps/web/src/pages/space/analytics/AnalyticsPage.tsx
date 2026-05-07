@@ -48,7 +48,6 @@ const ENTRIES: Entry[] = [
             "How fast money is leaving — month-to-date pace, year-over-year, and a forecast.",
         icon: Activity,
         color: "var(--gold)",
-        soon: true,
     },
     {
         view: "categories",
@@ -80,7 +79,6 @@ const ENTRIES: Entry[] = [
             "Every envelope × every account in one grid — a heatmap of where money is partitioned.",
         icon: Grid3x3,
         color: "var(--ent-4)",
-        soon: true,
     },
     {
         view: "accounts",
@@ -99,9 +97,9 @@ const ENTRIES: Entry[] = [
     },
     {
         view: "heatmap",
-        title: "Spending heatmap",
+        title: "Spending calendar",
         description:
-            "Daily expense intensity for the year — see spending patterns at a glance.",
+            "A zoomed-out twelve-month calendar — every day visible with intensity, peaks, and recurring markers.",
         icon: Flame,
         color: "var(--ent-5)",
     },
@@ -112,7 +110,6 @@ const ENTRIES: Entry[] = [
             "Outliers, recurring-charge changes, broken patterns, and streaks — surfaced automatically.",
         icon: AlertTriangle,
         color: "var(--expense)",
-        soon: true,
     },
     {
         view: "priority",

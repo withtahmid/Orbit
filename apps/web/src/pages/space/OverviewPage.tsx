@@ -1214,7 +1214,6 @@ function BalanceTrend({ series }: { series: Array<{ bucket: string; balance: num
     const first = series[0]!.balance;
     const last = series[series.length - 1]!.balance;
     const delta = last - first;
-    const data = series.map((d) => d.balance);
     const firstBucket = series[0]!.bucket;
     return (
         <>
@@ -1228,7 +1227,7 @@ function BalanceTrend({ series }: { series: Array<{ bucket: string; balance: num
                     signed
                 />
             </div>
-            <AreaChart data={data} height={210} />
+            <AreaChart series={series} height={210} />
         </>
     );
 }
@@ -1252,64 +1251,204 @@ function KpiCol({
     );
 }
 
+/**
+ * Hand-rolled area chart with mouse-tracking hover. Uses two distinct
+ * hues (warm gold line + cool green fill) to mirror the editorial
+ * treatment from the Balance history detail view. On hover, snaps a
+ * vertical guide + dot to the nearest data point and shows a tooltip
+ * with the date and value at that point — recharts is overkill for the
+ * overview's small chart and brings in extra bundle weight we don't
+ * need here.
+ */
 function AreaChart({
-    data,
+    series,
     height = 200,
-    color = "var(--brand)",
+    /** Base color for stroke and end-dot — warm gold by default. */
+    lineColor = "oklch(82% 0.16 95)",
+    /** Base color for the area gradient — cooler green by default. */
+    fillColor = "oklch(60% 0.16 145)",
 }: {
-    data: number[];
+    series: Array<{ bucket: string; balance: number }>;
     height?: number;
-    color?: string;
+    lineColor?: string;
+    fillColor?: string;
 }) {
-    if (data.length < 2)
+    const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+    if (series.length < 2)
         return <EmptyHint>Not enough points yet.</EmptyHint>;
+
     const w = 800;
     const h = height;
     const p = 12;
+    const data = series.map((d) => d.balance);
     const max = Math.max(...data);
     const min = Math.min(...data);
     const sx = (i: number) => p + (i / (data.length - 1)) * (w - p * 2);
-    const sy = (v: number) => h - p - ((v - min) / (max - min || 1)) * (h - p * 2);
+    const sy = (v: number) =>
+        h - p - ((v - min) / (max - min || 1)) * (h - p * 2);
     const path = data
         .map((v, i) => `${i ? "L" : "M"}${sx(i).toFixed(1)} ${sy(v).toFixed(1)}`)
         .join(" ");
     const area = `${path} L ${sx(data.length - 1)} ${h - p} L ${p} ${h - p} Z`;
+    const lastIdx = data.length - 1;
+
+    const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+        // Translate cursor x into a `viewBox` x coord, then snap to the
+        // closest data point. Tracked on the wrapping div (not the SVG)
+        // so the SVG can keep `preserveAspectRatio="none"` and stretch
+        // horizontally without the math going off — we use the wrapper's
+        // bounding rect to remap.
+        const rect = e.currentTarget.getBoundingClientRect();
+        const xRatio = (e.clientX - rect.left) / Math.max(1, rect.width);
+        if (xRatio < 0 || xRatio > 1) {
+            setHoverIdx(null);
+            return;
+        }
+        const xInChart = p + xRatio * (w - p * 2);
+        const i = Math.round(((xInChart - p) / (w - p * 2)) * lastIdx);
+        const clamped = Math.max(0, Math.min(lastIdx, i));
+        setHoverIdx(clamped);
+    };
+
+    const active = hoverIdx ?? lastIdx;
+    const activeX = sx(active);
+    const activeY = sy(data[active]!);
+    const tooltipPctLeft = (activeX / w) * 100;
+
     return (
-        <svg
-            viewBox={`0 0 ${w} ${h}`}
-            width="100%"
-            height={h}
-            preserveAspectRatio="none"
-            style={{ display: "block" }}
+        <div
+            onMouseMove={onMove}
+            onMouseLeave={() => setHoverIdx(null)}
+            style={{ position: "relative" }}
         >
-            <defs>
-                <linearGradient id="ov-area-grad" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor={color} stopOpacity="0.32" />
-                    <stop offset="100%" stopColor={color} stopOpacity="0" />
-                </linearGradient>
-            </defs>
-            {[0, 1, 2, 3].map((i) => (
-                <line
-                    key={i}
-                    x1={p}
-                    x2={w - p}
-                    y1={p + (i * (h - p * 2)) / 3}
-                    y2={p + (i * (h - p * 2)) / 3}
-                    stroke="var(--line-soft)"
-                    strokeDasharray="2 4"
-                />
-            ))}
-            <path d={area} fill="url(#ov-area-grad)" />
-            <path d={path} fill="none" stroke={color} strokeWidth="1.6" />
-            <circle cx={sx(data.length - 1)} cy={sy(data[data.length - 1]!)} r="3.5" fill={color} />
-            <circle
-                cx={sx(data.length - 1)}
-                cy={sy(data[data.length - 1]!)}
-                r="7"
-                fill={color}
-                opacity="0.18"
-            />
-        </svg>
+            <svg
+                viewBox={`0 0 ${w} ${h}`}
+                width="100%"
+                height={h}
+                preserveAspectRatio="none"
+                style={{ display: "block" }}
+            >
+                <defs>
+                    <linearGradient
+                        id="ov-area-grad"
+                        x1="0"
+                        x2="0"
+                        y1="0"
+                        y2="1"
+                    >
+                        <stop
+                            offset="0%"
+                            stopColor={fillColor}
+                            stopOpacity="0.5"
+                        />
+                        <stop
+                            offset="100%"
+                            stopColor={fillColor}
+                            stopOpacity="0"
+                        />
+                    </linearGradient>
+                </defs>
+                {[0, 1, 2, 3].map((i) => (
+                    <line
+                        key={i}
+                        x1={p}
+                        x2={w - p}
+                        y1={p + (i * (h - p * 2)) / 3}
+                        y2={p + (i * (h - p * 2)) / 3}
+                        stroke="var(--line-soft, var(--border))"
+                        strokeDasharray="2 4"
+                    />
+                ))}
+                <path d={area} fill="url(#ov-area-grad)" />
+                <path d={path} fill="none" stroke={lineColor} strokeWidth="1.6" />
+
+                {/* Hover guide + dot */}
+                {hoverIdx !== null && (
+                    <>
+                        <line
+                            x1={activeX}
+                            x2={activeX}
+                            y1={p}
+                            y2={h - p}
+                            stroke={lineColor}
+                            strokeOpacity={0.4}
+                            strokeDasharray="3 4"
+                        />
+                        <circle
+                            cx={activeX}
+                            cy={activeY}
+                            r="7"
+                            fill={lineColor}
+                            opacity="0.22"
+                        />
+                        <circle
+                            cx={activeX}
+                            cy={activeY}
+                            r="3.5"
+                            fill={lineColor}
+                        />
+                    </>
+                )}
+
+                {/* End-point marker (only when not hovering somewhere else) */}
+                {hoverIdx === null && (
+                    <>
+                        <circle
+                            cx={sx(lastIdx)}
+                            cy={sy(data[lastIdx]!)}
+                            r="7"
+                            fill={lineColor}
+                            opacity="0.18"
+                        />
+                        <circle
+                            cx={sx(lastIdx)}
+                            cy={sy(data[lastIdx]!)}
+                            r="3.5"
+                            fill={lineColor}
+                        />
+                    </>
+                )}
+            </svg>
+
+            {/* Tooltip — absolutely positioned over the wrapper. Pointer
+                events disabled so it doesn't steal hover from the SVG;
+                left clamps to keep the bubble fully on-screen near the
+                edges. */}
+            {hoverIdx !== null && (
+                <div
+                    style={{
+                        position: "absolute",
+                        top: 8,
+                        left: `${Math.max(4, Math.min(96, tooltipPctLeft))}%`,
+                        transform: "translateX(-50%)",
+                        pointerEvents: "none",
+                        background: "var(--popover, var(--background))",
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        padding: "6px 10px",
+                        fontSize: 11,
+                        lineHeight: 1.3,
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                        whiteSpace: "nowrap",
+                        zIndex: 1,
+                    }}
+                >
+                    <div
+                        style={{
+                            color: "var(--muted-foreground, #888)",
+                            fontSize: 10,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                            marginBottom: 2,
+                        }}
+                    >
+                        {formatInAppTz(series[active]!.bucket, "MMM d, yyyy")}
+                    </div>
+                    <Money amount={data[active]!} size={13} weight={600} />
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -1763,12 +1902,21 @@ function NetWorthComposition({
                            12-month net-worth series once available. */}
                         <div className="ov-nwc-trendwrap">
                             <AreaChart
-                                data={[
+                                series={[
                                     1, 1.05, 1.1, 1.08, 1.15, 1.18, 1.22, 1.2,
                                     1.28, 1.32, 1.38, 1.45,
-                                ].map((v) => v * Math.max(net, 1))}
+                                ].map((v, i) => ({
+                                    // Synthesize one bucket per month over
+                                    // the trailing 12 months so the hover
+                                    // tooltip can render a date label even
+                                    // though the trend itself is fake.
+                                    bucket: addMonths(
+                                        new Date(),
+                                        -11 + i
+                                    ).toISOString(),
+                                    balance: v * Math.max(net, 1),
+                                }))}
                                 height={120}
-                                color="var(--brand)"
                             />
                         </div>
                         <NwcSplitBar

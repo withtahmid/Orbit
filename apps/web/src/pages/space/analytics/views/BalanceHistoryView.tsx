@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, Clock, Wallet } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Clock, Info, Wallet } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
 import { formatMoney } from "@/lib/money";
 import {
@@ -33,7 +33,9 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
-import { PeriodSelector } from "@/components/shared/PeriodSelector";
+import { PeriodChip } from "@/components/shared/PeriodChip";
+import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
+import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
@@ -43,7 +45,6 @@ import {
     bucketLabelPattern,
     bucketTickPattern,
     BUCKET_LABEL,
-    compactMoney,
     type Bucket,
     type BucketSelection,
 } from "@/lib/chartBucket";
@@ -101,9 +102,7 @@ export default function BalanceHistoryView() {
 
     // Accounts available to filter on. For a real space that's every
     // account in the space; for the virtual personal space it's every
-    // account the caller owns (the scope the personal balance_history
-    // already operates within — filtering to a non-owned account would
-    // be silently dropped server-side anyway).
+    // account the caller owns.
     const accountsSpace = trpc.account.listBySpace.useQuery(
         { spaceId: space.id },
         { enabled: !space.isPersonal }
@@ -128,13 +127,11 @@ export default function BalanceHistoryView() {
         }));
     }, [space.isPersonal, accountsSpace.data, accountsPersonal.data]);
 
-    // Empty set = "all accounts" (no filter). Using a Set here rather
-    // than an array so toggle is O(1) and order-independent.
+    // Empty set = "all accounts" (no filter).
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const hasFilter = selected.size > 0;
     const accountIds = hasFilter ? Array.from(selected) : undefined;
 
-    // Timeframe (bucket granularity). "auto" picks by period span.
     const [bucketSelection, setBucketSelection] =
         useState<BucketSelection>("auto");
     const resolvedBucket = useMemo(
@@ -144,9 +141,6 @@ export default function BalanceHistoryView() {
     const effectiveBucket: Bucket =
         bucketSelection === "auto" ? resolvedBucket : bucketSelection;
 
-    // Chart viewing mode. Default to "total" — most users want the net
-    // trend at a glance; drilling into per-account is a conscious second
-    // step, so we don't pay vertical space for it by default.
     const [chartMode, setChartMode] = useState<"total" | "accounts">("total");
 
     const qSpace = trpc.analytics.balanceHistory.useQuery(
@@ -170,10 +164,6 @@ export default function BalanceHistoryView() {
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
-    // Pivot the server's long-form {accountId, bucket, balance} rows into
-    // wide-form [{bucket, [accountId]: balance, ...}] which is what
-    // Recharts wants when we emit one <Line> per account. Bucket values
-    // come across the wire as ISO strings (no superjson transformer).
     const chartAccounts = q.data?.accounts ?? [];
     const chartData = useMemo(() => {
         if (!q.data) return [];
@@ -201,8 +191,6 @@ export default function BalanceHistoryView() {
         );
     }, [q.data]);
 
-    // Totals series for the combined chart: sum every account's balance
-    // within each bucket.
     const totalSeries = useMemo(() => {
         if (!q.data) return [];
         const byBucket = new Map<string, number>();
@@ -217,6 +205,111 @@ export default function BalanceHistoryView() {
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([bucket, balance]) => ({ bucket, balance }));
     }, [q.data]);
+
+    /**
+     * Headline KPIs derived from the totals series. Peak / trough scan all
+     * buckets; net-worth-today is the last bucket; period-change is last
+     * minus first.
+     */
+    const kpi = useMemo(() => {
+        if (totalSeries.length === 0) {
+            return {
+                today: 0,
+                periodChange: 0,
+                periodChangePctOfPeak: 0,
+                peak: 0,
+                peakAt: null as string | null,
+                trough: 0,
+                troughAt: null as string | null,
+                weeksAgo: 0,
+            };
+        }
+        const first = totalSeries[0];
+        const last = totalSeries[totalSeries.length - 1];
+        let peak = first.balance;
+        let peakAt = first.bucket;
+        let trough = first.balance;
+        let troughAt = first.bucket;
+        for (const r of totalSeries) {
+            if (r.balance > peak) {
+                peak = r.balance;
+                peakAt = r.bucket;
+            }
+            if (r.balance < trough) {
+                trough = r.balance;
+                troughAt = r.bucket;
+            }
+        }
+        const periodChange = last.balance - first.balance;
+        const periodChangePctOfPeak =
+            peak > 0 ? (periodChange / peak) * 100 : 0;
+        // Weeks-ago: most periods bucket weekly so length-1 ≈ weeks-ago.
+        const weeksAgo = totalSeries.length - 1;
+        return {
+            today: last.balance,
+            periodChange,
+            periodChangePctOfPeak,
+            peak,
+            peakAt,
+            trough,
+            troughAt,
+            weeksAgo,
+        };
+    }, [totalSeries]);
+
+    /** Bucket-unit name in singular/plural form, used to humanize KPI labels
+     *  (e.g. "12-week change" instead of a generic "12-bucket change"). */
+    const unitWord =
+        effectiveBucket === "day"
+            ? "day"
+            : effectiveBucket === "week"
+              ? "week"
+              : effectiveBucket === "month"
+                ? "month"
+                : "year";
+
+    const kpiItems: KpiItem[] = [
+        {
+            label: "Net worth today",
+            value: kpi.today,
+            money: true,
+            tone: kpi.today >= 0 ? "income" : "expense",
+        },
+        {
+            label: `${totalSeries.length}-${unitWord} change`,
+            value: kpi.periodChange,
+            money: true,
+            tone: kpi.periodChange < 0 ? "expense" : "income",
+            sub:
+                kpi.peak > 0
+                    ? `${kpi.periodChangePctOfPeak >= 0 ? "+" : ""}${kpi.periodChangePctOfPeak.toFixed(1)}% from peak`
+                    : "—",
+        },
+        {
+            label: "Peak balance",
+            value: kpi.peak,
+            money: true,
+            sub: kpi.peakAt
+                ? `${formatInAppTz(kpi.peakAt, "MMM d")} · ${formatUnitsAgo(
+                      kpi.peakAt,
+                      totalSeries,
+                      unitWord
+                  )}`
+                : "—",
+        },
+        {
+            label: "Trough balance",
+            value: kpi.trough,
+            money: true,
+            sub: kpi.troughAt
+                ? `${formatInAppTz(kpi.troughAt, "MMM d")} · ${formatUnitsAgo(
+                      kpi.troughAt,
+                      totalSeries,
+                      unitWord
+                  )}`
+                : "—",
+        },
+    ];
 
     const toggle = (id: string) => {
         setSelected((prev) => {
@@ -236,7 +329,7 @@ export default function BalanceHistoryView() {
     return (
         <AnalyticsDetailLayout
             title="Balance history"
-            description="Balance per account over time (assets positive, liabilities negative)."
+            description="Balance per account over time. Assets shown positive, liabilities negative. Auto-bucketed weekly."
             actions={
                 <div className="flex flex-wrap items-center gap-2">
                     <DropdownMenu>
@@ -319,48 +412,77 @@ export default function BalanceHistoryView() {
                             <SelectItem value="year">Year</SelectItem>
                         </SelectContent>
                     </Select>
-                    <PeriodSelector defaultPreset="last-3-months" />
+                    <PeriodChip defaultPreset="last-3-months" />
                 </div>
             }
         >
+            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+
+            <Tabs
+                value={chartMode}
+                onValueChange={(v) => setChartMode(v as "total" | "accounts")}
+            >
+                <TabsList>
+                    <TabsTrigger value="total">Total</TabsTrigger>
+                    <TabsTrigger value="accounts">By account</TabsTrigger>
+                </TabsList>
+            </Tabs>
+
             <Card>
-                <CardHeader className="flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <CardHeader>
                     <CardTitle>
                         {chartMode === "total"
                             ? "Balance over the selected period"
                             : "Per-account breakdown"}
                     </CardTitle>
-                    <Tabs
-                        value={chartMode}
-                        onValueChange={(v) =>
-                            setChartMode(v as "total" | "accounts")
-                        }
-                    >
-                        <TabsList>
-                            <TabsTrigger value="total">Total</TabsTrigger>
-                            <TabsTrigger value="accounts">By account</TabsTrigger>
-                        </TabsList>
-                    </Tabs>
+                    <p className="text-xs text-muted-foreground">
+                        {chartMode === "total"
+                            ? "Total spendable + assets, minus liabilities."
+                            : "Each line is one account."}
+                    </p>
                 </CardHeader>
                 {chartMode === "accounts" && chartAccounts.length > 0 && (
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-6 pb-3">
-                        {chartAccounts.map((a) => (
-                            <div
-                                key={a.id}
-                                className="inline-flex items-center gap-1.5 text-xs"
-                            >
-                                <span
-                                    className="size-2 shrink-0 rounded-full"
-                                    style={{ background: a.color }}
-                                />
-                                <span className="text-muted-foreground">
-                                    {a.name}
-                                </span>
-                            </div>
-                        ))}
+                        {chartAccounts.map((a) => {
+                            const series = chartData.map(
+                                (row) => Number(row[a.id] ?? 0)
+                            );
+                            const last = series[series.length - 1] ?? 0;
+                            const first = series[0] ?? 0;
+                            const delta = last - first;
+                            return (
+                                <div
+                                    key={a.id}
+                                    className="inline-flex items-center gap-1.5 text-[11px]"
+                                >
+                                    <span
+                                        className="size-2 shrink-0 rounded-sm"
+                                        style={{ background: a.color }}
+                                    />
+                                    <span className="text-foreground/85">
+                                        {a.name}
+                                    </span>
+                                    <MoneyDisplay
+                                        amount={last}
+                                        variant="muted"
+                                        className="text-[11px] font-medium"
+                                    />
+                                    <span
+                                        className={
+                                            delta >= 0
+                                                ? "text-[color:var(--income)] tabular-nums"
+                                                : "text-[color:var(--expense)] tabular-nums"
+                                        }
+                                    >
+                                        {delta >= 0 ? "+" : ""}
+                                        {(delta / 1000).toFixed(1)}k
+                                    </span>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
-                <CardContent className="h-[440px] px-1 sm:h-[540px] sm:px-4">
+                <CardContent className="h-[360px] px-1 sm:h-[440px] sm:px-4">
                     {q.isLoading ? (
                         <Skeleton className="h-full w-full" />
                     ) : chartMode === "total" ? (
@@ -372,9 +494,20 @@ export default function BalanceHistoryView() {
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart
                                     data={totalSeries}
-                                    margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
+                                    margin={{
+                                        top: 16,
+                                        right: 16,
+                                        bottom: 8,
+                                        left: 0,
+                                    }}
                                 >
                                     <defs>
+                                        {/* The design uses two distinct
+                                            hues — a warm gold for the line
+                                            and a cooler green for the area
+                                            fill. Locking them to the same
+                                            token reads as too monochrome
+                                            and loses the editorial pop. */}
                                         <linearGradient
                                             id="balance-detail-total-grad"
                                             x1="0"
@@ -384,12 +517,12 @@ export default function BalanceHistoryView() {
                                         >
                                             <stop
                                                 offset="0%"
-                                                stopColor="var(--primary)"
-                                                stopOpacity={0.45}
+                                                stopColor="oklch(60% 0.16 145)"
+                                                stopOpacity={0.5}
                                             />
                                             <stop
                                                 offset="100%"
-                                                stopColor="var(--primary)"
+                                                stopColor="oklch(60% 0.16 145)"
                                                 stopOpacity={0}
                                             />
                                         </linearGradient>
@@ -410,17 +543,26 @@ export default function BalanceHistoryView() {
                                         stroke="var(--muted-foreground)"
                                         fontSize={11}
                                         tickLine={false}
-                                        axisLine={{ stroke: "var(--border)" }}
+                                        axisLine={false}
                                         tickMargin={8}
                                     />
+                                    {/* Y-axis hidden — design renders the
+                                        balance line as a pure trend signal
+                                        without numeric tick labels (the KPI
+                                        strip carries the absolute numbers).
+                                        Domain is tightened to [min×0.95,
+                                        max×1.02] so the actual peak/trough
+                                        variation reads — recharts' default
+                                        anchors at zero, which compresses a
+                                        91k→102k swing into a flat sliver. */}
                                     <YAxis
-                                        stroke="var(--muted-foreground)"
-                                        fontSize={11}
-                                        width={56}
-                                        tickFormatter={compactMoney}
-                                        tickLine={false}
-                                        axisLine={false}
-                                        tickMargin={4}
+                                        hide
+                                        domain={[
+                                            (min: number) =>
+                                                Math.floor(min * 0.95),
+                                            (max: number) =>
+                                                Math.ceil(max * 1.02),
+                                        ]}
                                     />
                                     <RTooltip
                                         contentStyle={{
@@ -430,7 +572,7 @@ export default function BalanceHistoryView() {
                                         }}
                                         labelFormatter={(v) =>
                                             formatInAppTz(
-                                                v as any,
+                                                v as string,
                                                 bucketLabelPattern(effectiveBucket)
                                             )
                                         }
@@ -445,13 +587,92 @@ export default function BalanceHistoryView() {
                                         }}
                                     />
                                     <Area
-                                        type="monotone"
+                                        // Straight-line segments (not smooth
+                                        // monotone curves) so peaks read as
+                                        // sharp polyline angles like the
+                                        // design's hand-rolled SVG.
+                                        type="linear"
                                         dataKey="balance"
-                                        stroke="var(--primary)"
-                                        strokeWidth={2.25}
+                                        // Warm gold stroke — separate from
+                                        // the cool-green area gradient so
+                                        // the line pops off the fill rather
+                                        // than blending into it.
+                                        stroke="oklch(82% 0.16 95)"
+                                        // 1.6px matches the design's hand-
+                                        // rolled SVG (`stroke-width="1.6"`).
+                                        // Anything thicker reads as a
+                                        // chunky line and changes the
+                                        // chart's overall weight.
+                                        strokeWidth={1.6}
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
                                         fill="url(#balance-detail-total-grad)"
+                                        // Always show the dot at the latest
+                                        // data point so the user's eye lands
+                                        // on "where we are now"; mid-series
+                                        // dots stay off to keep the line clean.
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        dot={((props: any) => {
+                                            const cx = props?.cx as
+                                                | number
+                                                | undefined;
+                                            const cy = props?.cy as
+                                                | number
+                                                | undefined;
+                                            const index = props?.index as
+                                                | number
+                                                | undefined;
+                                            const key = props?.key as
+                                                | string
+                                                | number
+                                                | undefined;
+                                            const isLast =
+                                                index === totalSeries.length - 1;
+                                            if (
+                                                !isLast ||
+                                                cx === undefined ||
+                                                cy === undefined
+                                            ) {
+                                                // Recharts requires an SVG
+                                                // element here even when we
+                                                // don't want to render — an
+                                                // invisible anchor with a
+                                                // stable key prevents a React
+                                                // null-key warning.
+                                                return (
+                                                    <circle
+                                                        key={key ?? index}
+                                                        r={0}
+                                                        fill="none"
+                                                    />
+                                                );
+                                            }
+                                            // Two concentric circles: a soft
+                                            // halo at 0.18 opacity behind a
+                                            // solid 3.5px dot — mirrors the
+                                            // design's "glow ring" around
+                                            // the latest data point. Color
+                                            // matches the line stroke so
+                                            // the dot reads as the line's
+                                            // terminus.
+                                            return (
+                                                <g key={key ?? index}>
+                                                    <circle
+                                                        cx={cx}
+                                                        cy={cy}
+                                                        r={7}
+                                                        fill="oklch(82% 0.16 95)"
+                                                        opacity={0.18}
+                                                    />
+                                                    <circle
+                                                        cx={cx}
+                                                        cy={cy}
+                                                        r={3.5}
+                                                        fill="oklch(82% 0.16 95)"
+                                                    />
+                                                </g>
+                                            );
+                                        }) as never}
                                         activeDot={{
                                             r: 4,
                                             strokeWidth: 2,
@@ -471,29 +692,6 @@ export default function BalanceHistoryView() {
                                 data={chartData}
                                 margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
                             >
-                                <defs>
-                                    {chartAccounts.map((a, i) => (
-                                        <linearGradient
-                                            key={a.id}
-                                            id={`balance-acct-grad-${i}`}
-                                            x1="0"
-                                            y1="0"
-                                            x2="0"
-                                            y2="1"
-                                        >
-                                            <stop
-                                                offset="0%"
-                                                stopColor={a.color}
-                                                stopOpacity={0.28}
-                                            />
-                                            <stop
-                                                offset="100%"
-                                                stopColor={a.color}
-                                                stopOpacity={0}
-                                            />
-                                        </linearGradient>
-                                    ))}
-                                </defs>
                                 <CartesianGrid
                                     strokeDasharray="2 6"
                                     stroke="var(--border)"
@@ -510,17 +708,17 @@ export default function BalanceHistoryView() {
                                     stroke="var(--muted-foreground)"
                                     fontSize={11}
                                     tickLine={false}
-                                    axisLine={{ stroke: "var(--border)" }}
+                                    axisLine={false}
                                     tickMargin={8}
                                 />
                                 <YAxis
-                                    stroke="var(--muted-foreground)"
-                                    fontSize={11}
-                                    width={56}
-                                    tickFormatter={compactMoney}
-                                    tickLine={false}
-                                    axisLine={false}
-                                    tickMargin={4}
+                                    hide
+                                    domain={[
+                                        (min: number) =>
+                                            Math.floor(min * 0.95),
+                                        (max: number) =>
+                                            Math.ceil(max * 1.02),
+                                    ]}
                                 />
                                 <RTooltip
                                     content={(props) => (
@@ -535,23 +733,27 @@ export default function BalanceHistoryView() {
                                         strokeDasharray: "3 3",
                                     }}
                                 />
-                                {chartAccounts.map((a, i) => (
+                                {chartAccounts.map((a) => (
                                     <Area
                                         key={a.id}
-                                        type="monotone"
+                                        type="linear"
                                         dataKey={a.id}
                                         name={a.name}
                                         stroke={a.color}
-                                        strokeWidth={2.25}
+                                        // 1.6 matches the Total chart so the
+                                        // two tabs feel like the same chart
+                                        // family rather than two visually
+                                        // distinct components.
+                                        strokeWidth={1.6}
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
-                                        fill={`url(#balance-acct-grad-${i})`}
-                                        fillOpacity={1}
+                                        fill="transparent"
                                         dot={false}
                                         activeDot={{
-                                            r: 4,
+                                            r: 3.5,
                                             strokeWidth: 2,
                                             stroke: "var(--background)",
+                                            fill: a.color,
                                         }}
                                     />
                                 ))}
@@ -559,7 +761,87 @@ export default function BalanceHistoryView() {
                         </ResponsiveContainer>
                     )}
                 </CardContent>
+
+                {/* Annotations row — surfaces the peak / trough / period change
+                    moments with their date so the user can read the chart's
+                    story without scrubbing. Only shown on the Total tab; the
+                    per-account view's legend already serves a similar role. */}
+                {chartMode === "total" && totalSeries.length > 0 && !q.isLoading && (
+                    <div className="grid gap-3 border-t border-border/40 px-6 py-4 sm:grid-cols-3">
+                        <Annotation
+                            icon="up"
+                            color="var(--income)"
+                            label={
+                                kpi.peakAt
+                                    ? `${formatInAppTz(kpi.peakAt, "MMM d")} — Peak`
+                                    : "Peak"
+                            }
+                            value={formatMoney(kpi.peak)}
+                        />
+                        <Annotation
+                            icon="down"
+                            color="var(--expense)"
+                            label={
+                                kpi.troughAt
+                                    ? `${formatInAppTz(kpi.troughAt, "MMM d")} — Trough`
+                                    : "Trough"
+                            }
+                            value={formatMoney(kpi.trough)}
+                        />
+                        <Annotation
+                            icon="info"
+                            color="var(--warning)"
+                            label={`Net change`}
+                            value={`${kpi.periodChange >= 0 ? "+" : "−"}${formatMoney(
+                                Math.abs(kpi.periodChange)
+                            )}`}
+                        />
+                    </div>
+                )}
             </Card>
         </AnalyticsDetailLayout>
     );
+}
+
+function Annotation({
+    icon,
+    color,
+    label,
+    value,
+}: {
+    icon: "up" | "down" | "info";
+    color: string;
+    label: string;
+    value: string;
+}) {
+    const Icon = icon === "up" ? ArrowUp : icon === "down" ? ArrowDown : Info;
+    return (
+        <div className="flex items-start gap-2.5">
+            <Icon className="size-3.5 shrink-0 translate-y-0.5" style={{ color }} />
+            <div className="flex flex-col gap-0.5">
+                <span className="text-[11px] text-muted-foreground">{label}</span>
+                <span className="text-[12.5px] font-semibold tabular-nums text-foreground">
+                    {value}
+                </span>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * Position a bucket relative to the latest one, e.g. "8 weeks ago".
+ * The unit word follows the active bucket size so the result reads
+ * naturally regardless of granularity.
+ */
+function formatUnitsAgo(
+    bucketKey: string,
+    series: Array<{ bucket: string }>,
+    unitWord: string
+): string {
+    const idx = series.findIndex((r) => r.bucket === bucketKey);
+    if (idx < 0) return "";
+    const offsetFromLast = series.length - 1 - idx;
+    if (offsetFromLast === 0) return "today";
+    if (offsetFromLast === 1) return `1 ${unitWord} ago`;
+    return `${offsetFromLast} ${unitWord}s ago`;
 }
