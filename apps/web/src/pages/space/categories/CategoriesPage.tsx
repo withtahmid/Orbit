@@ -57,6 +57,7 @@ import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { Folder, Layers, Lock, Check } from "lucide-react";
 import { usePeriod } from "@/hooks/usePeriod";
 import { trpc } from "@/trpc";
+import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import { resolvePeriod } from "@/lib/dates";
@@ -783,7 +784,7 @@ function CategoryRowActions({
     allCategories: CategoryUsage[];
 }) {
     const { space } = useCurrentSpace();
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
     const [editOpen, setEditOpen] = useState(false);
     const [reparentOpen, setReparentOpen] = useState(false);
     const [envelopeOpen, setEnvelopeOpen] = useState(false);
@@ -791,10 +792,7 @@ function CategoryRowActions({
     const del = trpc.expenseCategory.delete.useMutation({
         onSuccess: async () => {
             toast.success("Category deleted");
-            await utils.expenseCategory.listBySpace.invalidate({ spaceId: space.id });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({
-                spaceId: space.id,
-            });
+            await invalidate(space.id);
         },
         onError: (e) => toast.error(e.message),
     });
@@ -910,14 +908,11 @@ function CreateCategoryDialog({
     const [icon, setIcon] = useState("folder");
     const [priority, setPriority] = useState<Priority | "">("");
     const [notes, setNotes] = useState("");
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
     const create = trpc.expenseCategory.create.useMutation({
         onSuccess: async () => {
             toast.success("Category created");
-            await utils.expenseCategory.listBySpace.invalidate({ spaceId: space.id });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({
-                spaceId: space.id,
-            });
+            await invalidate(space.id);
             setName("");
             setEnvelopId(defaultEnvelopeId ?? "");
             setParentId("");
@@ -1281,14 +1276,11 @@ function EditCategoryDialog({
     const [priority, setPriority] = useState<Priority | "">(
         category.priority ?? ""
     );
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
     const update = trpc.expenseCategory.update.useMutation({
         onSuccess: async () => {
             toast.success("Category updated");
-            await utils.expenseCategory.listBySpace.invalidate({ spaceId: space.id });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({
-                spaceId: space.id,
-            });
+            await invalidate(space.id);
             onOpenChange(false);
         },
         onError: (e) => toast.error(e.message),
@@ -1435,14 +1427,11 @@ function ChangeParentDialog({
 }) {
     const { space } = useCurrentSpace();
     const [parentId, setParentId] = useState<string>(category.parent_id ?? "none");
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
     const mutate = trpc.expenseCategory.changeParent.useMutation({
         onSuccess: async () => {
             toast.success("Parent updated");
-            await utils.expenseCategory.listBySpace.invalidate({ spaceId: space.id });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({
-                spaceId: space.id,
-            });
+            await invalidate(space.id);
             onOpenChange(false);
         },
         onError: (e) => toast.error(e.message),
@@ -1543,7 +1532,7 @@ function MoveEnvelopDialog({
 }) {
     const { space } = useCurrentSpace();
     const [envelopId, setEnvelopId] = useState(category.envelop_id);
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
     const mutate = trpc.expenseCategory.changeEnvelop.useMutation({
         onSuccess: async (data) => {
             toast.success(
@@ -1551,11 +1540,7 @@ function MoveEnvelopDialog({
                     ? `Moved ${data.movedCount} category${data.movedCount === 1 ? "" : "ies"}`
                     : "No change"
             );
-            await utils.expenseCategory.listBySpace.invalidate({ spaceId: space.id });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({
-                spaceId: space.id,
-            });
-            await utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id });
+            await invalidate(space.id);
             onOpenChange(false);
         },
         onError: (e) => toast.error(e.message),

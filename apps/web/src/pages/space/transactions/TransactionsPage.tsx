@@ -34,6 +34,7 @@ import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { trpc } from "@/trpc";
+import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { usePeriod } from "@/hooks/usePeriod";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -190,17 +191,11 @@ export default function TransactionsPage() {
         return m;
     }, [eventsQuery.data]);
 
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
     const del = trpc.transaction.delete.useMutation({
         onSuccess: async () => {
             toast.success("Transaction deleted");
-            await utils.transaction.listBySpace.invalidate({ spaceId: space.id });
-            await utils.account.listBySpace.invalidate({ spaceId: space.id });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({
-                spaceId: space.id,
-            });
-            await utils.analytics.spaceSummary.invalidate();
-            await utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id });
+            await invalidate(space.id);
         },
         onError: (e) => toast.error(e.message),
     });
@@ -217,28 +212,56 @@ export default function TransactionsPage() {
 
     const items = listQuery.data?.items ?? [];
 
-    /* IN/OUT/NET/AVG-DAY summary computed from the visible page items.
-       TODO(api): a dedicated filtered-totals procedure would let this
-       reflect the *full* filtered set, not just the current page. */
-    const summary = useMemo(() => {
-        let inTotal = 0;
-        let outTotal = 0;
-        for (const t of items) {
-            const amt = Number(t.amount);
-            const tt = (t.type as unknown as string) ?? "expense";
-            if (tt === "income") inTotal += amt;
-            else if (tt === "expense") outTotal += amt;
-        }
-        const net = inTotal - outTotal;
-        const days = Math.max(
-            1,
-            Math.round(
-                (period.end.getTime() - period.start.getTime()) / (1000 * 60 * 60 * 24)
-            )
-        );
-        const avg = outTotal / days;
-        return { inTotal, outTotal, net, avg };
-    }, [items, period.start, period.end]);
+    /* IN/OUT/NET/AVG-DAY summary for the entire filtered set (not just
+       the current page). Same filter shape as listBySpace / personal.transactions.
+       Memoized so the object identity is stable across renders — cheap,
+       and avoids a fresh hash key in tRPC's react-query layer per render. */
+    const filteredTotalsInput = useMemo(
+        () => ({
+            type,
+            accountId: accountId || null,
+            expenseCategoryId: categoryId || null,
+            eventId: eventId || null,
+            userId: userId || null,
+            search: search || null,
+            amountMin: amountMin ? Number(amountMin) : null,
+            amountMax: amountMax ? Number(amountMax) : null,
+            dateFrom: period.start,
+            dateTo: period.end,
+        }),
+        [
+            type,
+            accountId,
+            categoryId,
+            eventId,
+            userId,
+            search,
+            amountMin,
+            amountMax,
+            period.start,
+            period.end,
+        ]
+    );
+    const filteredTotalsSpaceQuery = trpc.transaction.filteredTotals.useQuery(
+        { spaceId: space.id, ...filteredTotalsInput },
+        { enabled: !isPersonal }
+    );
+    const filteredTotalsPersonalQuery =
+        trpc.personal.transactionFilteredTotals.useQuery(filteredTotalsInput, {
+            enabled: isPersonal,
+        });
+    const totalsData =
+        (isPersonal
+            ? filteredTotalsPersonalQuery.data
+            : filteredTotalsSpaceQuery.data) ?? null;
+    const summary = totalsData
+        ? {
+              inTotal: totalsData.inTotal,
+              outTotal: totalsData.outTotal,
+              net: totalsData.net,
+              avg: totalsData.avgPerDay,
+          }
+        : { inTotal: 0, outTotal: 0, net: 0, avg: 0 };
 
     const periodLabel = useMemo(() => {
         if (preset === "this-month") return formatInAppTz(period.start, "MMMM yyyy");

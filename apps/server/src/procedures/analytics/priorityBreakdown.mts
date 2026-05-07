@@ -61,7 +61,14 @@ export const priorityBreakdown = authorizedProcedure
                 // only expenses whose source is in the space's
                 // scope_accounts count, plus transfer fees attributed
                 // to fee_expense_category_id whose source is in scope.
-                const query = sql<{ priority: string | null; total: string }>`
+                const query = sql<{
+                    priority: string | null;
+                    envelop_id: string | null;
+                    envelop_name: string | null;
+                    envelop_color: string | null;
+                    envelop_icon: string | null;
+                    total: string;
+                }>`
                     WITH RECURSIVE scope_accounts AS (
                         SELECT sa.account_id
                         FROM space_accounts sa
@@ -69,12 +76,12 @@ export const priorityBreakdown = authorizedProcedure
                     ),
                     ancestry AS (
                         -- depth 0: each category is its own starting point.
-                        SELECT id, parent_id, priority, id AS origin
+                        SELECT id, parent_id, priority, envelop_id, id AS origin
                         FROM expense_categories
                         WHERE space_id = ${input.spaceId}
                         UNION ALL
                         -- Walk up through any NULL-priority ancestors.
-                        SELECT parent.id, parent.parent_id, parent.priority, a.origin
+                        SELECT parent.id, parent.parent_id, parent.priority, parent.envelop_id, a.origin
                         FROM ancestry a
                         JOIN expense_categories parent ON parent.id = a.parent_id
                         WHERE a.priority IS NULL
@@ -83,7 +90,13 @@ export const priorityBreakdown = authorizedProcedure
                         SELECT origin AS id,
                                (ARRAY_AGG(priority)
                                 FILTER (WHERE priority IS NOT NULL))[1]
-                               AS effective_priority
+                               AS effective_priority,
+                               -- Origin's own envelop_id is what counts —
+                               -- envelopes attach at the leaf, and the
+                               -- recursive walk stops at the first ancestor
+                               -- with a priority anyway.
+                               (ARRAY_AGG(envelop_id ORDER BY id = origin DESC))[1]
+                               AS envelop_id
                         FROM ancestry
                         GROUP BY origin
                     ),
@@ -103,24 +116,59 @@ export const priorityBreakdown = authorizedProcedure
                           AND t.transaction_datetime >= ${input.periodStart}
                           AND t.transaction_datetime < ${input.periodEnd}
                     )
-                    SELECT r.effective_priority AS priority,
-                           COALESCE(SUM(e.amount), 0)::text AS total
+                    SELECT
+                        r.effective_priority AS priority,
+                        env.id::text AS envelop_id,
+                        env.name AS envelop_name,
+                        env.color AS envelop_color,
+                        env.icon AS envelop_icon,
+                        COALESCE(SUM(e.amount), 0)::text AS total
                     FROM entries e
                     LEFT JOIN resolved r ON r.id = e.ec_id
-                    GROUP BY r.effective_priority
+                    LEFT JOIN envelops env ON env.id = r.envelop_id
+                    GROUP BY r.effective_priority, env.id, env.name, env.color, env.icon
                 `;
                 const res = await query.execute(trx);
 
                 const totals = new Map<Tier, number>(
                     TIER_ORDER.map((t) => [t, 0])
                 );
+                const envelopesByTier = new Map<
+                    Tier,
+                    Map<
+                        string,
+                        {
+                            id: string;
+                            name: string;
+                            color: string;
+                            icon: string;
+                            total: number;
+                        }
+                    >
+                >(TIER_ORDER.map((t) => [t, new Map()]));
                 for (const row of res.rows) {
                     const key: Tier =
                         row.priority &&
                         TIER_ORDER.includes(row.priority as Tier)
                             ? (row.priority as Tier)
                             : "unclassified";
-                    totals.set(key, (totals.get(key) ?? 0) + Number(row.total));
+                    const total = Number(row.total);
+                    totals.set(key, (totals.get(key) ?? 0) + total);
+                    if (row.envelop_id && row.envelop_name) {
+                        const map = envelopesByTier.get(key)!;
+                        const existing = map.get(row.envelop_id);
+                        if (existing) {
+                            existing.total += total;
+                        } else {
+                            map.set(row.envelop_id, {
+                                id: row.envelop_id,
+                                name: row.envelop_name,
+                                color: row.envelop_color ?? "#64748b",
+                                icon: row.envelop_icon ?? "folder",
+                                total,
+                            });
+                        }
+                    }
                 }
 
                 return TIER_ORDER.map((tier) => ({
@@ -128,6 +176,9 @@ export const priorityBreakdown = authorizedProcedure
                     label: TIER_LABEL[tier],
                     color: TIER_COLOR[tier],
                     total: totals.get(tier) ?? 0,
+                    envelopes: Array.from(
+                        (envelopesByTier.get(tier) ?? new Map()).values()
+                    ).sort((a, b) => b.total - a.total),
                 }));
             })
         );

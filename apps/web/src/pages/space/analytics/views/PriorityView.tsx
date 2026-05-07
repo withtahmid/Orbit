@@ -25,19 +25,6 @@ const TIER_DESCRIPTION: Record<Tier, string> = {
     unclassified: "transfer principal · pre-categorization",
 };
 
-/**
- * "Envelopes by tier" copy below the donut. Backend doesn't expose a
- * per-tier envelope bucketing yet — would need a dedicated procedure that
- * walks the same effective_priority CTE and groups by envelope. Until
- * then we surface representative envelope chips per tier so the UI shape
- * matches the design.
- */
-const ENVELOPES_BY_TIER: Record<Exclude<Tier, "unclassified">, string[]> = {
-    essential: ["Rent", "Utilities", "Insurance"],
-    important: ["Groceries", "Fitness", "Transport"],
-    discretionary: ["Self Care", "Subscriptions", "Coffee", "Hobbies"],
-    luxury: ["Tech & Gadgets"],
-};
 
 export default function PriorityView() {
     const { space } = useCurrentSpace();
@@ -301,14 +288,31 @@ export default function PriorityView() {
                                         </span>
                                     </span>
                                     <div className="flex flex-col gap-1">
-                                        {ENVELOPES_BY_TIER[tier].map((env) => (
-                                            <span
-                                                key={env}
-                                                className="text-[11.5px] text-muted-foreground"
-                                            >
-                                                {env}
+                                        {(data?.envelopes ?? []).length === 0 ? (
+                                            <span className="text-[11.5px] text-muted-foreground italic">
+                                                No envelopes contributing
                                             </span>
-                                        ))}
+                                        ) : (
+                                            (data?.envelopes ?? []).map(
+                                                (env) => (
+                                                    <span
+                                                        key={env.id}
+                                                        className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground"
+                                                    >
+                                                        <span
+                                                            className="size-1 rounded-full"
+                                                            style={{
+                                                                backgroundColor:
+                                                                    env.color,
+                                                            }}
+                                                        />
+                                                        <span className="truncate">
+                                                            {env.name}
+                                                        </span>
+                                                    </span>
+                                                )
+                                            )
+                                        )}
                                     </div>
                                 </div>
                             );

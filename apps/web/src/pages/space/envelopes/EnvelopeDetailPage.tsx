@@ -8,7 +8,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
-import { startOfMonth, endOfMonth } from "@/lib/dates";
+import { addMonths, startOfMonth, endOfMonth } from "@/lib/dates";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/shared/PermissionGate";
@@ -82,7 +82,9 @@ export default function EnvelopeDetailPage() {
     const monthLabel = formatInAppTz(new Date(), "MMM yyyy");
     const daysLeft = useMemo(() => {
         const now = new Date();
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        /* Use the BST-aware end-of-month so the countdown matches the
+           server's wall-clock view of "this month". */
+        const monthEnd = endOfMonth(now);
         return Math.max(
             0,
             Math.ceil((monthEnd.getTime() - now.getTime()) / 86_400_000)
@@ -102,15 +104,36 @@ export default function EnvelopeDetailPage() {
         onError: (e) => toast.error(e.message),
     });
 
-    /* TODO(api): per-envelope 6-month allocation/consumption history.
-       Until then we render a flat baseline so the card layout is preserved. */
+    /* Per-envelope 6-month allocation/consumption history. App-tz
+       boundaries so each bucket lands on Dhaka midnight, matching
+       the server's `date_trunc('month', ...)` output. */
+    const trendStart = useMemo(
+        () => addMonths(startOfMonth(new Date()), -5),
+        []
+    );
+    const trendEnd = periodEnd;
+    const historyQuery = trpc.analytics.envelopeHistory.useQuery(
+        {
+            envelopId: envelopeId ?? "",
+            periodStart: trendStart,
+            periodEnd: trendEnd,
+            bucket: "month",
+        },
+        { enabled: !!envelopeId }
+    );
     const trendBars = useMemo(() => {
-        const base = total > 0 ? total : 100;
-        return Array.from({ length: 6 }, (_, i) => ({
-            allocated: base * (0.95 + 0.06 * Math.sin(i)),
-            consumed: base * (0.85 + 0.08 * Math.cos(i + 1)),
+        const data = historyQuery.data ?? [];
+        if (data.length === 0) {
+            return Array.from({ length: 6 }, () => ({
+                allocated: 0,
+                consumed: 0,
+            }));
+        }
+        return data.map((r) => ({
+            allocated: r.allocated,
+            consumed: r.consumed,
         }));
-    }, [total]);
+    }, [historyQuery.data]);
 
     return (
         <div className="orbit-design ed-root">

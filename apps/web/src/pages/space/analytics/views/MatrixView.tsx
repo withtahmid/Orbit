@@ -1,39 +1,78 @@
 import { useMemo } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { trpc } from "@/trpc";
+import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { cn } from "@/lib/utils";
-import { ACCOUNTS, ENVELOPES, MATRIX } from "./_allocationsFixtures";
+
+type Account = {
+    id: string;
+    name: string;
+    color: string;
+    icon: string;
+    accountType: "asset" | "liability" | "locked";
+    balance: number;
+};
+type Envelope = {
+    id: string;
+    name: string;
+    color: string;
+    icon: string;
+};
 
 /**
  * Allocation matrix — every envelope × every account in one grid, with
  * marginal totals on the right and bottom and a Pareto-style "Concentration"
  * strip below highlighting the cells that dominate the partition.
  *
- * Cells use a single violet hue (the analytics-detail accent color) with
- * intensity scaling by allocation amount, so the eye reads the heatmap as
- * a single shape rather than fighting per-row palettes.
- *
- * Uses dummy fixtures from `_allocationsFixtures.ts`. Allocations whose
- * accountId is `unassigned` are intentionally dropped here — the matrix
- * is a pure account × envelope grid; "unassigned" is a By-envelope
- * concept and surfaces there as a slate segment in the stacked bar.
+ * Allocations whose accountId is null ("unassigned") are dropped here —
+ * the matrix is a pure account × envelope grid; "unassigned" surfaces in
+ * AllocationsView's by-envelope tab as a slate segment instead.
  */
 export default function MatrixView() {
-    /** Cell color — single violet hue (mirrors design's --ent-4 accent). */
+    const { space } = useCurrentSpace();
     const ACCENT = "#a855f7";
 
-    const accounts = ACCOUNTS.filter((a) => a.kind !== "locked");
-    const envelopes = ENVELOPES;
+    /* Hooks must be called in the same order on every render — including
+       across personal↔space switches that change `isPersonal`. Keep the
+       query and downstream useMemos *above* the personal-space early
+       return; the `enabled` flag gates the network round-trip without
+       changing hook order. The early return is below. */
+    const q = trpc.analytics.allocations.useQuery(
+        { spaceId: space.id },
+        { enabled: !space.isPersonal }
+    );
+
+    const accounts: Account[] = useMemo(
+        () =>
+            (q.data?.accounts ?? []).filter(
+                (a) => a.accountType !== "locked"
+            ),
+        [q.data]
+    );
+    const envelopes: Envelope[] = useMemo(
+        () => q.data?.envelopes ?? [],
+        [q.data]
+    );
 
     /** matrix[envIdx][acctIdx] = $ amount (0 if no contribution at all) */
     const cells: number[][] = useMemo(() => {
+        if (!q.data) return [];
+        const lookup = new Map<string, number>();
+        for (const c of q.data.matrix) {
+            if (c.accountId == null) continue;
+            lookup.set(`${c.envelopId}|${c.accountId}`, c.amount);
+        }
         return envelopes.map((env) =>
-            accounts.map((acct) => MATRIX[env.id]?.[acct.id] ?? 0)
+            accounts.map(
+                (acct) => lookup.get(`${env.id}|${acct.id}`) ?? 0
+            )
         );
-    }, [envelopes, accounts]);
+    }, [q.data, envelopes, accounts]);
 
     const stats = useMemo(() => {
         const flat: number[] = [];
@@ -132,12 +171,30 @@ export default function MatrixView() {
         },
     ];
 
+    /* Personal-space stub. Placed below all hooks so hook order stays
+       constant across personal↔space switches. */
+    if (space.isPersonal) {
+        return (
+            <AnalyticsDetailLayout
+                title="Allocation matrix"
+                description="Every envelope × every account in one grid."
+            >
+                <Card>
+                    <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                        Allocation matrix is a per-space view. Open a real
+                        space to see it.
+                    </CardContent>
+                </Card>
+            </AnalyticsDetailLayout>
+        );
+    }
+
     return (
         <AnalyticsDetailLayout
             title="Allocation matrix"
             description="Every envelope × every account in one grid. Cell intensity is the funding amount; an empty cell means no contribution. Margins on the right and bottom show row and column totals."
         >
-            <KpiStrip items={kpiItems} />
+            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
 
             <Card>
                 <CardHeader>
@@ -148,17 +205,26 @@ export default function MatrixView() {
                     </p>
                 </CardHeader>
                 <CardContent>
-                    <MatrixGrid
-                        envelopes={envelopes}
-                        accounts={accounts}
-                        cells={cells}
-                        rowTotals={stats.rowTotals}
-                        colTotals={stats.colTotals}
-                        grandTotal={stats.grandTotal}
-                        min={stats.min}
-                        max={stats.max}
-                        accent={ACCENT}
-                    />
+                    {q.isLoading ? (
+                        <Skeleton className="h-64 w-full" />
+                    ) : envelopes.length === 0 || accounts.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                            Need at least one envelope and one account to render
+                            the matrix.
+                        </p>
+                    ) : (
+                        <MatrixGrid
+                            envelopes={envelopes}
+                            accounts={accounts}
+                            cells={cells}
+                            rowTotals={stats.rowTotals}
+                            colTotals={stats.colTotals}
+                            grandTotal={stats.grandTotal}
+                            min={stats.min}
+                            max={stats.max}
+                            accent={ACCENT}
+                        />
+                    )}
                 </CardContent>
             </Card>
 
@@ -230,8 +296,8 @@ function MatrixGrid({
     max,
     accent,
 }: {
-    envelopes: typeof ENVELOPES;
-    accounts: typeof ACCOUNTS;
+    envelopes: Envelope[];
+    accounts: Account[];
     cells: number[][];
     rowTotals: number[];
     colTotals: number[];

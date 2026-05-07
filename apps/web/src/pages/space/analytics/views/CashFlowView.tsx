@@ -56,32 +56,48 @@ export default function CashFlowView() {
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
-    /**
-     * Top expense category for the *whole* period — backend doesn't
-     * have a per-month variant yet, so every row in the breakdown
-     * surfaces the period-wide leader. Better than a placeholder, and
-     * the column header gives the user the right mental model.
-     */
-    const topCatSpaceQ = trpc.analytics.topCategories.useQuery(
+    /* Per-month top expense category — one leader per bucket so each
+       row of the breakdown table can show its own month's winner. */
+    const topByBucketSpaceQ = trpc.analytics.topCategoriesByBucket.useQuery(
         {
             spaceId: space.id,
             periodStart: period.start,
             periodEnd: period.end,
-            limit: 1,
+            bucket: "month",
         },
         { enabled: !space.isPersonal }
     );
-    const topCatPersonalQ = trpc.personal.topCategories.useQuery(
+    const topByBucketPersonalQ = trpc.personal.topCategoriesByBucket.useQuery(
         {
             periodStart: period.start,
             periodEnd: period.end,
-            limit: 1,
+            bucket: "month",
         },
         { enabled: space.isPersonal }
     );
-    const topExpenseCategory = (
-        space.isPersonal ? topCatPersonalQ.data : topCatSpaceQ.data
-    )?.[0];
+    /* Bucket lookup keyed by app-timezone yyyy-MM. `toISOString` would
+       return UTC year-month, which is off by a month for any BST bucket
+       at the period edge (April BST starts at 18:00 UTC on March 31).
+       Both producer and consumer must use the same key derivation. */
+    const topByBucket = useMemo(() => {
+        const data =
+            (space.isPersonal
+                ? topByBucketPersonalQ.data
+                : topByBucketSpaceQ.data) ?? [];
+        const m = new Map<
+            string,
+            { categoryId: string; name: string; color: string; icon: string; total: number } | null
+        >();
+        for (const r of data) {
+            const key = formatInAppTz(r.bucket, "yyyy-MM");
+            m.set(key, r.top);
+        }
+        return m;
+    }, [space.isPersonal, topByBucketSpaceQ.data, topByBucketPersonalQ.data]);
+    const topForBucket = (b: Date | string) => {
+        const dt = b instanceof Date ? b : new Date(b);
+        return topByBucket.get(formatInAppTz(dt, "yyyy-MM")) ?? null;
+    };
 
     const rows = useMemo<Row[]>(() => (q.data ?? []) as Row[], [q.data]);
 
@@ -417,24 +433,29 @@ export default function CashFlowView() {
                                             {d.rate.toFixed(1)}%
                                         </td>
                                         <td className="px-5 py-3 text-left">
-                                            {topExpenseCategory ? (
-                                                <span className="inline-flex items-center gap-2 text-foreground/85">
-                                                    <span
-                                                        className="size-1.5 rounded-full"
-                                                        style={{
-                                                            backgroundColor:
-                                                                topExpenseCategory.color,
-                                                        }}
-                                                    />
-                                                    <span className="truncate">
-                                                        {topExpenseCategory.name}
+                                            {(() => {
+                                                const top = topForBucket(d.bucket);
+                                                if (!top)
+                                                    return (
+                                                        <span className="text-muted-foreground">
+                                                            —
+                                                        </span>
+                                                    );
+                                                return (
+                                                    <span className="inline-flex items-center gap-2 text-foreground/85">
+                                                        <span
+                                                            className="size-1.5 rounded-full"
+                                                            style={{
+                                                                backgroundColor:
+                                                                    top.color,
+                                                            }}
+                                                        />
+                                                        <span className="truncate">
+                                                            {top.name}
+                                                        </span>
                                                     </span>
-                                                </span>
-                                            ) : (
-                                                <span className="text-muted-foreground">
-                                                    —
-                                                </span>
-                                            )}
+                                                );
+                                            })()}
                                         </td>
                                     </tr>
                                 ))}
@@ -511,17 +532,25 @@ function Row({
     );
 }
 
+/* Re-export the BST-aware helpers so the navigation URLs we build for
+   month-row drilldowns use the same wall-clock boundaries the server
+   queries against, not the user's browser tz. */
+import {
+    startOfMonth as startOfMonthAppTz,
+    addMonths as addMonthsAppTz,
+} from "@/lib/dates";
+import { toInputDate } from "@/lib/dates";
+
 function startOfMonth(d: Date): Date {
-    return new Date(d.getFullYear(), d.getMonth(), 1);
+    return startOfMonthAppTz(d);
 }
 
 function nextMonth(d: Date): Date {
-    return new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    return addMonthsAppTz(startOfMonthAppTz(d), 1);
 }
 
 function ymd(d: Date): string {
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return toInputDate(d);
 }
 
 /**

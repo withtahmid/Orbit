@@ -2,16 +2,13 @@ import { useMemo, useState } from "react";
 import { Target } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { trpc } from "@/trpc";
+import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { cn } from "@/lib/utils";
-import {
-    ACCOUNTS,
-    accountAllocations,
-    envelopeAllocations,
-    totalsBreakdown,
-} from "./_allocationsFixtures";
 
 /**
  * Allocation map — three perspectives on the same envelope×account×plan
@@ -21,12 +18,26 @@ import {
  *   2. By account  — for the selected account, which envelopes / plans it
  *                    funds (account-pill picker + bars + balance KPIs)
  *   3. Totals      — space-wide partition of every dollar (KPIs + sankey-ish bar)
- *
- * Driven by static fixtures from `_allocationsFixtures.ts` — backend wiring
- * arrives later. The Allocation matrix (alt 2D viz) lives in its own
- * sibling view, not as a tab here.
  */
 export default function AllocationsView() {
+    const { space } = useCurrentSpace();
+
+    if (space.isPersonal) {
+        return (
+            <AnalyticsDetailLayout
+                title="Allocation map"
+                description="Where money is partitioned across envelopes and accounts."
+            >
+                <Card>
+                    <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                        Allocation map is a per-space view. Open a real space
+                        to see it.
+                    </CardContent>
+                </Card>
+            </AnalyticsDetailLayout>
+        );
+    }
+
     return (
         <AnalyticsDetailLayout
             title="Allocation map"
@@ -39,31 +50,75 @@ export default function AllocationsView() {
                     <TabsTrigger value="totals">Totals</TabsTrigger>
                 </TabsList>
                 <TabsContent value="by-envelope" className="mt-4">
-                    <ByEnvelopePanel />
+                    <ByEnvelopePanel spaceId={space.id} />
                 </TabsContent>
                 <TabsContent value="by-account" className="mt-4">
-                    <ByAccountPanel />
+                    <ByAccountPanel spaceId={space.id} />
                 </TabsContent>
                 <TabsContent value="totals" className="mt-4">
-                    <TotalsPanel />
+                    <TotalsPanel spaceId={space.id} />
                 </TabsContent>
             </Tabs>
         </AnalyticsDetailLayout>
     );
 }
 
+const UNASSIGNED_COLOR = "#64748b";
+
+/**
+ * Shared data hook — single tRPC fetch per panel mount; the three panels
+ * read from the cache because react-query dedupes identical inputs.
+ */
+function useAllocations(spaceId: string) {
+    return trpc.analytics.allocations.useQuery({ spaceId });
+}
+
 /* ============================================================
    1. BY ENVELOPE — stacked bars per envelope, account = color
    ============================================================ */
-function ByEnvelopePanel() {
-    const rows = useMemo(() => envelopeAllocations(), []);
+function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
+    const q = useAllocations(spaceId);
+
+    const rows = useMemo(() => {
+        if (!q.data) return [];
+        const acctById = new Map(q.data.accounts.map((a) => [a.id, a]));
+        const cellsByEnv = new Map<
+            string,
+            Array<{ id: string; name: string; color: string; value: number }>
+        >();
+        for (const cell of q.data.matrix) {
+            if (cell.amount <= 0) continue;
+            const arr = cellsByEnv.get(cell.envelopId) ?? [];
+            if (cell.accountId == null) {
+                arr.push({
+                    id: "unassigned",
+                    name: "Unassigned",
+                    color: UNASSIGNED_COLOR,
+                    value: cell.amount,
+                });
+            } else {
+                const a = acctById.get(cell.accountId);
+                if (!a) continue;
+                arr.push({
+                    id: a.id,
+                    name: a.name,
+                    color: a.color,
+                    value: cell.amount,
+                });
+            }
+            cellsByEnv.set(cell.envelopId, arr);
+        }
+        return q.data.envelopes
+            .map((e) => {
+                const segments = cellsByEnv.get(e.id) ?? [];
+                const total = segments.reduce((s, x) => s + x.value, 0);
+                return { id: e.id, name: e.name, total, segments };
+            })
+            .filter((r) => r.total > 0);
+    }, [q.data]);
+
     const max = Math.max(0, ...rows.map((r) => r.total));
 
-    /**
-     * Legend = the union of distinct account/segment colors that actually
-     * appear across all envelope rows. Order is the order we encountered
-     * them so the legend is stable across reloads.
-     */
     const legend = useMemo(() => {
         const seen = new Map<string, { id: string; name: string; color: string }>();
         for (const r of rows) {
@@ -86,68 +141,79 @@ function ByEnvelopePanel() {
                 </p>
             </CardHeader>
             <CardContent className="grid gap-5">
-                {/* Legend */}
-                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                    {legend.map((l) => (
-                        <span
-                            key={l.id}
-                            className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
-                        >
-                            <span
-                                className="size-2 rounded-sm"
-                                style={{ backgroundColor: l.color }}
-                            />
-                            {l.name}
-                        </span>
-                    ))}
-                </div>
-
-                {/* Stacked rows */}
-                <div className="flex flex-col gap-2.5">
-                    {rows.map((r) => (
-                        <div
-                            key={r.id}
-                            className="grid items-center gap-3 sm:gap-4"
-                            style={{
-                                gridTemplateColumns:
-                                    "minmax(120px, 200px) minmax(0, 1fr) 96px",
-                            }}
-                        >
-                            <span className="truncate text-[12.5px] text-foreground/90">
-                                {r.name}
-                            </span>
-                            <span
-                                className="flex h-3.5 overflow-hidden rounded"
-                                style={{
-                                    width:
-                                        max > 0 ? `${(r.total / max) * 100}%` : "0%",
-                                }}
-                            >
-                                {r.segments.map((s) => (
+                {q.isLoading ? (
+                    <Skeleton className="h-48 w-full" />
+                ) : rows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                        No envelope allocations yet. Allocate funds from any
+                        envelope to populate this view.
+                    </p>
+                ) : (
+                    <>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                            {legend.map((l) => (
+                                <span
+                                    key={l.id}
+                                    className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground"
+                                >
                                     <span
-                                        key={s.id}
-                                        title={`${s.name}: $${s.value.toLocaleString(
-                                            "en-US",
-                                            {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                            }
-                                        )}`}
-                                        style={{
-                                            flex: s.value,
-                                            backgroundColor: s.color,
-                                        }}
+                                        className="size-2 rounded-sm"
+                                        style={{ backgroundColor: l.color }}
                                     />
-                                ))}
-                            </span>
-                            <MoneyDisplay
-                                amount={r.total}
-                                variant="neutral"
-                                className="text-right text-[12.5px] font-semibold"
-                            />
+                                    {l.name}
+                                </span>
+                            ))}
                         </div>
-                    ))}
-                </div>
+
+                        <div className="flex flex-col gap-2.5">
+                            {rows.map((r) => (
+                                <div
+                                    key={r.id}
+                                    className="grid items-center gap-3 sm:gap-4"
+                                    style={{
+                                        gridTemplateColumns:
+                                            "minmax(120px, 200px) minmax(0, 1fr) 96px",
+                                    }}
+                                >
+                                    <span className="truncate text-[12.5px] text-foreground/90">
+                                        {r.name}
+                                    </span>
+                                    <span
+                                        className="flex h-3.5 overflow-hidden rounded"
+                                        style={{
+                                            width:
+                                                max > 0
+                                                    ? `${(r.total / max) * 100}%`
+                                                    : "0%",
+                                        }}
+                                    >
+                                        {r.segments.map((s) => (
+                                            <span
+                                                key={s.id}
+                                                title={`${s.name}: $${s.value.toLocaleString(
+                                                    "en-US",
+                                                    {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    }
+                                                )}`}
+                                                style={{
+                                                    flex: s.value,
+                                                    backgroundColor: s.color,
+                                                }}
+                                            />
+                                        ))}
+                                    </span>
+                                    <MoneyDisplay
+                                        amount={r.total}
+                                        variant="neutral"
+                                        className="text-right text-[12.5px] font-semibold"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </>
+                )}
             </CardContent>
         </Card>
     );
@@ -156,18 +222,87 @@ function ByEnvelopePanel() {
 /* ============================================================
    2. BY ACCOUNT — pill picker, balance KPIs, envelope/plan rows
    ============================================================ */
-function ByAccountPanel() {
-    /** Pickable accounts — exclude locked accounts (they don't fund envelopes). */
-    const pickable = useMemo(
-        () => ACCOUNTS.filter((a) => a.kind !== "locked"),
-        []
-    );
-    const [selectedId, setSelectedId] = useState<string>(pickable[0]?.id ?? "");
+function ByAccountPanel({ spaceId }: { spaceId: string }) {
+    const q = useAllocations(spaceId);
+    const planAllocsQ = trpc.plan.allocationListBySpace.useQuery({ spaceId });
+    const plansQ = trpc.analytics.planProgress.useQuery({ spaceId });
 
-    const data = useMemo(() => accountAllocations(selectedId), [selectedId]);
+    const accounts = q.data?.accounts ?? [];
+    const pickable = accounts.filter((a) => a.accountType !== "locked");
+    const [selectedId, setSelectedId] = useState<string>("");
+    const effectiveId = selectedId || pickable[0]?.id || "";
 
-    // For the envelope list, scale bar widths to the largest envelope total
-    // at this account so the eye can compare contribution sizes.
+    const data = useMemo(() => {
+        if (!q.data || !effectiveId)
+            return null;
+        const acct = q.data.accounts.find((a) => a.id === effectiveId);
+        if (!acct) return null;
+
+        const envelopes = q.data.envelopes
+            .map((e) => {
+                const cell = q.data.matrix.find(
+                    (c) => c.envelopId === e.id && c.accountId === effectiveId
+                );
+                const allocated = cell?.amount ?? 0;
+                const totalAlloc = e.allocated;
+                const spent =
+                    totalAlloc > 0
+                        ? (e.consumed * allocated) / totalAlloc
+                        : 0;
+                return {
+                    env: { id: e.id, name: e.name, color: e.color },
+                    allocated,
+                    spent,
+                };
+            })
+            .filter((e) => e.allocated > 0 || e.spent > 0);
+
+        const planRows = (planAllocsQ.data ?? [])
+            .filter((p) => p.account_id === effectiveId)
+            .map((p) => {
+                const plan = (plansQ.data ?? []).find(
+                    (pp) => pp.planId === p.plan_id
+                );
+                return {
+                    id: p.id,
+                    name: plan?.name ?? "Plan",
+                    color: plan?.color ?? "#a855f7",
+                    allocated: Number(p.amount),
+                };
+            });
+
+        const earmarkedEnv = envelopes.reduce(
+            (s, e) => s + Math.max(0, e.allocated - e.spent),
+            0
+        );
+        const earmarkedPlan = planRows.reduce(
+            (s, p) => s + p.allocated,
+            0
+        );
+        const earmarked = earmarkedEnv + earmarkedPlan;
+        const unallocated = acct.balance - earmarked;
+        return {
+            acct,
+            envelopes,
+            plans: planRows,
+            earmarked,
+            unallocated,
+        };
+    }, [q.data, effectiveId, planAllocsQ.data, plansQ.data]);
+
+    if (q.isLoading) {
+        return <Skeleton className="h-64 w-full" />;
+    }
+    if (!data) {
+        return (
+            <Card>
+                <CardContent className="py-12 text-center text-sm text-muted-foreground">
+                    No accounts available in this space.
+                </CardContent>
+            </Card>
+        );
+    }
+
     const envMax = Math.max(
         0,
         ...data.envelopes.map((e) => e.allocated + e.spent)
@@ -186,7 +321,7 @@ function ByAccountPanel() {
                 <CardContent>
                     <div className="flex flex-wrap gap-2">
                         {pickable.map((a) => {
-                            const active = a.id === selectedId;
+                            const active = a.id === effectiveId;
                             return (
                                 <button
                                     key={a.id}
@@ -219,12 +354,6 @@ function ByAccountPanel() {
                             What this account is funding right now.
                         </p>
                     </div>
-                    <button
-                        type="button"
-                        className="text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
-                    >
-                        Open account →
-                    </button>
                 </CardHeader>
                 <CardContent>
                     <KpiStrip
@@ -243,8 +372,7 @@ function ByAccountPanel() {
                                 label: "Unallocated",
                                 value: data.unallocated,
                                 money: true,
-                                tone:
-                                    data.unallocated < 0 ? "expense" : "neutral",
+                                tone: data.unallocated < 0 ? "expense" : "neutral",
                             },
                         ]}
                     />
@@ -267,7 +395,10 @@ function ByAccountPanel() {
                         <div className="flex flex-col gap-2.5">
                             {data.envelopes.map((e) => {
                                 const total = e.allocated + e.spent;
-                                const remaining = Math.max(0, e.allocated - e.spent);
+                                const remaining = Math.max(
+                                    0,
+                                    e.allocated - e.spent
+                                );
                                 const spent = e.spent;
                                 return (
                                     <div
@@ -285,7 +416,9 @@ function ByAccountPanel() {
                                                     backgroundColor: e.env.color,
                                                 }}
                                             />
-                                            <span className="truncate">{e.env.name}</span>
+                                            <span className="truncate">
+                                                {e.env.name}
+                                            </span>
                                         </span>
                                         <span
                                             className="flex h-1.5 overflow-hidden rounded-full bg-muted/40"
@@ -326,7 +459,9 @@ function ByAccountPanel() {
             <Card>
                 <CardHeader>
                     <CardTitle>Plans funded from {data.acct.name}</CardTitle>
-                    <p className="text-xs text-muted-foreground">Long-horizon goals.</p>
+                    <p className="text-xs text-muted-foreground">
+                        Long-horizon goals.
+                    </p>
                 </CardHeader>
                 <CardContent>
                     {data.plans.length === 0 ? (
@@ -383,8 +518,77 @@ function ByAccountPanel() {
 /* ============================================================
    3. TOTALS — KPI strip + sankey-ish partition bar
    ============================================================ */
-function TotalsPanel() {
-    const t = useMemo(() => totalsBreakdown(), []);
+function TotalsPanel({ spaceId }: { spaceId: string }) {
+    const q = useAllocations(spaceId);
+    const planAllocsQ = trpc.plan.allocationListBySpace.useQuery({ spaceId });
+
+    const t = useMemo(() => {
+        if (!q.data) {
+            return {
+                totalAssets: 0,
+                liabilities: 0,
+                locked: 0,
+                earmarked: 0,
+                unallocated: 0,
+                drift: 0,
+                partition: [] as Array<{
+                    label: string;
+                    value: number;
+                    color: string;
+                }>,
+            };
+        }
+        const totalAssets = q.data.accounts
+            .filter((a) => a.accountType === "asset")
+            .reduce((s, a) => s + a.balance, 0);
+        const liabilities = q.data.accounts
+            .filter((a) => a.accountType === "liability")
+            .reduce((s, a) => s + a.balance, 0);
+        const locked = q.data.accounts
+            .filter((a) => a.accountType === "locked")
+            .reduce((s, a) => s + a.balance, 0);
+        const earmarkedEnv = q.data.envelopes.reduce(
+            (s, e) => s + e.allocated,
+            0
+        );
+        const earmarkedPlans = (planAllocsQ.data ?? []).reduce(
+            (s, p) => s + Number(p.amount),
+            0
+        );
+        const earmarked = earmarkedEnv + earmarkedPlans;
+        const unallocated = Math.max(0, totalAssets - earmarked);
+        const drift = q.data.drift.delta;
+        return {
+            totalAssets,
+            liabilities,
+            locked,
+            earmarked,
+            unallocated,
+            drift,
+            partition: [
+                {
+                    label: "Plans",
+                    value: earmarkedPlans,
+                    color: "#a855f7",
+                },
+                {
+                    label: "Locked savings",
+                    value: locked,
+                    color: "#3b82f6",
+                },
+                {
+                    label: "Free",
+                    value: unallocated,
+                    color: "#10b981",
+                },
+                {
+                    label: "Liabilities",
+                    value: liabilities,
+                    color: "#ef4444",
+                },
+            ].filter((p) => p.value > 0),
+        };
+    }, [q.data, planAllocsQ.data]);
 
     const partitionTotal = t.partition.reduce((s, p) => s + p.value, 0);
 
@@ -413,13 +617,13 @@ function TotalsPanel() {
             value: t.drift,
             money: true,
             tone: t.drift < 0 ? "expense" : "neutral",
-            sub: "Envelopes vs accounts",
+            sub: "Assets − envelopes",
         },
     ];
 
     return (
         <div className="grid gap-4">
-            <KpiStrip items={kpiItems} />
+            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
 
             <Card>
                 <CardHeader>
@@ -429,37 +633,45 @@ function TotalsPanel() {
                     </p>
                 </CardHeader>
                 <CardContent>
-                    <div className="flex flex-col gap-2">
-                        <div className="flex h-7 overflow-hidden rounded-md">
-                            {t.partition.map((p) => {
-                                const pctOfTotal =
-                                    partitionTotal > 0
-                                        ? p.value / partitionTotal
-                                        : 0;
-                                return (
-                                    <span
-                                        key={p.label}
-                                        title={`${p.label}: $${p.value.toLocaleString(
-                                            "en-US"
-                                        )}`}
-                                        className="grid place-items-center text-[11px] font-semibold tracking-wide"
-                                        style={{
-                                            flex: p.value,
-                                            backgroundColor: p.color,
-                                            opacity: 0.92,
-                                            color: "oklch(15% 0.02 290)",
-                                        }}
-                                    >
-                                        {pctOfTotal > 0.06 ? p.label : ""}
-                                    </span>
-                                );
-                            })}
+                    {q.isLoading ? (
+                        <Skeleton className="h-12 w-full" />
+                    ) : t.partition.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                            Add accounts and allocations to see the partition.
+                        </p>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex h-7 overflow-hidden rounded-md">
+                                {t.partition.map((p) => {
+                                    const pctOfTotal =
+                                        partitionTotal > 0
+                                            ? p.value / partitionTotal
+                                            : 0;
+                                    return (
+                                        <span
+                                            key={p.label}
+                                            title={`${p.label}: $${p.value.toLocaleString("en-US")}`}
+                                            className="grid place-items-center text-[11px] font-semibold tracking-wide"
+                                            style={{
+                                                flex: p.value,
+                                                backgroundColor: p.color,
+                                                opacity: 0.92,
+                                                color: "oklch(15% 0.02 290)",
+                                            }}
+                                        >
+                                            {pctOfTotal > 0.06 ? p.label : ""}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                            <div className="flex justify-between text-[10.5px] text-muted-foreground">
+                                <span>$0</span>
+                                <span>
+                                    ${formatCompactTotal(partitionTotal)} total
+                                </span>
+                            </div>
                         </div>
-                        <div className="flex justify-between text-[10.5px] text-muted-foreground">
-                            <span>$0</span>
-                            <span>${formatCompactTotal(partitionTotal)} total</span>
-                        </div>
-                    </div>
+                    )}
                 </CardContent>
             </Card>
         </div>

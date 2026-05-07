@@ -39,6 +39,7 @@ import { FileUploadField } from "@/components/file-upload-field";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { trpc } from "@/trpc";
 import type { RouterOutput } from "@/trpc";
+import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { cn } from "@/lib/utils";
 import { useCurrentSpaceId } from "@/hooks/useCurrentSpace";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
@@ -612,7 +613,7 @@ function EnvelopeDrawHint({
 function IncomeForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -630,9 +631,7 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
     const mutate = trpc.transaction.income.useMutation({
         onSuccess: async () => {
             toast.success("Income recorded");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
@@ -732,7 +731,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
     const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -755,12 +754,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
     const mutate = trpc.transaction.expense.useMutation({
         onSuccess: async () => {
             toast.success("Expense recorded");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.envelop.listBySpace.invalidate({ spaceId });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({ spaceId });
-            await utils.analytics.envelopeUtilization.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
@@ -875,7 +869,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -912,12 +906,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const mutate = trpc.transaction.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Transfer recorded");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.envelop.listBySpace.invalidate({ spaceId });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
-            await utils.analytics.envelopeUtilization.invalidate({ spaceId });
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
@@ -1156,7 +1145,7 @@ type AdjReason = "bank-fee" | "missed" | "rounding";
 function AdjustmentForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const [accountId, setAccountId] = useState("");
     const [newBalance, setNewBalance] = useState("");
@@ -1176,9 +1165,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
     const mutate = trpc.transaction.adjust.useMutation({
         onSuccess: async () => {
             toast.success("Balance adjusted");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),

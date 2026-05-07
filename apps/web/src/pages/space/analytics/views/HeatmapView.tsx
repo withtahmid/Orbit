@@ -20,14 +20,13 @@ const WEEKDAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /**
  * Spending calendar — twelve-month grid where every day is a real calendar
- * cell with intensity, dot markers (rent on the 1st, payday on the 15th),
+ * cell with intensity, dot markers for cadence-detected recurring charges,
  * a per-day sparkline, and a relative-month progress bar. The "year peak"
  * day gets a gold ring so the eye lands on it instantly.
  *
  * Layout mirrors the design canvas: 4-column × 3-row grid of month tiles.
- * Daily totals come from the existing `spendingHeatmap` tRPC procedure;
- * everything else (recurring-charge dots, peak-day label) is derived
- * client-side.
+ * Daily totals come from `spendingHeatmap`; recurring-charge dots come
+ * from `recurring.list` filtered to monthly cadence.
  */
 export default function HeatmapView() {
     const { space } = useCurrentSpace();
@@ -60,6 +59,58 @@ export default function HeatmapView() {
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
+    /* Recurring-bill dots — derived from the cadence detector. Filters:
+       - kind: 'bill' only — subscriptions (Netflix, Spotify, etc.) are
+         excluded since they cluster as background noise rather than
+         loud signals worth highlighting on a yearly calendar.
+       - cadence: 'monthly' only — weekly/biweekly drift across days,
+         yearly only fires once.
+       - Top-5 by avgAmount — caps visual density so the dots stay
+         signal, not noise, even for users with many recurring bills. */
+    const TOP_N_BILLS = 5;
+    const recurringSpaceQ = trpc.analytics.recurring.useQuery(
+        { spaceId: space.id, kind: "bill" },
+        { enabled: !space.isPersonal }
+    );
+    const recurringPersonalQ = trpc.personal.recurring.useQuery(
+        { kind: "bill" },
+        { enabled: space.isPersonal }
+    );
+    const recurringData =
+        (space.isPersonal
+            ? recurringPersonalQ.data
+            : recurringSpaceQ.data) ?? [];
+    const recurringByDay = useMemo(() => {
+        const monthlyBills = recurringData
+            .filter((r) => r.cadence === "monthly")
+            .sort((a, b) => b.avgAmount - a.avgAmount)
+            .slice(0, TOP_N_BILLS);
+        const m = new Map<number, { color: string; label: string; amount: number }>();
+        for (const r of monthlyBills) {
+            const dt = r.nextExpectedDate
+                ? new Date(r.nextExpectedDate)
+                : new Date(r.lastSeen);
+            /* Day-of-month read in app timezone (BST), not browser-local.
+               `new Date(...)` is an absolute UTC instant; `getDate()`
+               would resolve in the user's browser tz and could land the
+               dot one day off the actual calendar tile (which is keyed
+               by `formatInAppTz`-derived ymd strings). */
+            const day = Number(formatInAppTz(dt, "d"));
+            const existing = m.get(day);
+            /* If two bills land on the same day (e.g. rent + insurance
+               on the 1st), keep the larger one — it's the louder
+               signal. The other is still in the data, just not dotted. */
+            if (existing && existing.amount >= r.avgAmount) continue;
+            m.set(day, {
+                color: "var(--expense)",
+                label: r.merchant,
+                amount: r.avgAmount,
+            });
+        }
+        return m;
+    }, [recurringData]);
+    const hasBills = recurringByDay.size > 0;
+
     /** Indexed lookup: `YYYY-MM-DD` → spend total. */
     const byDay = useMemo(() => {
         const m = new Map<string, number>();
@@ -69,12 +120,18 @@ export default function HeatmapView() {
         return m;
     }, [q.data]);
 
-    /** The 12 (year, month) pairs we render, oldest → newest. */
+    /** The 12 (year, month) pairs we render, oldest → newest.
+     *  Year/month are read in app timezone — `addMonths(periodStart, i)`
+     *  returns a BST-aligned moment, but its UTC fields are 6 hours
+     *  before BST midnight and `dt.getFullYear()` would land in the
+     *  prior month for any user east of UTC at the moment of January. */
     const months = useMemo(() => {
         const list: Array<{ y: number; m: number }> = [];
         for (let i = 0; i < 12; i++) {
             const dt = addMonths(periodStart, i);
-            list.push({ y: dt.getFullYear(), m: dt.getMonth() });
+            const y = Number(formatInAppTz(dt, "yyyy"));
+            const m = Number(formatInAppTz(dt, "M")) - 1; // 1-12 → 0-11
+            list.push({ y, m });
         }
         return list;
     }, [periodStart]);
@@ -203,7 +260,7 @@ export default function HeatmapView() {
     return (
         <AnalyticsDetailLayout
             title="Spending calendar"
-            description="Every day of the last twelve months. Cell intensity shows daily spend; small dots mark recurring charges; the gold cell is the year's peak day."
+            description="Every day of the last twelve months. Cell intensity shows daily spend; small dots mark detected recurring monthly charges; the gold cell is the year's peak day."
         >
             <KpiStrip items={kpiItems} isLoading={isLoading} />
 
@@ -217,13 +274,14 @@ export default function HeatmapView() {
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-                        <Legend dot color="var(--income)" label="Payday" />
-                        <Legend dot color="var(--expense)" label="Rent" />
-                        <Legend
-                            color="var(--warning)"
-                            label="Peak"
-                            ring
-                        />
+                        {hasBills ? (
+                            <Legend
+                                dot
+                                color="var(--expense)"
+                                label={`Top ${recurringByDay.size} recurring bill${recurringByDay.size === 1 ? "" : "s"}`}
+                            />
+                        ) : null}
+                        <Legend color="var(--warning)" label="Peak" ring />
                     </div>
                 </CardHeader>
                 <CardContent>
@@ -247,6 +305,7 @@ export default function HeatmapView() {
                                         monthTotal={monthTotal}
                                         relativeFraction={rel}
                                         peakDate={stats.peakDate}
+                                        recurringByDay={recurringByDay}
                                     />
                                 );
                             })}
@@ -421,6 +480,7 @@ function MonthTile({
     monthTotal,
     relativeFraction,
     peakDate,
+    recurringByDay,
 }: {
     year: number;
     month: number;
@@ -428,6 +488,10 @@ function MonthTile({
     monthTotal: number;
     relativeFraction: number;
     peakDate: Date | null;
+    recurringByDay: Map<
+        number,
+        { color: string; label: string; amount: number }
+    >;
 }) {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const startCol = new Date(year, month, 1).getDay();
@@ -509,12 +573,16 @@ function MonthTile({
                             const v = byDay.get(ymd(year, month, d)) ?? 0;
                             const b = bucketize(v);
                             const r = ramp(b);
-                            const dot = recurringDotFor(d);
+                            const recurring = recurringByDay.get(d);
                             const peak = isPeakDay(d);
+                            const baseTitle = `${MONTH_NAMES[month]} ${d} · ${formatMoney(v)}`;
+                            const title = recurring
+                                ? `${baseTitle} · ${recurring.label} (${formatMoney(recurring.amount)}/mo)`
+                                : baseTitle;
                             return (
                                 <span
                                     key={di}
-                                    title={`${MONTH_NAMES[month]} ${d} · ${formatMoney(v)}`}
+                                    title={title}
                                     className="relative grid aspect-square place-items-center rounded text-[8.5px] font-medium tabular-nums"
                                     style={{
                                         background: r.bg,
@@ -528,12 +596,12 @@ function MonthTile({
                                     }}
                                 >
                                     {d}
-                                    {dot && (
+                                    {recurring && (
                                         <span
                                             className="absolute left-1/2 -translate-x-1/2 size-[3px] rounded-full"
                                             style={{
                                                 bottom: "1.5px",
-                                                background: dot,
+                                                background: recurring.color,
                                             }}
                                         />
                                     )}
@@ -644,17 +712,6 @@ function ramp(b: number): { bg: string; border: string; fg: string } {
         border: "transparent",
         fg: "oklch(15% 0.02 80)",
     };
-}
-
-/**
- * Recurring-charge marker dots. Static for now (the design uses these as
- * canonical signals); real wiring would derive them from a recurring
- * transactions table. Returning `null` means "no dot."
- */
-function recurringDotFor(d: number): string | null {
-    if (d === 1) return "var(--expense)"; // Rent
-    if (d === 15) return "var(--income)"; // Payday
-    return null;
 }
 
 /* ============================================================

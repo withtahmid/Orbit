@@ -169,6 +169,128 @@ export default observer(function OverviewPage() {
         return m;
     }, [accountsQuery.data]);
 
+    /* ---------- New procedures wired for v2 cards ---------- */
+    const todaySpaceQ = trpc.analytics.todaySummary.useQuery(
+        { spaceId: space.id, day: now },
+        { enabled: !isPersonal }
+    );
+    const todayPersonalQ = trpc.personal.todaySummary.useQuery(
+        { day: now },
+        { enabled: isPersonal }
+    );
+    const todayData = (isPersonal ? todayPersonalQ.data : todaySpaceQ.data) ?? null;
+
+    const moversSpaceQ = trpc.analytics.categoryWoW.useQuery(
+        { spaceId: space.id, anchor: now, limit: 6 },
+        { enabled: !isPersonal }
+    );
+    const moversPersonalQ = trpc.personal.categoryWoW.useQuery(
+        { anchor: now, limit: 6 },
+        { enabled: isPersonal }
+    );
+    const moversData =
+        (isPersonal ? moversPersonalQ.data : moversSpaceQ.data) ?? [];
+
+    const cumulativeSpaceQ = trpc.analytics.cumulativeSpend.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: thisMonthStart,
+            periodEnd: thisMonthEnd,
+        },
+        { enabled: !isPersonal }
+    );
+    const cumulativePersonalQ = trpc.personal.cumulativeSpend.useQuery(
+        { periodStart: thisMonthStart, periodEnd: thisMonthEnd },
+        { enabled: isPersonal }
+    );
+    const cumulativeData =
+        (isPersonal ? cumulativePersonalQ.data : cumulativeSpaceQ.data) ?? null;
+
+    const incomeBreakdownSpaceQ = trpc.analytics.incomeBreakdown.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: thisMonthStart,
+            periodEnd: thisMonthEnd,
+        },
+        { enabled: !isPersonal }
+    );
+    const incomeBreakdownPersonalQ = trpc.personal.incomeBreakdown.useQuery(
+        { periodStart: thisMonthStart, periodEnd: thisMonthEnd },
+        { enabled: isPersonal }
+    );
+    const incomeBreakdownData =
+        (isPersonal
+            ? incomeBreakdownPersonalQ.data
+            : incomeBreakdownSpaceQ.data) ?? [];
+
+    const recurringBillsSpaceQ = trpc.analytics.recurring.useQuery(
+        { spaceId: space.id, kind: "bill" },
+        { enabled: !isPersonal }
+    );
+    const recurringBillsPersonalQ = trpc.personal.recurring.useQuery(
+        { kind: "bill" },
+        { enabled: isPersonal }
+    );
+    const billsData =
+        (isPersonal
+            ? recurringBillsPersonalQ.data
+            : recurringBillsSpaceQ.data) ?? [];
+
+    const recurringSubsSpaceQ = trpc.analytics.recurring.useQuery(
+        { spaceId: space.id, kind: "subscription" },
+        { enabled: !isPersonal }
+    );
+    const recurringSubsPersonalQ = trpc.personal.recurring.useQuery(
+        { kind: "subscription" },
+        { enabled: isPersonal }
+    );
+    const subsData =
+        (isPersonal
+            ? recurringSubsPersonalQ.data
+            : recurringSubsSpaceQ.data) ?? [];
+
+    const merchantsSpaceQ = trpc.analytics.topMerchants.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: thisMonthStart,
+            periodEnd: thisMonthEnd,
+            limit: 6,
+        },
+        { enabled: !isPersonal }
+    );
+    const merchantsPersonalQ = trpc.personal.topMerchants.useQuery(
+        { periodStart: thisMonthStart, periodEnd: thisMonthEnd, limit: 6 },
+        { enabled: isPersonal }
+    );
+    const merchantsData =
+        (isPersonal ? merchantsPersonalQ.data : merchantsSpaceQ.data) ?? [];
+
+    const netWorthHistStart = useMemo(
+        () => addMonths(thisMonthStart, -12),
+        [thisMonthStart]
+    );
+    const netWorthHistSpaceQ = trpc.analytics.netWorthHistory.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: netWorthHistStart,
+            periodEnd: thisMonthEnd,
+            bucket: "month",
+        },
+        { enabled: !isPersonal }
+    );
+    const netWorthHistPersonalQ = trpc.personal.netWorthHistory.useQuery(
+        {
+            periodStart: netWorthHistStart,
+            periodEnd: thisMonthEnd,
+            bucket: "month",
+        },
+        { enabled: isPersonal }
+    );
+    const netWorthHistData =
+        (isPersonal
+            ? netWorthHistPersonalQ.data
+            : netWorthHistSpaceQ.data) ?? [];
+
     const upcomingEvents = useMemo(
         () =>
             (events.data ?? [])
@@ -275,6 +397,11 @@ export default observer(function OverviewPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    /* Short label for the prior calendar month — drives the
+       month-over-month delta copy ("+12% vs Apr") so it stays
+       in sync with the actual comparison window. */
+    const lastMonthLabel = formatInAppTz(lastMonthStart, "MMM");
+
     const eyebrow = isPersonal
         ? "Personal · all spaces"
         : `${formatInAppTz(now, "MMMM yyyy")} · Day ${monthProgress.elapsed} of ${monthProgress.total}`;
@@ -314,11 +441,10 @@ export default observer(function OverviewPage() {
             </header>
 
             <div className="ov-scroll">
-                {/* Today band — quick-glance daily summary at the very top.
-                    NET TODAY / TRANSACTIONS / CLEARED / PENDING / LAST SYNC.
-                    TODO: connect to backend (no daily-bucket procedure yet);
-                    using dummy values so the strip is visible in design. */}
-                <TodayBand now={now} />
+                {/* Today band — quick-glance daily summary. Cleared /
+                    pending / last-sync columns intentionally absent
+                    (no transaction status field yet). */}
+                <TodayBand now={now} data={todayData} />
 
                 {/* Personal-only "across spaces" band — gold-accented
                     aggregator showing the user's share of every space
@@ -419,7 +545,11 @@ export default observer(function OverviewPage() {
                         loading={summary.isLoading}
                         icon={<TrendUpIcon />}
                         accent="color-mix(in oklab, var(--income) 14%, transparent)"
-                        delta={renderDelta(monthOverMonth.incomeDelta, "higher-better")}
+                        delta={renderDelta(
+                            monthOverMonth.incomeDelta,
+                            "higher-better",
+                            lastMonthLabel
+                        )}
                         signed
                     />
                     <StatTile
@@ -429,7 +559,11 @@ export default observer(function OverviewPage() {
                         loading={summary.isLoading}
                         icon={<TrendDownIcon />}
                         accent="color-mix(in oklab, var(--expense) 14%, transparent)"
-                        delta={renderDelta(monthOverMonth.expenseDelta, "lower-better")}
+                        delta={renderDelta(
+                            monthOverMonth.expenseDelta,
+                            "lower-better",
+                            lastMonthLabel
+                        )}
                     />
                     <StatTile
                         label="Unallocated"
@@ -481,6 +615,7 @@ export default observer(function OverviewPage() {
                 <NetWorthComposition
                     accounts={accountDistribution.data ?? []}
                     loading={accountDistribution.isLoading}
+                    history={netWorthHistData}
                 />
 
                 <SectionEyebrow label="Composition" sub="How money is split, parked & spent" />
@@ -646,13 +781,8 @@ export default observer(function OverviewPage() {
                         }))}
                         loading={heatmap.isLoading}
                     />
-                    {/*
-                       Top movers — week-over-week category shifts.
-                       TODO: connect to backend (no per-category WoW
-                       procedure yet); rendering dummy data so the
-                       card is visible in design.
-                    */}
-                    <TopMovers />
+                    {/* Top movers — week-over-week category shifts. */}
+                    <TopMovers movers={moversData} />
                 </div>
 
                 <SectionEyebrow label="Targets" sub="Envelopes, plans, spending against budget" />
@@ -794,14 +924,12 @@ export default observer(function OverviewPage() {
                     </div>
                 </div>
 
-                {/* Spending trends — cumulative spend vs last month + projection.
-                    TODO: connect to backend (no cumulative-spend procedure yet);
-                    using the cashFlow expense series as a proxy and a dummy
-                    projection until we add a dedicated query. */}
+                {/* Spending trends — cumulative spend vs last month + projection. */}
                 <SpendingTrends
                     monthProgress={monthProgress}
                     monthExpense={summary.data?.periodExpense ?? 0}
                     lastMonthExpense={lastMonthSummary.data?.periodExpense ?? 0}
+                    cumulativeData={cumulativeData}
                 />
 
                 <SectionEyebrow
@@ -811,28 +939,18 @@ export default observer(function OverviewPage() {
 
                 {/* Income breakdown + Bills & due dates */}
                 <div className="ov-grid-2">
-                    {/*
-                       Income breakdown — sources of income this month.
-                       TODO: connect to backend (no income-source procedure
-                       yet); using dummy data.
-                    */}
                     <IncomeBreakdownCard
                         totalIncome={summary.data?.periodIncome ?? 0}
+                        sources={incomeBreakdownData}
                     />
-                    {/*
-                       Bills & due dates — upcoming bills in next 14 days.
-                       TODO: connect to backend (no bills feature yet);
-                       using dummy data.
-                    */}
-                    <BillsCard upcomingEvents={upcomingEvents} />
+                    <BillsCard
+                        upcomingEvents={upcomingEvents}
+                        bills={billsData}
+                    />
                 </div>
 
-                {/*
-                   Subscriptions & recurring — auto-detected services.
-                   TODO: connect to backend (no recurring-detection feature
-                   yet); using dummy data.
-                */}
-                <SubscriptionsGrid />
+                {/* Subscriptions & recurring — auto-detected services. */}
+                <SubscriptionsGrid subscriptions={subsData} />
 
                 {/* Accounts at a glance + Top merchants */}
                 <div className="ov-grid-2">
@@ -841,13 +959,9 @@ export default observer(function OverviewPage() {
                         loading={accountDistribution.isLoading}
                         spaceId={space.id}
                         isPersonal={isPersonal}
+                        balanceSeries={balanceTrend.data?.series ?? []}
                     />
-                    {/*
-                       Top merchants — biggest merchants this month.
-                       TODO: connect to backend (no merchant aggregation
-                       yet); using dummy data.
-                    */}
-                    <TopMerchants />
+                    <TopMerchants merchants={merchantsData} />
                 </div>
             </div>
         </div>
@@ -1664,9 +1778,15 @@ function Donut({
     );
 }
 
-function renderDelta(delta: number | null, dir: "higher-better" | "lower-better"): ReactNode {
+function renderDelta(
+    delta: number | null,
+    dir: "higher-better" | "lower-better",
+    /** Caller passes the prior-period label (e.g. "Apr") so the comparison
+     *  reads correctly regardless of which month we're actually viewing. */
+    priorLabel: string
+): ReactNode {
     if (delta == null) return null;
-    if (delta === Infinity) return "New vs last month";
+    if (delta === Infinity) return `New vs ${priorLabel}`;
     if (delta === 0) return "No change";
     const good = dir === "higher-better" ? delta > 0 : delta < 0;
     const sign = delta > 0 ? "+" : "−";
@@ -1674,7 +1794,7 @@ function renderDelta(delta: number | null, dir: "higher-better" | "lower-better"
     return (
         <span style={{ color }}>
             {sign}
-            {Math.abs(delta).toFixed(0)}% vs March
+            {Math.abs(delta).toFixed(0)}% vs {priorLabel}
         </span>
     );
 }
@@ -1777,8 +1897,27 @@ function SectionEyebrow({ label, sub }: { label: string; sub: string }) {
 }
 
 /** Today band — quick-glance daily summary at the very top.
- *  TODO(api): no daily-bucket procedure yet; values are dummy. */
-function TodayBand({ now }: { now: Date }) {
+ *  Cleared/pending counts and last-sync are intentionally absent (the
+ *  schema has no transaction-status field yet — see plan §2.1). */
+function TodayBand({
+    now,
+    data,
+}: {
+    now: Date;
+    data: {
+        inTotal: number;
+        outTotal: number;
+        net: number;
+        txnCount: number;
+    } | null;
+}) {
+    const net = data?.net ?? 0;
+    const txnCount = data?.txnCount ?? 0;
+    const inflow = data?.inTotal ?? 0;
+    const outflow = data?.outTotal ?? 0;
+    /* Cleared / pending / last-sync intentionally absent — those fields
+       require schema changes (transactions.status, integration sync metadata)
+       that don't exist yet. See plans/orbit-v2-backend-gaps.md §2.1. */
     const cells: Array<{ label: string; value: ReactNode; tone?: string }> = [
         {
             label: "Today",
@@ -1790,20 +1929,26 @@ function TodayBand({ now }: { now: Date }) {
         },
         {
             label: "Net today",
-            value: <Money amount={185.24} variant="income" size={13} signed />,
-        },
-        { label: "Transactions", value: <span className="tabular">4</span> },
-        {
-            label: "Cleared",
-            value: <span className="tabular" style={{ color: "var(--income)" }}>3</span>,
-        },
-        {
-            label: "Pending",
-            value: <span className="tabular" style={{ color: "var(--warn)" }}>1</span>,
+            value: (
+                <Money
+                    amount={Math.abs(net)}
+                    variant={net >= 0 ? "income" : "expense"}
+                    size={13}
+                    signed
+                />
+            ),
         },
         {
-            label: "Last sync",
-            value: <span style={{ color: "var(--fg-3)" }}>2m ago</span>,
+            label: "Transactions",
+            value: <span className="tabular">{txnCount}</span>,
+        },
+        {
+            label: "Inflow",
+            value: <Money amount={inflow} variant="income" size={13} />,
+        },
+        {
+            label: "Outflow",
+            value: <Money amount={outflow} variant="expense" size={13} />,
         },
     ];
     return (
@@ -1824,6 +1969,7 @@ function TodayBand({ now }: { now: Date }) {
 function NetWorthComposition({
     accounts,
     loading,
+    history,
 }: {
     accounts: Array<{
         accountId: string;
@@ -1833,6 +1979,12 @@ function NetWorthComposition({
         balance: number;
     }>;
     loading?: boolean;
+    history: Array<{
+        bucket: Date | string;
+        assets: number;
+        liabilities: number;
+        netWorth: number;
+    }>;
 }) {
     const assets = accounts.filter(
         (a) => a.accountType === "asset" || a.accountType === "locked"
@@ -1841,6 +1993,19 @@ function NetWorthComposition({
     const assetTotal = assets.reduce((s, x) => s + x.balance, 0);
     const liabTotal = liabs.reduce((s, x) => s + x.balance, 0);
     const net = assetTotal - liabTotal;
+
+    /* YoY = compare the most recent bucket's netWorth to the bucket
+       12 months prior. Only computed when the series has at least 13
+       buckets (current + 12 prior); otherwise we hide the line. */
+    const yoy = useMemo(() => {
+        if (history.length < 13) return null;
+        const last = history[history.length - 1];
+        const prior = history[history.length - 13];
+        if (prior.netWorth === 0) return null;
+        const delta = last.netWorth - prior.netWorth;
+        const pct = (delta / Math.abs(prior.netWorth)) * 100;
+        return { delta, pct };
+    }, [history]);
 
     return (
         <div className="od-card ov-section ov-nwc">
@@ -1866,16 +2031,39 @@ function NetWorthComposition({
                         <div className="ov-nwc-net">
                             <Money amount={net} size={32} weight={500} />
                         </div>
-                        {/* TODO(api): YoY delta — needs historical net worth */}
-                        <div
-                            style={{
-                                fontSize: 11.5,
-                                color: "var(--income)",
-                                marginTop: 2,
-                            }}
-                        >
-                            +21.5% YoY · +<Money amount={31800} size={11.5} variant="income" />
-                        </div>
+                        {yoy ? (
+                            <div
+                                style={{
+                                    fontSize: 11.5,
+                                    color:
+                                        yoy.delta >= 0
+                                            ? "var(--income)"
+                                            : "var(--expense)",
+                                    marginTop: 2,
+                                }}
+                            >
+                                {yoy.delta >= 0 ? "+" : ""}
+                                {yoy.pct.toFixed(1)}% YoY ·{" "}
+                                {yoy.delta >= 0 ? "+" : "−"}
+                                <Money
+                                    amount={Math.abs(yoy.delta)}
+                                    size={11.5}
+                                    variant={
+                                        yoy.delta >= 0 ? "income" : "expense"
+                                    }
+                                />
+                            </div>
+                        ) : (
+                            <div
+                                style={{
+                                    fontSize: 11.5,
+                                    color: "var(--fg-3)",
+                                    marginTop: 2,
+                                }}
+                            >
+                                Building 12-month history…
+                            </div>
+                        )}
                         <div className="ov-nwc-pair">
                             <div>
                                 <div className="ov-stat-eyebrow">Assets</div>
@@ -1898,23 +2086,14 @@ function NetWorthComposition({
                         </div>
                     </div>
                     <div className="ov-nwc-bars">
-                        {/* TODO(api): replace fake mini-trend with real
-                           12-month net-worth series once available. */}
                         <div className="ov-nwc-trendwrap">
                             <AreaChart
-                                series={[
-                                    1, 1.05, 1.1, 1.08, 1.15, 1.18, 1.22, 1.2,
-                                    1.28, 1.32, 1.38, 1.45,
-                                ].map((v, i) => ({
-                                    // Synthesize one bucket per month over
-                                    // the trailing 12 months so the hover
-                                    // tooltip can render a date label even
-                                    // though the trend itself is fake.
-                                    bucket: addMonths(
-                                        new Date(),
-                                        -11 + i
-                                    ).toISOString(),
-                                    balance: v * Math.max(net, 1),
+                                series={history.map((p) => ({
+                                    bucket:
+                                        p.bucket instanceof Date
+                                            ? p.bucket.toISOString()
+                                            : p.bucket,
+                                    balance: p.netWorth,
                                 }))}
                                 height={120}
                             />
@@ -2139,30 +2318,29 @@ function formatThousands(n: number): string {
     return Math.round(n).toString();
 }
 
-/** Top movers — biggest week-over-week category shifts.
- *  TODO(api): connect once a category-WoW procedure exists. */
-function TopMovers() {
-    const rows = [
-        { name: "Entertainment", icon: "flame", color: "var(--ent-6)", cur: 145, prev: 60 },
-        { name: "Coffee", icon: "coffee", color: "var(--ent-7)", cur: 128, prev: 84 },
-        {
-            name: "Transportation",
-            icon: "car",
-            color: "var(--ent-3)",
-            cur: 95,
-            prev: 178,
-        },
-        { name: "Dining out", icon: "flame", color: "var(--ent-6)", cur: 410, prev: 280 },
-        { name: "Groceries", icon: "cart", color: "var(--ent-2)", cur: 320, prev: 410 },
-        {
-            name: "Subscriptions",
-            icon: "music",
-            color: "var(--ent-7)",
-            cur: 62,
-            prev: 62,
-        },
-    ];
-    const max = Math.max(...rows.flatMap((r) => [r.cur, r.prev]));
+/** Top movers — biggest week-over-week category shifts. */
+function TopMovers({
+    movers,
+}: {
+    movers: Array<{
+        categoryId: string;
+        name: string;
+        color: string;
+        icon: string;
+        thisWeek: number;
+        lastWeek: number;
+        deltaAmount: number;
+        deltaPct: number;
+    }>;
+}) {
+    const rows = movers.map((m) => ({
+        name: m.name,
+        icon: m.icon,
+        color: m.color,
+        cur: m.thisWeek,
+        prev: m.lastWeek,
+    }));
+    const max = Math.max(1, ...rows.flatMap((r) => [r.cur, r.prev]));
     return (
         <div className="od-card ov-section ov-movers">
             <SectionHead
@@ -2180,6 +2358,9 @@ function TopMovers() {
                 }
             />
             <div className="ov-list-col">
+                {rows.length === 0 ? (
+                    <EmptyHint>No category movement vs last week.</EmptyHint>
+                ) : null}
                 {rows.map((r) => {
                     const pct = r.prev > 0 ? ((r.cur - r.prev) / r.prev) * 100 : 0;
                     const isUp = r.cur > r.prev;
@@ -2224,36 +2405,47 @@ function TopMovers() {
     );
 }
 
-/** Spending trends — cumulative spend curve + projection.
- *  TODO(api): connect to backend (no cumulative procedure yet). */
+/** Spending trends — cumulative spend curve vs last period + projection
+ *  + linear-runrate dotted projection. Driven by `analytics.cumulativeSpend`. */
 function SpendingTrends({
     monthProgress,
     monthExpense,
     lastMonthExpense,
+    cumulativeData,
 }: {
     monthProgress: { elapsed: number; total: number };
     monthExpense: number;
     lastMonthExpense: number;
+    cumulativeData: {
+        current: Array<{ day: Date | string; cumulative: number }>;
+        previous: Array<{ day: Date | string; cumulative: number }>;
+        projection: { endOfPeriodTotal: number; method: string } | null;
+    } | null;
 }) {
     const totalDays = monthProgress.total || 30;
     const elapsed = monthProgress.elapsed || 1;
-    /* Build a fake cumulative shape that lands at monthExpense on `elapsed`. */
-    const thisMonth = Array.from({ length: elapsed }, (_, i) => {
-        const t = (i + 1) / elapsed;
-        return monthExpense * (0.3 * t + 0.7 * t * t);
-    });
-    const lastMonth = Array.from({ length: totalDays }, (_, i) => {
-        const t = (i + 1) / totalDays;
-        return lastMonthExpense * t;
-    });
+    /* Real cumulative data when available; otherwise a flat baseline so
+       the chart layout stays during the loading frame. */
+    const thisMonth =
+        cumulativeData?.current.slice(0, elapsed).map((p) => p.cumulative) ??
+        new Array(elapsed).fill(0);
+    const lastMonth =
+        cumulativeData?.previous.map((p) => p.cumulative) ??
+        new Array(totalDays).fill(0);
+    const projectedTotal =
+        cumulativeData?.projection?.endOfPeriodTotal ?? monthExpense;
     const projection = Array.from(
         { length: totalDays - elapsed + 1 },
         (_, i) => {
-            const dayRate = monthExpense / Math.max(1, elapsed);
-            return monthExpense + dayRate * i;
+            const fraction =
+                totalDays - elapsed > 0
+                    ? i / (totalDays - elapsed)
+                    : 1;
+            return (
+                monthExpense + (projectedTotal - monthExpense) * fraction
+            );
         }
     );
-    const projectedTotal = projection[projection.length - 1] ?? monthExpense;
     const dayAvg = monthExpense / Math.max(1, elapsed);
     const paceDelta =
         lastMonthExpense > 0
@@ -2452,16 +2644,32 @@ function TrendsChart({
     );
 }
 
-/** Income breakdown — sources of income. TODO(api): no source breakdown. */
-function IncomeBreakdownCard({ totalIncome }: { totalIncome: number }) {
-    const total = totalIncome > 0 ? totalIncome : 13209;
-    const sources = [
-        { name: "Salary · Acme Corp", sub: "Bi-weekly · 2 of 2", v: 9800, c: "var(--income)" },
-        { name: "Freelance — Design", sub: "1 invoice paid", v: 2200, c: "var(--ent-2)" },
-        { name: "Dividends", sub: "Q1 distribution", v: 340, c: "var(--ent-3)" },
-        { name: "Reimbursements", sub: "2 expense reports", v: 580, c: "var(--ent-4)" },
-        { name: "Cashback", sub: "Card rewards", v: 289, c: "var(--ent-5)" },
+/** Income breakdown — sources of income.
+ * Source = normalized description (no first-class income_category column
+ * yet, see plans/orbit-v2-backend-gaps.md §2.4). */
+function IncomeBreakdownCard({
+    totalIncome,
+    sources: backendSources,
+}: {
+    totalIncome: number;
+    sources: Array<{ source: string; amount: number; count: number }>;
+}) {
+    const total = totalIncome > 0 ? totalIncome : 0;
+    const palette = [
+        "var(--income)",
+        "var(--ent-2)",
+        "var(--ent-3)",
+        "var(--ent-4)",
+        "var(--ent-5)",
+        "var(--ent-6)",
+        "var(--ent-7)",
     ];
+    const sources = backendSources.slice(0, 7).map((s, i) => ({
+        name: s.source,
+        sub: `${s.count} transaction${s.count === 1 ? "" : "s"}`,
+        v: s.amount,
+        c: palette[i % palette.length],
+    }));
     return (
         <div className="od-card ov-section ov-income">
             <SectionHead
@@ -2480,11 +2688,16 @@ function IncomeBreakdownCard({ totalIncome }: { totalIncome: number }) {
             />
             <div className="ov-income-headline">
                 <Money amount={total} size={26} weight={500} variant="income" signed />
-                <span className="ov-income-sub">across {sources.length} sources</span>
+                <span className="ov-income-sub">
+                    across {sources.length} source{sources.length === 1 ? "" : "s"}
+                </span>
             </div>
+            {sources.length === 0 ? (
+                <EmptyHint>No income recorded this period.</EmptyHint>
+            ) : null}
             <div className="ov-income-bar">
                 {sources.map((s) => {
-                    const pct = (s.v / total) * 100;
+                    const pct = total > 0 ? (s.v / total) * 100 : 0;
                     return (
                         <span
                             key={s.name}
@@ -2495,7 +2708,7 @@ function IncomeBreakdownCard({ totalIncome }: { totalIncome: number }) {
             </div>
             <div className="ov-list-col" style={{ gap: 10 }}>
                 {sources.map((s) => {
-                    const pct = (s.v / total) * 100;
+                    const pct = total > 0 ? (s.v / total) * 100 : 0;
                     return (
                         <div key={s.name} className="ov-income-row">
                             <span
@@ -2516,9 +2729,10 @@ function IncomeBreakdownCard({ totalIncome }: { totalIncome: number }) {
     );
 }
 
-/** Bills & due dates — upcoming bills next 14 days. TODO(api): no bills feature. */
+/** Bills & due dates — upcoming recurring bills detected from the ledger. */
 function BillsCard({
     upcomingEvents,
+    bills,
 }: {
     upcomingEvents: Array<{
         id: string;
@@ -2527,18 +2741,33 @@ function BillsCard({
         icon: string;
         start_time: string;
     }>;
+    bills: Array<{
+        merchant: string;
+        merchantKey: string;
+        cadence: "weekly" | "biweekly" | "monthly" | "yearly";
+        avgAmount: number;
+        lastAmount: number;
+        nextExpectedDate: Date | string | null;
+    }>;
 }) {
-    const dummy = [
-        { id: "b1", name: "Rent", sub: "May 01 · in 7d", v: 1550, kind: "auto", icon: "home", color: "var(--ent-1)" },
-        { id: "b2", name: "Electricity · ConEd", sub: "Apr 28 · in 4d", v: 142, kind: "auto", icon: "bolt", color: "var(--ent-7)" },
-        { id: "b3", name: "Internet · Verizon", sub: "Apr 27 · in 3d", v: 89, kind: "manual", icon: "wifi", color: "var(--ent-3)" },
-        { id: "b4", name: "Sapphire Card", sub: "May 03 · in 9d", v: 720, kind: "manual", icon: "wallet", color: "var(--ent-6)" },
-        { id: "b5", name: "Auto loan", sub: "May 05 · in 11d", v: 385, kind: "auto", icon: "car", color: "var(--ent-3)" },
-        { id: "b6", name: "Phone · T-Mobile", sub: "May 08 · in 14d", v: 75, kind: "auto", icon: "phone", color: "var(--ent-2)" },
-    ];
-    const due7 = dummy.slice(0, 2).reduce((s, x) => s + x.v, 0);
-    const total = dummy.reduce((s, x) => s + x.v, 0);
-    void upcomingEvents; // events feature isn't wired to bills yet
+    void upcomingEvents;
+    const now = Date.now();
+    const sorted = bills
+        .filter((b) => b.nextExpectedDate != null)
+        .map((b) => {
+            const next = new Date(b.nextExpectedDate as Date | string);
+            const days = Math.round(
+                (next.getTime() - now) / (1000 * 60 * 60 * 24)
+            );
+            return { ...b, next, days };
+        })
+        .filter((b) => b.days <= 14 && b.days >= -3)
+        .sort((a, b) => a.next.getTime() - b.next.getTime())
+        .slice(0, 6);
+    const due7 = sorted
+        .filter((b) => b.days <= 7)
+        .reduce((s, x) => s + x.lastAmount, 0);
+    const total = sorted.reduce((s, x) => s + x.lastAmount, 0);
     return (
         <div className="od-card ov-section ov-bills">
             <SectionHead
@@ -2560,48 +2789,63 @@ function BillsCard({
                     </span>
                 }
             />
-            <div className="ov-list-col" style={{ gap: 10 }}>
-                {dummy.map((b) => (
-                    <div key={b.id} className="ov-bill-row">
-                        <EntityAvatar
-                            icon={b.icon}
-                            colorVar={b.color}
-                            size={28}
-                        />
-                        <span className="ov-bill-sub">
-                            <span className="ov-bill-date">{b.sub.split(" · ")[0]}</span>
-                            <span className="ov-bill-when">{b.sub.split(" · ")[1]}</span>
-                        </span>
-                        <span className="ov-bill-name">{b.name}</span>
-                        <span className={`ov-chip ov-chip-${b.kind === "auto" ? "income" : "transfer"}`}>
-                            {b.kind}
-                        </span>
-                        <Money amount={b.v} size={13} variant="warn" />
-                    </div>
-                ))}
-            </div>
+            {sorted.length === 0 ? (
+                <EmptyHint>No bills detected in the next 14 days.</EmptyHint>
+            ) : (
+                <div className="ov-list-col" style={{ gap: 10 }}>
+                    {sorted.map((b) => (
+                        <div key={b.merchantKey} className="ov-bill-row">
+                            <EntityAvatar
+                                icon="repeat"
+                                colorVar="var(--ent-3)"
+                                size={28}
+                            />
+                            <span className="ov-bill-sub">
+                                <span className="ov-bill-date">
+                                    {formatInAppTz(b.next, "MMM dd")}
+                                </span>
+                                <span className="ov-bill-when">
+                                    {b.days < 0
+                                        ? `${Math.abs(b.days)}d overdue`
+                                        : b.days === 0
+                                          ? "today"
+                                          : `in ${b.days}d`}
+                                </span>
+                            </span>
+                            <span className="ov-bill-name">{b.merchant}</span>
+                            <span className="ov-chip ov-chip-transfer">
+                                {b.cadence}
+                            </span>
+                            <Money amount={b.lastAmount} size={13} variant="warn" />
+                        </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
 
-/** Subscriptions & recurring — auto-detected services grid.
- *  TODO(api): no recurring detection yet. */
-function SubscriptionsGrid() {
-    const subs = [
-        { id: "s1", name: "Netflix", sub: "monthly · next Apr 28", v: 17.99, icon: "film", color: "var(--ent-6)" },
-        { id: "s2", name: "Spotify Family", sub: "monthly · next May 02", v: 16.99, icon: "music", color: "var(--ent-7)" },
-        { id: "s3", name: "iCloud+ 2 TB", sub: "monthly · next May 04", v: 9.99, icon: "layers", color: "var(--ent-3)" },
-        { id: "s4", name: "Adobe Creative", sub: "monthly · next May 11", v: 54.99, icon: "edit", color: "var(--ent-4)" },
-        { id: "s5", name: "Gym membership", sub: "monthly · next May 01", v: 49, icon: "dumbbell", color: "var(--ent-2)" },
-        { id: "s6", name: "ChatGPT Plus", sub: "monthly · next May 09", v: 20, icon: "command", color: "var(--ent-4)" },
-        { id: "s7", name: "AAA Roadside", sub: "annual · next Jun 02", v: 12.5, icon: "shield", color: "var(--ent-3)" },
-        { id: "s8", name: "NYT Digital", sub: "monthly · next May 06", v: 6, icon: "book", color: "var(--ent-1)" },
-    ];
+/** Subscriptions & recurring — auto-detected services grid. */
+function SubscriptionsGrid({
+    subscriptions,
+}: {
+    subscriptions: Array<{
+        merchant: string;
+        merchantKey: string;
+        cadence: "weekly" | "biweekly" | "monthly" | "yearly";
+        avgAmount: number;
+        lastAmount: number;
+        nextExpectedDate: Date | string | null;
+    }>;
+}) {
+    const subs = subscriptions.slice(0, 8);
+    const annualMultiplier = (c: string) =>
+        c === "weekly" ? 52 : c === "biweekly" ? 26 : c === "yearly" ? 1 : 12;
     const monthly = subs
-        .filter((s) => s.sub.startsWith("monthly"))
-        .reduce((sum, x) => sum + x.v, 0);
+        .filter((s) => s.cadence === "monthly")
+        .reduce((sum, x) => sum + x.lastAmount, 0);
     const annualized = subs.reduce(
-        (sum, x) => sum + (x.sub.startsWith("monthly") ? x.v * 12 : x.v),
+        (sum, x) => sum + x.lastAmount * annualMultiplier(x.cadence),
         0
     );
     return (
@@ -2613,7 +2857,7 @@ function SubscriptionsGrid() {
                         &amp; recurring
                     </>
                 }
-                sub={`${subs.length} active services · auto-detected from ledger`}
+                sub={`${subs.length} active service${subs.length === 1 ? "" : "s"} · auto-detected from ledger`}
                 action={
                     <span className="ov-subs-totals">
                         <span>
@@ -2624,24 +2868,41 @@ function SubscriptionsGrid() {
                             · annualized{" "}
                             <Money amount={annualized} size={12} weight={500} />
                         </span>
-                        <a className="ov-details-link" href="#">
-                            Manage →
-                        </a>
                     </span>
                 }
             />
-            <div className="ov-subs-grid">
-                {subs.map((s) => (
-                    <div key={s.id} className="ov-sub-cell">
-                        <EntityAvatar icon={s.icon} colorVar={s.color} size={32} />
-                        <div className="ov-sub-text">
-                            <div className="ov-sub-name">{s.name}</div>
-                            <div className="ov-sub-sub">{s.sub}</div>
+            {subs.length === 0 ? (
+                <EmptyHint>No recurring services detected yet.</EmptyHint>
+            ) : (
+                <div className="ov-subs-grid">
+                    {subs.map((s) => (
+                        <div key={s.merchantKey} className="ov-sub-cell">
+                            <EntityAvatar
+                                icon="repeat"
+                                colorVar="var(--ent-3)"
+                                size={32}
+                            />
+                            <div className="ov-sub-text">
+                                <div className="ov-sub-name">{s.merchant}</div>
+                                <div className="ov-sub-sub">
+                                    {s.cadence}
+                                    {s.nextExpectedDate
+                                        ? ` · next ${formatInAppTz(
+                                              new Date(s.nextExpectedDate),
+                                              "MMM dd"
+                                          )}`
+                                        : ""}
+                                </div>
+                            </div>
+                            <Money
+                                amount={s.lastAmount}
+                                size={13}
+                                weight={500}
+                            />
                         </div>
-                        <Money amount={s.v} size={13} weight={500} />
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
@@ -2654,6 +2915,7 @@ function AccountsGlance({
     loading,
     spaceId,
     isPersonal,
+    balanceSeries,
 }: {
     accounts: Array<{
         accountId: string;
@@ -2666,7 +2928,37 @@ function AccountsGlance({
     loading?: boolean;
     spaceId: string;
     isPersonal: boolean;
+    balanceSeries: Array<{
+        accountId: string;
+        bucket: Date | string;
+        balance: number;
+    }>;
 }) {
+    /* Pivot the flat (accountId, bucket, balance) series into per-account
+       sparkline arrays. Slice the trailing 7 days per account. */
+    const seriesByAccount = useMemo(() => {
+        const map = new Map<string, number[]>();
+        const grouped = new Map<
+            string,
+            Array<{ bucket: Date; balance: number }>
+        >();
+        for (const row of balanceSeries) {
+            const list = grouped.get(row.accountId) ?? [];
+            list.push({
+                bucket:
+                    row.bucket instanceof Date
+                        ? row.bucket
+                        : new Date(row.bucket),
+                balance: row.balance,
+            });
+            grouped.set(row.accountId, list);
+        }
+        for (const [id, rows] of grouped) {
+            rows.sort((a, b) => a.bucket.getTime() - b.bucket.getTime());
+            map.set(id, rows.slice(-7).map((r) => r.balance));
+        }
+        return map;
+    }, [balanceSeries]);
     return (
         <div className="od-card ov-section ov-glance">
             <SectionHead
@@ -2696,9 +2988,12 @@ function AccountsGlance({
                 <EmptyHint compact>No accounts yet.</EmptyHint>
             ) : (
                 <div className="ov-list-col" style={{ gap: 14 }}>
-                    {accounts.slice(0, 5).map((a, i) => {
-                        /* TODO(api): real 7-day balance series per account. */
-                        const series = fakeSeries(a.balance, i);
+                    {accounts.slice(0, 5).map((a) => {
+                        const real = seriesByAccount.get(a.accountId);
+                        const series =
+                            real && real.length > 1
+                                ? real
+                                : new Array(7).fill(a.balance);
                         const liability = a.accountType === "liability";
                         const delta = (series[series.length - 1]! - series[0]!) / Math.max(1, series[0]!) * 100;
                         return (
@@ -2744,18 +3039,6 @@ function AccountsGlance({
     );
 }
 
-function fakeSeries(end: number, seed: number): number[] {
-    /* Deterministic faux-trend based on `seed` so it's stable per account. */
-    const start = end * (0.94 + ((seed * 13) % 7) / 100);
-    const arr: number[] = [];
-    for (let i = 0; i < 7; i++) {
-        const t = i / 6;
-        const noise = Math.sin(seed + i) * 0.005 * end;
-        arr.push(start + (end - start) * t + noise);
-    }
-    return arr;
-}
-
 function Sparkline({
     data,
     color = "var(--brand)",
@@ -2787,17 +3070,39 @@ function Sparkline({
     );
 }
 
-/** Top merchants — biggest merchants this month. TODO(api): no merchant agg. */
-function TopMerchants() {
-    const rows = [
-        { name: "Whole Foods Market", icon: "cart", color: "var(--ent-2)", txns: 9, v: 612.4, delta: 18 },
-        { name: "Shell Gas Station", icon: "car", color: "var(--ent-3)", txns: 6, v: 284.15, delta: -4 },
-        { name: "Blue Bottle Coffee", icon: "coffee", color: "var(--ent-7)", txns: 14, v: 187.5, delta: -32 },
-        { name: "Amazon", icon: "shopping-bag", color: "var(--ent-5)", txns: 11, v: 462.8, delta: -21 },
-        { name: "Galaxy Cinema", icon: "flame", color: "var(--ent-6)", txns: 4, v: 156, delta: 50 },
-        { name: "Daily Basket", icon: "cart", color: "var(--ent-2)", txns: 5, v: 98.2, delta: -8 },
+/** Top merchants — biggest merchants this month. */
+function TopMerchants({
+    merchants,
+}: {
+    merchants: Array<{
+        merchant: string;
+        merchantKey: string;
+        total: number;
+        previousTotal: number;
+        count: number;
+        deltaPct: number;
+    }>;
+}) {
+    /* Cycle a small palette across rows so the bars vary visually without
+       knowing anything about the merchant identity (descriptions don't
+       carry color metadata). */
+    const palette = [
+        "var(--ent-2)",
+        "var(--ent-3)",
+        "var(--ent-5)",
+        "var(--ent-6)",
+        "var(--ent-7)",
+        "var(--ent-4)",
     ];
-    const max = Math.max(...rows.map((r) => r.v));
+    const rows = merchants.map((m, i) => ({
+        name: m.merchant,
+        icon: "shopping-bag",
+        color: palette[i % palette.length],
+        txns: m.count,
+        v: m.total,
+        delta: m.deltaPct * 100,
+    }));
+    const max = Math.max(1, ...rows.map((r) => r.v));
     return (
         <div className="od-card ov-section ov-merchants">
             <SectionHead
@@ -2814,42 +3119,48 @@ function TopMerchants() {
                     </a>
                 }
             />
-            <div className="ov-list-col" style={{ gap: 12 }}>
-                {rows.map((r) => {
-                    const isUp = r.delta > 0;
-                    return (
-                        <div key={r.name} className="ov-merchant-row">
-                            <EntityAvatar
-                                icon={r.icon}
-                                colorVar={r.color}
-                                size={26}
-                            />
-                            <div className="ov-merchant-text">
-                                <div className="ov-merchant-name">{r.name}</div>
-                                <div className="ov-merchant-bar">
-                                    <span
-                                        style={{
-                                            width: `${(r.v / max) * 100}%`,
-                                            background: r.color,
-                                        }}
-                                    />
+            {rows.length === 0 ? (
+                <EmptyHint>No merchant data this period.</EmptyHint>
+            ) : (
+                <div className="ov-list-col" style={{ gap: 12 }}>
+                    {rows.map((r) => {
+                        const isUp = r.delta > 0;
+                        return (
+                            <div key={r.name} className="ov-merchant-row">
+                                <EntityAvatar
+                                    icon={r.icon}
+                                    colorVar={r.color}
+                                    size={26}
+                                />
+                                <div className="ov-merchant-text">
+                                    <div className="ov-merchant-name">{r.name}</div>
+                                    <div className="ov-merchant-bar">
+                                        <span
+                                            style={{
+                                                width: `${(r.v / max) * 100}%`,
+                                                background: r.color,
+                                            }}
+                                        />
+                                    </div>
                                 </div>
+                                <span className="ov-merchant-meta">{r.txns} txns</span>
+                                <Money amount={r.v} size={13} weight={500} />
+                                <span
+                                    className="tabular"
+                                    style={{
+                                        fontSize: 11,
+                                        color: isUp
+                                            ? "var(--expense)"
+                                            : "var(--income)",
+                                    }}
+                                >
+                                    {isUp ? "▲" : "▼"} {Math.abs(r.delta).toFixed(0)}%
+                                </span>
                             </div>
-                            <span className="ov-merchant-meta">{r.txns} txns</span>
-                            <Money amount={r.v} size={13} weight={500} />
-                            <span
-                                className="tabular"
-                                style={{
-                                    fontSize: 11,
-                                    color: isUp ? "var(--expense)" : "var(--income)",
-                                }}
-                            >
-                                {isUp ? "▲" : "▼"} {Math.abs(r.delta)}%
-                            </span>
-                        </div>
-                    );
-                })}
-            </div>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 }

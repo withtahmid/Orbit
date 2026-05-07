@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { trpc } from "@/trpc";
+import { useInvalidateAnalytics } from "@/lib/invalidate";
 import type { RouterOutput } from "@/trpc";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 import { getIcon } from "@/lib/entityIcons";
@@ -194,7 +195,7 @@ function EditForm({
     const spaceId = transaction.space_id;
     const type = transaction.type as unknown as TxType;
     const meta = EDIT_META[type];
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
@@ -261,12 +262,7 @@ function EditForm({
     const mutate = trpc.transaction.update.useMutation({
         onSuccess: async () => {
             toast.success("Transaction updated");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.envelop.listBySpace.invalidate({ spaceId });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({ spaceId });
-            await utils.analytics.envelopeUtilization.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
