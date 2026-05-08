@@ -35,6 +35,11 @@ export const personalTrendsDailyComparison = authorizedProcedure
         z.object({
             anchor: z.coerce.date().optional(),
             granularity: granularitySchema.default("month"),
+            /** See space-scoped procedure. `cash` (default) counts
+             *  cross-space outbound transfer principal as outflow;
+             *  `operational` excludes it. Internal owned-to-owned
+             *  transfers are always excluded regardless of mode. */
+            mode: z.enum(["cash", "operational"]).default("cash"),
         })
     )
     .query(async ({ ctx, input }) => {
@@ -51,6 +56,7 @@ export const personalTrendsDailyComparison = authorizedProcedure
 
                 const cfg = GRANULARITY_CONFIG[input.granularity];
                 const anchor = input.anchor ?? new Date();
+                const xferFactor = input.mode === "cash" ? 1 : 0;
 
                 const empty = {
                     granularity: input.granularity,
@@ -120,7 +126,7 @@ export const personalTrendsDailyComparison = authorizedProcedure
                                         AND t.source_account_id = ANY(${owned}) THEN t.amount
                                     WHEN t.type = 'transfer'
                                         AND t.source_account_id = ANY(${owned})
-                                        AND t.destination_account_id <> ALL(${owned}) THEN t.amount
+                                        AND t.destination_account_id <> ALL(${owned}) THEN t.amount * ${xferFactor}
                                     ELSE 0
                                 END
                                 + CASE

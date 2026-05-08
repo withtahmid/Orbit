@@ -6,6 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
+import { MetricToggle, useMetricMode } from "@/components/shared/MetricMode";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/trpc";
@@ -86,12 +87,18 @@ export default function TrendsView() {
     const now = useMemo(() => new Date(), []);
     const period = useMemo(() => periodBoundsFor(granularity, now), [granularity, now]);
 
+    /* Spending Trends defaults to `operational` — the user looking at
+       a "trends" page wants true spending velocity, not a chart that
+       spikes the day they shifted savings between two of their own
+       accounts. They can still toggle to `cash` to see the bank view. */
+    const { mode } = useMetricMode("operational");
+
     const dailySpaceQ = trpc.analytics.trends.dailyComparison.useQuery(
-        { spaceId: space.id, anchor: now, granularity },
+        { spaceId: space.id, anchor: now, granularity, mode },
         { enabled: !isPersonal }
     );
     const dailyPersonalQ = trpc.personal.trends.dailyComparison.useQuery(
-        { anchor: now, granularity },
+        { anchor: now, granularity, mode },
         { enabled: isPersonal }
     );
     const dailyData = (isPersonal ? dailyPersonalQ.data : dailySpaceQ.data) ?? null;
@@ -292,12 +299,19 @@ export default function TrendsView() {
     return (
         <AnalyticsDetailLayout
             title="Spending trends"
-            description="How spending is moving — this period vs last, this year vs last, and a typical-pace reference based on the prior windows."
+            description={
+                mode === "cash"
+                    ? "Cash outflow over time — includes cross-space transfer principal as spending. Switch to Operational for the true expense-only view."
+                    : "True expense over time — transfer principal excluded; only real expenses and transfer fees count as spending."
+            }
             actions={
-                <GranularityToggle
-                    value={granularity}
-                    onChange={setGranularity}
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                    <MetricToggle />
+                    <GranularityToggle
+                        value={granularity}
+                        onChange={setGranularity}
+                    />
+                </div>
             }
         >
             <KpiStrip items={kpiItems} isLoading={dailyLoading} />

@@ -136,16 +136,34 @@ export const spaceSummary = authorizedProcedure
                     .executeTakeFirst();
 
                 // Period income / expense derived from actual money
-                // movement through the space's accounts. The
-                // transaction's `space_id` column is a categorization
-                // tag (see spec §12), not a scope boundary; a transfer
-                // from outside into a scope account surfaces here as
-                // income even if the row was stamped with a different
-                // `space_id`. Internal transfers net to zero; fees
-                // count as expense only when the source is in scope.
+                // movement through the space's accounts. Two views are
+                // computed in one pass:
+                //
+                //   * `period*` — CASH FLOW. Includes cross-space
+                //     transfer principal as inflow/outflow. The
+                //     transaction's `space_id` column is a
+                //     categorization tag (see spec §12), not a scope
+                //     boundary; a transfer from outside into a scope
+                //     account surfaces here as income even if the row
+                //     was stamped with a different `space_id`. Internal
+                //     transfers (both legs in scope) net to zero. Fees
+                //     count as expense whenever the source is in scope.
+                //
+                //   * `operational*` — TRUE INCOME / EXPENSE. Excludes
+                //     all transfer principal regardless of direction;
+                //     keeps only `type='income'` deposits, `type='expense'`
+                //     debits, `type='adjustment'`, and transfer fees
+                //     (which are real money lost to the bank). Powers
+                //     the "Income / Expense" labels on cards where
+                //     users expect actual earnings vs spending — the
+                //     cash variant is misleading there because moving
+                //     money between a user's own accounts looks like
+                //     "expense."
                 const incomeExpenseRow = await sql<{
-                    income: string;
-                    expense: string;
+                    cash_income: string;
+                    cash_expense: string;
+                    operational_income: string;
+                    operational_expense: string;
                 }>`
                     WITH scope_accounts AS (
                         SELECT sa.account_id
@@ -162,7 +180,7 @@ export const spaceSummary = authorizedProcedure
                             WHEN type = 'adjustment'
                                 AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                             ELSE 0
-                        END), 0)::text AS income,
+                        END), 0)::text AS cash_income,
                         COALESCE(SUM(
                             CASE
                                 WHEN type = 'expense'
@@ -180,7 +198,36 @@ export const spaceSummary = authorizedProcedure
                                     AND fee_amount IS NOT NULL THEN fee_amount
                                 ELSE 0
                             END
-                        ), 0)::text AS expense
+                        ), 0)::text AS cash_expense,
+                        -- Operational income: only true type=income
+                        -- deposits (and crediting adjustments) into
+                        -- scope accounts. Transfer principal excluded.
+                        COALESCE(SUM(CASE
+                            WHEN type = 'income'
+                                AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                            WHEN type = 'adjustment'
+                                AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                            ELSE 0
+                        END), 0)::text AS operational_income,
+                        -- Operational expense: true type=expense debits
+                        -- + transfer fees (real money to the bank) +
+                        -- debiting adjustments. Transfer principal
+                        -- excluded both directions.
+                        COALESCE(SUM(
+                            CASE
+                                WHEN type = 'expense'
+                                    AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                WHEN type = 'adjustment'
+                                    AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
+                                ELSE 0
+                            END
+                            + CASE
+                                WHEN type = 'transfer'
+                                    AND source_account_id IN (SELECT account_id FROM scope_accounts)
+                                    AND fee_amount IS NOT NULL THEN fee_amount
+                                ELSE 0
+                            END
+                        ), 0)::text AS operational_expense
                     FROM transactions
                     WHERE transaction_datetime >= ${input.periodStart}
                       AND transaction_datetime < ${input.periodEnd}
@@ -199,8 +246,14 @@ export const spaceSummary = authorizedProcedure
                 const envelopeConsumed = Number(envelopeRow?.consumed ?? 0);
                 const envelopeRemaining = Number(envelopeRow?.remaining ?? 0);
                 const planAllocated = Number(planRow?.allocated ?? 0);
-                const income = Number(incomeExpenseRow?.income ?? 0);
-                const expense = Number(incomeExpenseRow?.expense ?? 0);
+                const cashIncome = Number(incomeExpenseRow?.cash_income ?? 0);
+                const cashExpense = Number(incomeExpenseRow?.cash_expense ?? 0);
+                const operationalIncome = Number(
+                    incomeExpenseRow?.operational_income ?? 0
+                );
+                const operationalExpense = Number(
+                    incomeExpenseRow?.operational_expense ?? 0
+                );
 
                 const unallocated = spendableBalance - envelopeRemaining - planAllocated;
 
@@ -214,9 +267,16 @@ export const spaceSummary = authorizedProcedure
                     planAllocated,
                     unallocated,
                     isOverAllocated: unallocated < 0,
-                    periodIncome: income,
-                    periodExpense: expense,
-                    periodNet: income - expense,
+                    /* `period*` = cash flow (matches balance movement).
+                       `operational*` = true income/expense (excludes
+                       transfer principal). See SQL block above for the
+                       precise classification rules. */
+                    periodIncome: cashIncome,
+                    periodExpense: cashExpense,
+                    periodNet: cashIncome - cashExpense,
+                    operationalIncome,
+                    operationalExpense,
+                    operationalNet: operationalIncome - operationalExpense,
                 };
             })
         );
