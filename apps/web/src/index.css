@@ -127,16 +127,11 @@
     }
     html {
         color-scheme: dark;
-        /* Prevent horizontal scroll caused by transient overflow on phones. */
-        overflow-x: hidden;
     }
     body {
         @apply bg-background text-foreground antialiased;
         font-family: var(--font-sans);
         -webkit-tap-highlight-color: transparent;
-        /* Same belt-and-suspenders for the body. */
-        overflow-x: hidden;
-        max-width: 100vw;
     }
     /* Tailwind v4 removed the legacy preflight cursor: pointer on buttons.
        Restore it for every interactive element so the UI feels right. */

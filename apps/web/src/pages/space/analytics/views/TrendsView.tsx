@@ -553,7 +553,13 @@ export default function TrendsView() {
    on the projection / last-month endpoints.
    ============================================================ */
 
-function CumulativeRaceChart({
+/**
+ * Cumulative spend chart — current period vs prior + typical-shape
+ * average + projection, with hover tooltip and per-curve dots. Exported
+ * so the Overview page can embed the same chart for its month-view
+ * Spending Trends card without duplicating the SVG plumbing.
+ */
+export function CumulativeRaceChart({
     cur,
     prv,
     avg,

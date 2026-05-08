@@ -300,28 +300,6 @@ is excluded from `personal.summary`'s `periodIncome/Expense` and
 `personal.cashFlow` bars. The transaction list keeps the row and tags
 it `is_internal_transfer: true` so the UI can render it as rebalancing.
 
-**Spending vs cash flow.** Two distinct concepts share similar SQL but
-classify transfers differently:
-
-- *Cash flow / balance procs* (`cashFlow`, `spaceSummary`'s
-  `periodIncome` / `periodExpense`, `balanceHistory`,
-  `accountBalanceHistory`) answer "how much money entered or left this
-  scope?" Outbound transfers (source in scope, destination outside)
-  count as expense because the scope's balance dropped.
-- *Spending procs* (`cumulativeSpend`, `trendsDailyComparison`,
-  `trendsYearOverYear`, `spendingHeatmap`, plus `personal/*` twins)
-  answer "how much did we consume?" Outbound transfer principal is
-  excluded — moving money to one of the user's other accounts isn't
-  spending. Transfer **fees** still count because the fee is genuinely
-  lost to a provider.
-
-Mixing the two would be misleading: the OverviewPage's "Spending Trends"
-card and the "Spending calendar" heatmap should reflect actual
-consumption, not money movement that incidentally crossed the scope
-boundary. Rule of thumb when adding a new analytic: if the UI label
-says "spending" / "consumed" / "spent", use the spending formula; if it
-says "cash flow" / "in" / "out" / "balance", use the cash-flow formula.
-
 **Shared-space parity (account-flow analytics).** `analytics.cashFlow`,
 `analytics.spaceSummary` (`periodIncome` / `periodExpense`),
 `analytics.balanceHistory`, and `analytics.spendingHeatmap` all derive
