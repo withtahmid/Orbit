@@ -58,7 +58,7 @@ export function EntityStyleFields({
                     <PopoverContent
                         portal={false}
                         align="end"
-                        className="orbit-design w-[20rem] p-2 bg-transparent border-0 shadow-none"
+                        className="orbit-design w-[min(20rem,calc(100vw-1.5rem))] p-2 bg-transparent border-0 shadow-none"
                     >
                         <ColorPicker value={color} onChange={setColor} />
                     </PopoverContent>
@@ -78,7 +78,7 @@ export function EntityStyleFields({
                     <PopoverContent
                         portal={false}
                         align="end"
-                        className="orbit-design w-[22rem] p-0 bg-transparent border-0 shadow-none"
+                        className="orbit-design w-[min(22rem,calc(100vw-1.5rem))] p-0 bg-transparent border-0 shadow-none"
                         style={{
                             maxHeight:
                                 "min(var(--radix-popover-content-available-height, 26rem), 26rem)",

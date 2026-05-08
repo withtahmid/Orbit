@@ -734,4 +734,17 @@ const AC_STYLES = `
     gap: 12px;
     text-align: center;
 }
+
+/* Phone (<640px) — tighten hero, paddings, headlines. */
+@media (max-width: 640px) {
+    .ac-topbar { padding: 14px 14px 10px; }
+    .ac-title { font-size: 22px; }
+    .ac-scroll { padding: 12px 14px 22px; gap: 14px; }
+    .orbit-design .od-card.ac-hero { padding: 18px; gap: 14px; }
+    .ac-hero-net { font-size: 32px; }
+    .ac-hero-stat { font-size: 18px; }
+    .orbit-design .od-card.ac-card { padding: 14px; }
+    .ac-card-balance { font-size: 20px; }
+    .orbit-design .od-card.ac-empty { padding: 24px; }
+}
 `;

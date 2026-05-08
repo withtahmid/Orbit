@@ -60,15 +60,21 @@ export const cumulativeSpend = authorizedProcedure
                         )::date AS d
                     ),
                     spend AS (
+                        /* Spending = real consumption only. Outbound transfers
+                           (source in scope, destination outside) are excluded
+                           because moving money to another of the user's
+                           accounts isn't spending — see engineering spec
+                           §"Spending vs cash flow". Transfer fees DO count
+                           because the fee is money genuinely lost to a
+                           provider. Cash flow / balance procs use a
+                           different formula that includes outbound
+                           transfers. */
                         SELECT
                             date_trunc('day', t.transaction_datetime)::date AS d,
                             SUM(
                                 CASE
                                     WHEN t.type = 'expense'
                                         AND t.source_account_id IN (SELECT account_id FROM scope_accounts) THEN t.amount
-                                    WHEN t.type = 'transfer'
-                                        AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                                        AND t.destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN t.amount
                                     ELSE 0
                                 END
                                 + CASE
@@ -81,10 +87,7 @@ export const cumulativeSpend = authorizedProcedure
                         FROM transactions t
                         WHERE t.transaction_datetime >= ${prevStart}
                           AND t.transaction_datetime < ${input.periodEnd}
-                          AND (
-                              t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                              OR t.destination_account_id IN (SELECT account_id FROM scope_accounts)
-                          )
+                          AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
                         GROUP BY 1
                     )
                     SELECT

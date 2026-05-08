@@ -134,7 +134,7 @@ export function CategoryTreeSelect({
             </PopoverTrigger>
             <PopoverContent
                 portal={false}
-                className="flex w-[--radix-popover-trigger-width] min-w-[18rem] flex-col p-0"
+                className="flex w-[--radix-popover-trigger-width] min-w-[min(18rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] flex-col p-0"
                 align="start"
                 style={{
                     maxHeight:

@@ -538,4 +538,13 @@ const SS_STYLES = `
 @media (max-width: 720px) {
     .ss-grid { grid-template-columns: 1fr; }
 }
+
+@media (max-width: 640px) {
+    .ss-header { padding: 14px 16px; }
+    .ss-body { padding: 28px 16px; gap: 24px; }
+    .ss-card { padding: 18px; gap: 14px; }
+    .ss-card-title { font-size: 16px; }
+    .ss-money { font-size: 18px; }
+    .ss-create { height: auto; padding: 18px; }
+}
 `;

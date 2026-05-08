@@ -5,6 +5,7 @@ node_modules
 .pnp
 .pnp.js
 
+
 # Local env files
 .env
 # .env.local
@@ -18,6 +19,9 @@ coverage
 
 # Turbo
 .turbo
+
+# pnpm
+.pnpm-store
 
 # Vercel
 .vercel

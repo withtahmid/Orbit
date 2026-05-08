@@ -127,11 +127,16 @@
     }
     html {
         color-scheme: dark;
+        /* Prevent horizontal scroll caused by transient overflow on phones. */
+        overflow-x: hidden;
     }
     body {
         @apply bg-background text-foreground antialiased;
         font-family: var(--font-sans);
         -webkit-tap-highlight-color: transparent;
+        /* Same belt-and-suspenders for the body. */
+        overflow-x: hidden;
+        max-width: 100vw;
     }
     /* Tailwind v4 removed the legacy preflight cursor: pointer on buttons.
        Restore it for every interactive element so the UI feels right. */
@@ -217,5 +222,45 @@
     /* Safe-area padding for mobile */
     .safe-pb {
         padding-bottom: env(safe-area-inset-bottom);
+    }
+}
+
+/* ------------------------------------------------------------------
+   Global mobile fixes
+   ------------------------------------------------------------------
+   These rules apply globally on small viewports to catch common
+   mobile-breaking patterns left over from the AI-generated layouts.
+   They never affect desktop; they only kick in below 640px.
+   ------------------------------------------------------------------ */
+@media (max-width: 640px) {
+    /* Make every Radix Dialog respect the viewport edges.
+       Tailwind's max-w-lg + w-full goes flush to the edge on phones — pad it. */
+    [data-slot="dialog-content"] {
+        width: calc(100vw - 1.5rem) !important;
+        max-width: calc(100vw - 1.5rem) !important;
+        max-height: calc(100vh - 2rem);
+        max-height: calc(100dvh - 2rem);
+        overflow-y: auto;
+    }
+    /* Sheet right/left/top/bottom — don't let them go thinner than 90vw or
+       overflow the viewport vertically. */
+    [data-slot="sheet-content"] {
+        max-width: 100vw;
+        max-height: 100vh;
+        max-height: 100dvh;
+    }
+    /* Table wrappers always allow horizontal scroll on phones, with
+       a touch-style overscroll that feels native. */
+    [data-slot="table-wrapper"] {
+        -webkit-overflow-scrolling: touch;
+    }
+    /* Generic safety: any element marked .od-card should not overflow. */
+    .orbit-design .od-card { max-width: 100%; }
+}
+
+/* Even smaller phones (≤380px). */
+@media (max-width: 380px) {
+    [data-slot="dialog-content"] {
+        padding: 1rem !important;
     }
 }

@@ -77,6 +77,13 @@ export const trendsYearOverYear = authorizedProcedure
                         FROM space_accounts
                         WHERE space_id = ${input.spaceId}
                     )
+                    /* Spending = real consumption only. Outbound transfers
+                       (source in scope, destination outside) are excluded
+                       because moving money to another of the user's
+                       accounts isn't spending — see engineering spec
+                       §"Spending vs cash flow". Transfer fees DO count
+                       because the fee is money genuinely lost to a
+                       provider. */
                     SELECT
                         EXTRACT(YEAR FROM date_trunc('month', t.transaction_datetime))::int AS year,
                         (EXTRACT(MONTH FROM date_trunc('month', t.transaction_datetime))::int - 1) AS month_idx,
@@ -84,9 +91,6 @@ export const trendsYearOverYear = authorizedProcedure
                             CASE
                                 WHEN t.type = 'expense'
                                     AND t.source_account_id IN (SELECT account_id FROM scope_accounts) THEN t.amount
-                                WHEN t.type = 'transfer'
-                                    AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                                    AND t.destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN t.amount
                                 ELSE 0
                             END
                             + CASE
@@ -99,10 +103,7 @@ export const trendsYearOverYear = authorizedProcedure
                     FROM transactions t
                     WHERE t.transaction_datetime >= (SELECT y0::timestamptz FROM bounds)
                       AND t.transaction_datetime < (SELECT y1::timestamptz FROM bounds)
-                      AND (
-                          t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                          OR t.destination_account_id IN (SELECT account_id FROM scope_accounts)
-                      )
+                      AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
                     GROUP BY 1, 2
                 `.execute(trx);
 

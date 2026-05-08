@@ -24,13 +24,14 @@ export const spendingHeatmap = authorizedProcedure
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
-                // Daily spending = anything that reduced the space's
-                // cash position: expenses whose source is in scope,
-                // cross-space outbound transfers (source in, dest out)
-                // as principal, and transfer fees whose source is in
-                // scope. Mirrors cashFlow.mts / spaceSummary.mts so a
-                // day's heatmap cell and that day's cash-flow expense
-                // bar always agree.
+                // Daily spending = real consumption only: expenses whose
+                // source is in scope, plus transfer fees whose source is
+                // in scope (the fee is money genuinely lost to a provider).
+                // Outbound transfer principal is intentionally excluded —
+                // moving money to one of the user's other accounts isn't
+                // spending. Cash flow / balance procs use a different
+                // formula that includes outbound transfers; see engineering
+                // spec §"Spending vs cash flow".
                 const query = sql<{ day: Date; total: string }>`
                     WITH scope_accounts AS (
                         SELECT sa.account_id
@@ -42,14 +43,6 @@ export const spendingHeatmap = authorizedProcedure
                         FROM transactions
                         WHERE type = 'expense'
                           AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        SELECT date_trunc('day', transaction_datetime) AS day, amount
-                        FROM transactions
-                        WHERE type = 'transfer'
-                          AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                          AND destination_account_id NOT IN (SELECT account_id FROM scope_accounts)
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
                         UNION ALL

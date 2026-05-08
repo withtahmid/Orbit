@@ -327,12 +327,22 @@ const NT_STYLES = `
     color-scheme: dark;
     color: var(--fg);
     background: transparent;
+    /* The native widget needs a hard min-width or iOS Safari clips
+       "MM/DD/YYYY, HH:MM AM" to "MM/DD/YYYY, HH:M" inside a flex parent. */
+    min-width: 0;
+    /* Make the entire visible area tappable rather than just the value text. */
+    width: 100%;
 }
 .nt-form input[type="datetime-local"]::-webkit-calendar-picker-indicator,
 .nt-form input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(0.65) sepia(0.1) saturate(0.4);
     cursor: pointer;
+    /* On mobile let the native indicator span the full input so the
+       tap area covers the whole field, not just a 14×14 corner icon. */
+    padding: 0;
+    margin: 0;
 }
+
 
 /* Override CategoryTreeSelect's shadcn outline-button trigger so it matches
    the editorial-dark Select look. The combobox role is unique to that comp. */
@@ -525,6 +535,41 @@ const NT_STYLES = `
     font-weight: 500;
     color: var(--fg-2);
     letter-spacing: 0.02em;
+}
+
+/* Phone (<640px): tighter tabs, drawer ergonomics. */
+@media (max-width: 640px) {
+    .nt-tabs { padding: 3px; gap: 3px; }
+    .nt-tab { height: 30px; font-size: 11.5px; gap: 5px; padding: 0 6px; }
+    .nt-form { gap: 14px; margin-top: 12px; }
+    .nt-env-row { padding: 8px 10px; gap: 8px; }
+    .nt-env-row-label { font-size: 11px; }
+    /* Footer buttons fill the row on phone for big tap targets. */
+    .nt-btn { flex: 1 1 auto; justify-content: center; height: 40px; }
+}
+
+/* Phone (<480px): single-column drift grid + smaller amount input. */
+@media (max-width: 480px) {
+    .nt-tab { font-size: 11px; gap: 4px; padding: 0 4px; }
+    /* Hide the tab text label, keep the icon, when the screen can't fit
+       all four labels comfortably. The lucide icon alone communicates
+       expense / income / transfer / adjust. */
+    .nt-tab svg { width: 14px; height: 14px; }
+    .nt-drift-grid { grid-template-columns: 1fr; gap: 12px; }
+    .nt-drift { padding: 14px; }
+    .nt-drift-num { font-size: 20px; }
+    .nt-drift-summary-num { font-size: 22px; }
+}
+
+@media (max-width: 360px) {
+    /* On the smallest phones, the four-up tab bar packs into icon-only
+       buttons so the drawer header doesn't clip the last tab. */
+    .nt-tab {
+        gap: 0;
+        padding: 0 4px;
+        font-size: 0;
+    }
+    .nt-tab svg { font-size: initial; width: 15px; height: 15px; }
 }
 `;
 
