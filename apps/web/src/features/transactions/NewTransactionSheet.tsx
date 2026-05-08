@@ -7,7 +7,6 @@ import {
     SlidersHorizontal,
     Check,
     Calendar,
-    Layers,
     Wallet,
     Briefcase,
     Tag,
@@ -389,6 +388,151 @@ const NT_STYLES = `
     font-weight: 500;
     border: 1px solid var(--line);
 }
+.nt-env-card {
+    padding: 12px 14px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.nt-env-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.nt-env-card-meta {
+    font-size: 11.5px;
+    color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+}
+.nt-env-warn {
+    border-top: 1px dashed var(--line);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.nt-env-warn-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.nt-env-warn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--expense);
+    flex-shrink: 0;
+    margin-top: 6px;
+}
+.nt-env-warn-head-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.nt-env-warn-title {
+    font-size: 13px;
+    color: var(--fg);
+    font-weight: 500;
+    line-height: 1.35;
+}
+.nt-env-warn-sub {
+    font-size: 11.5px;
+    color: var(--fg-3);
+}
+
+.nt-recover-card {
+    background: var(--bg-elev-1);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color 140ms ease;
+}
+.nt-recover-card:hover {
+    border-color: var(--line-strong);
+}
+.nt-recover-card-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.nt-recover-card-title {
+    font-size: 12.5px;
+    color: var(--fg);
+    font-weight: 500;
+    line-height: 1.3;
+}
+.nt-recover-card-hint {
+    font-size: 11px;
+    color: var(--fg-4);
+    line-height: 1.4;
+}
+.nt-recover-card-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.nt-recover-card-row--end {
+    justify-content: flex-end;
+}
+.nt-recover-select {
+    flex: 1 1 180px;
+    min-width: 0;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 12.5px;
+    padding: 0 10px;
+    font-family: inherit;
+    transition: border-color 140ms ease;
+}
+.nt-recover-select:focus {
+    outline: none;
+    border-color: var(--brand);
+}
+.nt-recover-btn {
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg-elev-2);
+    color: var(--fg);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 140ms ease, border-color 140ms ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.nt-recover-btn:hover:not(:disabled) {
+    background: var(--bg-elev-3);
+    border-color: var(--line-strong);
+}
+.nt-recover-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+@media (max-width: 480px) {
+    .nt-recover-card-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .nt-recover-card-row--end {
+        align-items: stretch;
+    }
+}
 
 /* Transfer swap circle */
 .nt-swap {
@@ -616,38 +760,232 @@ function EventSelect({
     );
 }
 
-/** Compact "Will draw from envelope" pill shown under category in expense form. */
-function EnvelopeDrawHint({
+/** Rich status card under the category dropdown — shows the envelope's
+ *  current period spent/planned/remaining, and if this transaction would
+ *  push it negative, offers two recovery actions: Pull from another
+ *  envelope, or Borrow from next month. The transaction can also be saved
+ *  as overspend (the warning is informational, not a block). */
+function EnvelopeStatusCard({
+    spaceId,
     categoryId,
     categories,
     envelopes,
+    pendingAmount,
 }: {
+    spaceId: string;
     categoryId: string | null;
     categories: Category[];
     envelopes: Envelop[];
+    pendingAmount: number;
 }) {
-    if (!categoryId) return null;
-    const cat = categories.find((c) => c.id === categoryId);
+    const cat = categoryId ? categories.find((c) => c.id === categoryId) : null;
     const envelopeId = cat?.envelop_id ?? null;
-    const env = envelopeId ? envelopes.find((e) => e.id === envelopeId) : null;
+    const env = envelopeId
+        ? envelopes.find((e) => e.id === envelopeId)
+        : null;
+
+    const periodStart = useMemo(() => {
+        const d = new Date();
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+    }, []);
+    const periodEnd = useMemo(() => {
+        const d = new Date();
+        return new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    }, []);
+
+    const utilizationQuery = trpc.analytics.envelopeUtilization.useQuery(
+        { spaceId, periodStart, periodEnd },
+        { enabled: !!envelopeId }
+    );
+
+    const utils = trpc.useUtils();
+    const transferMutation = trpc.allocation.transfer.useMutation({
+        onSuccess: async () => {
+            toast.success("Pulled funds");
+            await Promise.all([
+                utils.envelop.allocationListBySpace.invalidate({ spaceId }),
+                utils.analytics.envelopeUtilization.invalidate({ spaceId }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+    const borrowMutation = trpc.envelop.borrowFromNextMonth.useMutation({
+        onSuccess: async () => {
+            toast.success("Borrowed from next month");
+            await Promise.all([
+                utils.envelop.allocationListBySpace.invalidate({ spaceId }),
+                utils.analytics.envelopeUtilization.invalidate({ spaceId }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+    const [pullSourceId, setPullSourceId] = useState<string>("");
+
     if (!env) return null;
+
     const color = env.color || "var(--ent-2)";
     const Icon = getIcon(env.icon ?? null);
+
+    const utilRow = utilizationQuery.data?.find(
+        (u) => u.envelopId === env.id
+    );
+    const allocated = utilRow ? utilRow.allocated + utilRow.carryIn : 0;
+    const consumed = utilRow?.consumed ?? 0;
+    const remaining = utilRow?.remaining ?? 0;
+    const isMonthly = env.cadence === "monthly";
+
+    const overBy =
+        pendingAmount > remaining ? pendingAmount - remaining : 0;
+    const willOverspend = overBy > 0 && pendingAmount > 0;
+
+    // Other envelopes with positive remaining — sources for the "Pull" picker.
+    const pullCandidates = (utilizationQuery.data ?? []).filter(
+        (u) => u.envelopId !== env.id && u.remaining > 0
+    );
+
     return (
-        <div className="nt-env-row">
-            <Layers className="size-3.5" style={{ color: "var(--fg-3)" }} aria-hidden />
-            <span className="nt-env-row-label">Will draw from envelope</span>
-            <span
-                className="nt-env-chip"
-                style={{
-                    background: `color-mix(in oklab, ${color} 12%, transparent)`,
-                    borderColor: `color-mix(in oklab, ${color} 30%, transparent)`,
-                    color,
-                }}
-            >
-                <Icon className="size-3" />
-                {env.name}
-            </span>
+        <div className="nt-env-card">
+            <div className="nt-env-card-head">
+                <span
+                    className="nt-env-chip"
+                    style={{
+                        background: `color-mix(in oklab, ${color} 12%, transparent)`,
+                        borderColor: `color-mix(in oklab, ${color} 30%, transparent)`,
+                        color,
+                    }}
+                >
+                    <Icon className="size-3" />
+                    {env.name}
+                </span>
+                <span className="nt-env-card-meta">
+                    Spent ${consumed.toFixed(2)} of ${allocated.toFixed(2)}
+                    {" · "}
+                    <strong
+                        style={{
+                            color:
+                                remaining < 0
+                                    ? "var(--expense)"
+                                    : "var(--fg)",
+                        }}
+                    >
+                        ${remaining.toFixed(2)} left
+                    </strong>
+                </span>
+            </div>
+
+            {willOverspend && (
+                <div className="nt-env-warn">
+                    <div className="nt-env-warn-head">
+                        <span className="nt-env-warn-dot" />
+                        <div className="nt-env-warn-head-text">
+                            <span className="nt-env-warn-title">
+                                Will overspend {env.name} by{" "}
+                                <span className="tabular">
+                                    ${overBy.toFixed(2)}
+                                </span>
+                            </span>
+                            <span className="nt-env-warn-sub">
+                                Save as-is, or recover with one of these:
+                            </span>
+                        </div>
+                    </div>
+
+                    {pullCandidates.length > 0 && (
+                        <div className="nt-recover-card">
+                            <div className="nt-recover-card-head">
+                                <span className="nt-recover-card-title">
+                                    Pull from another envelope
+                                </span>
+                                <span className="nt-recover-card-hint">
+                                    Move ${overBy.toFixed(2)} of plan from
+                                    another bucket into {env.name}.
+                                </span>
+                            </div>
+                            <div className="nt-recover-card-row">
+                                <select
+                                    className="nt-recover-select"
+                                    value={pullSourceId}
+                                    onChange={(e) =>
+                                        setPullSourceId(e.target.value)
+                                    }
+                                >
+                                    <option value="">
+                                        Choose source envelope…
+                                    </option>
+                                    {pullCandidates.map((c) => (
+                                        <option
+                                            key={c.envelopId}
+                                            value={c.envelopId}
+                                        >
+                                            {c.name} · $
+                                            {c.remaining.toFixed(2)} left
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    className="nt-recover-btn"
+                                    disabled={
+                                        !pullSourceId ||
+                                        transferMutation.isPending
+                                    }
+                                    onClick={() =>
+                                        transferMutation.mutate({
+                                            amount: overBy,
+                                            from: {
+                                                kind: "envelop",
+                                                envelopId: pullSourceId,
+                                            },
+                                            to: {
+                                                kind: "envelop",
+                                                envelopId: env.id,
+                                            },
+                                        })
+                                    }
+                                >
+                                    {transferMutation.isPending
+                                        ? "Pulling…"
+                                        : `Pull $${overBy.toFixed(2)}`}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {isMonthly && (
+                        <div className="nt-recover-card">
+                            <div className="nt-recover-card-head">
+                                <span className="nt-recover-card-title">
+                                    Borrow from next month
+                                </span>
+                                <span className="nt-recover-card-hint">
+                                    Adds ${overBy.toFixed(2)} to{" "}
+                                    {env.name} now and removes the same from
+                                    next month's plan.
+                                </span>
+                            </div>
+                            <div className="nt-recover-card-row nt-recover-card-row--end">
+                                <button
+                                    type="button"
+                                    className="nt-recover-btn"
+                                    disabled={borrowMutation.isPending}
+                                    onClick={() =>
+                                        borrowMutation.mutate({
+                                            envelopId: env.id,
+                                            amount: overBy,
+                                        })
+                                    }
+                                >
+                                    {borrowMutation.isPending
+                                        ? "Borrowing…"
+                                        : `Borrow $${overBy.toFixed(2)}`}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -836,13 +1174,27 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 autoFocus
             />
 
-            <OrbitField label="Payee" hint="Optional · helps recognize this entry later">
-                <OrbitInput
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Tartine Bakery"
+            <OrbitField
+                label="Category"
+                hint="Envelope is inferred from the category"
+                required
+            >
+                <CategoryTreeSelect
+                    categories={(categoriesQuery.data ?? []) as any}
+                    value={categoryId}
+                    onChange={setCategoryId}
+                    placeholder="Choose category"
+                    allowAll={false}
                 />
             </OrbitField>
+
+            <EnvelopeStatusCard
+                spaceId={spaceId}
+                categoryId={categoryId}
+                categories={(categoriesQuery.data ?? []) as Category[]}
+                envelopes={(envelopesQuery.data ?? []) as Envelop[]}
+                pendingAmount={Number(amount) || 0}
+            />
 
             <OrbitFieldRow>
                 <OrbitField label="Date">
@@ -865,25 +1217,13 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 </OrbitField>
             </OrbitFieldRow>
 
-            <OrbitField
-                label="Category"
-                hint="Envelope is inferred from the category"
-                required
-            >
-                <CategoryTreeSelect
-                    categories={(categoriesQuery.data ?? []) as any}
-                    value={categoryId}
-                    onChange={setCategoryId}
-                    placeholder="Choose category"
-                    allowAll={false}
+            <OrbitField label="Payee" hint="Optional · helps recognize this entry later">
+                <OrbitInput
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Tartine Bakery"
                 />
             </OrbitField>
-
-            <EnvelopeDrawHint
-                categoryId={categoryId}
-                categories={(categoriesQuery.data ?? []) as Category[]}
-                envelopes={(envelopesQuery.data ?? []) as Envelop[]}
-            />
 
             <OrbitField label="Location" hint="Optional">
                 <OrbitInput

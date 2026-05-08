@@ -15,6 +15,7 @@ export const ROUTES = {
     spaceTransactions: (id: string) => `/s/${id}/transactions`,
     spaceEnvelopes: (id: string) => `/s/${id}/envelopes`,
     spaceEnvelopeDetail: (id: string, envId: string) => `/s/${id}/envelopes/${envId}`,
+    spacePlanMonth: (id: string, month: string) => `/s/${id}/plan/${month}`,
     spacePlans: (id: string) => `/s/${id}/plans`,
     spacePlanDetail: (id: string, planId: string) => `/s/${id}/plans/${planId}`,
     spaceCategories: (id: string) => `/s/${id}/categories`,

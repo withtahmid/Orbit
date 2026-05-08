@@ -66,6 +66,7 @@ export interface EmailVerificationCodes {
 export interface EnvelopAllocations {
   account_id: string | null;
   amount: Numeric;
+  borrowed_link_id: string | null;
   created_at: Generated<Timestamp>;
   created_by: string;
   envelop_id: string;

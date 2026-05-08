@@ -4,6 +4,7 @@ import {
     AlertTriangle,
     ArrowRightLeft,
     ChevronRight,
+    Coins,
     Pencil,
     Trash2,
 } from "lucide-react";
@@ -32,6 +33,8 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateDialog";
+import { EnvelopeMoveDialog } from "@/features/allocations/EnvelopeMoveDialog";
+import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
@@ -196,17 +199,47 @@ export default function EnvelopeDetailPage() {
                                     </button>
                                 }
                             />
-                            <button
-                                type="button"
-                                className="od-btn"
-                                onClick={() =>
-                                    document
-                                        .getElementById("ed-breakdown")
-                                        ?.scrollIntoView({ behavior: "smooth" })
+                            <EnvelopeAllocateDialog
+                                envelopId={envelope.envelopId}
+                                envelopCadence={envelope.cadence}
+                                direction="deallocate"
+                                trigger={
+                                    <button
+                                        type="button"
+                                        className="od-btn"
+                                    >
+                                        Deallocate
+                                    </button>
                                 }
-                            >
-                                Rebalance
-                            </button>
+                            />
+                            <EnvelopeTopUpDialog
+                                envelopId={envelope.envelopId}
+                                envelopeName={envelope.name}
+                                envelopeCadence={envelope.cadence}
+                                envelopeColor={envelope.color}
+                                trigger={
+                                    <button
+                                        type="button"
+                                        className="od-btn"
+                                    >
+                                        <Coins className="size-3.5" /> Top up…
+                                    </button>
+                                }
+                            />
+                            <EnvelopeMoveDialog
+                                sourceEnvelopId={envelope.envelopId}
+                                sourceEnvelopeName={envelope.name}
+                                sourceEnvelopeColor={envelope.color}
+                                trigger={
+                                    <button
+                                        type="button"
+                                        className="od-btn"
+                                    >
+                                        <ArrowRightLeft className="size-3.5" />{" "}
+                                        Move to…
+                                    </button>
+                                }
+                            />
                         </PermissionGate>
                     )}
                     <PermissionGate roles={["owner"]}>

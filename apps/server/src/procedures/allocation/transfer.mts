@@ -188,10 +188,14 @@ async function resolveTargetInfo(
         const periodStart =
             cadence === "none" ? null : effectivePeriodStart(cadence, null, now);
 
+        // Preserve undefined → aggregate across all account partitions
+        // (top-line). Coercing it to null here would scope the available
+        // check to the unassigned-only partition, which makes pulling from
+        // legacy allocations pinned to a specific account silently fail.
         const bal = await resolveEnvelopePeriodBalance({
             trx,
             envelopId: target.envelopId,
-            accountId: target.accountId ?? null,
+            accountId: target.accountId,
             at: now,
         });
         return {
@@ -212,7 +216,7 @@ async function resolveTargetInfo(
     const bal = await resolvePlanBalance({
         trx,
         planId: target.planId,
-        accountId: target.accountId ?? null,
+        accountId: target.accountId,
     });
     return { spaceId: plan.space_id, available: bal.allocated, periodStart: null };
 }

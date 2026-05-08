@@ -31,13 +31,11 @@ export default observer(function OverviewPage() {
     const cashFlowStart = addMonths(thisMonthStart, -2);
     const trendStart = addDays(now, -29);
 
-    /* Metric mode (URL-persisted via ?metric=cash|operational). The
-       Cash Flow card defaults to `cash` (matches bank balance) while
-       the Spending Trends card defaults to `operational` (true expense
-       only). Both read the same `?metric` URL param so the moment a
-       user toggles either, both cards converge. */
-    const { mode } = useMetricMode("cash");
-    const { mode: trendsMode } = useMetricMode("operational");
+    /* Metric mode (URL-persisted via ?metric=cash|operational).
+       Operational is the default everywhere — true income / expense
+       is more useful as a headline. Users can toggle to cash to see
+       the bank-balance view that includes cross-space transfers. */
+    const { mode } = useMetricMode();
 
     /* ---------- Queries: real-space + personal variants ---------- */
     const summarySpace = trpc.analytics.spaceSummary.useQuery(
@@ -212,12 +210,12 @@ export default observer(function OverviewPage() {
             spaceId: space.id,
             anchor: now,
             granularity: "month",
-            mode: trendsMode,
+            mode,
         },
         { enabled: !isPersonal }
     );
     const trendsPersonalQ = trpc.personal.trends.dailyComparison.useQuery(
-        { anchor: now, granularity: "month", mode: trendsMode },
+        { anchor: now, granularity: "month", mode },
         { enabled: isPersonal }
     );
     const trendsData =

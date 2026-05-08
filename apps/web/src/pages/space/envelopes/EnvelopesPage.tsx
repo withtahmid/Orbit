@@ -16,6 +16,8 @@ import {
     Filter as FilterIcon,
     ChevronDown,
     Check,
+    ArrowRightLeft,
+    Coins,
     AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -48,6 +50,8 @@ import {
 } from "@/components/orbit/OrbitForm";
 import { getIcon } from "@/lib/entityIcons";
 import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateDialog";
+import { EnvelopeMoveDialog } from "@/features/allocations/EnvelopeMoveDialog";
+import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
@@ -119,19 +123,6 @@ function buildAttention(envelopes: EnvelopeRow[]) {
                 icon: e.icon,
                 text: `over by ${over.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
             });
-            continue;
-        }
-        const drift = e.breakdown.filter(
-            (b) => b.isDrift && b.remaining < 0
-        ).length;
-        if (drift > 0) {
-            items.push({
-                envelopId: e.envelopId,
-                name: e.name,
-                color: e.color,
-                icon: e.icon,
-                text: `${drift} account${drift === 1 ? "" : "s"} drifted`,
-            });
         }
     }
     return items;
@@ -157,6 +148,12 @@ export default function EnvelopesPage() {
     });
 
     const priorityQuery = trpc.analytics.priorityBreakdown.useQuery({
+        spaceId: space.id,
+        periodStart,
+        periodEnd,
+    });
+
+    const summaryQuery = trpc.analytics.spaceSummary.useQuery({
         spaceId: space.id,
         periodStart,
         periodEnd,
@@ -281,6 +278,18 @@ export default function EnvelopesPage() {
                                 </button>
                             </div>
                         </div>
+                        {/* Banner is only meaningful for the current month —
+                            spaceSummary.unallocated is always computed
+                            against NOW on the server, so showing it on
+                            past/future months would be misleading. */}
+                        {summaryQuery.data && monthOffset === 0 && (
+                            <UnbudgetedBanner
+                                unallocated={summaryQuery.data.unallocated}
+                                isOverAllocated={summaryQuery.data.isOverAllocated}
+                                spaceId={space.id}
+                                viewingDate={viewingDate}
+                            />
+                        )}
                         <div className="env-hero-stats">
                             <HeroStat
                                 label="Allocated"
@@ -714,6 +723,8 @@ function EnvelopeListRow({
 
 function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
     const [editOpen, setEditOpen] = useState(false);
+    const [moveOpen, setMoveOpen] = useState(false);
+    const [topUpOpen, setTopUpOpen] = useState(false);
     return (
         <span
             onClick={(e) => {
@@ -731,7 +742,7 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
                         <MoreHorizontal className="size-3.5" />
                     </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuContent align="end" className="w-48">
                     <PermissionGate roles={["owner", "editor"]}>
                         <EnvelopeAllocateDialog
                             envelopId={env.envelopId}
@@ -743,6 +754,22 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
                             envelopCadence={env.cadence as Cadence}
                             direction="deallocate"
                         />
+                        <DropdownMenuItem
+                            onSelect={(e) => {
+                                e.preventDefault();
+                                setTopUpOpen(true);
+                            }}
+                        >
+                            <Coins className="size-3.5" /> Top up…
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onSelect={(e) => {
+                                e.preventDefault();
+                                setMoveOpen(true);
+                            }}
+                        >
+                            <ArrowRightLeft className="size-3.5" /> Move to…
+                        </DropdownMenuItem>
                     </PermissionGate>
                     <PermissionGate roles={["owner"]}>
                         <DropdownMenuItem onSelect={() => setEditOpen(true)}>
@@ -758,6 +785,23 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
                 onOpenChange={setEditOpen}
                 hideDefaultTrigger
             />
+            <EnvelopeMoveDialog
+                sourceEnvelopId={env.envelopId}
+                sourceEnvelopeName={env.name}
+                sourceEnvelopeColor={env.color}
+                open={moveOpen}
+                onOpenChange={setMoveOpen}
+                hideDefaultTrigger
+            />
+            <EnvelopeTopUpDialog
+                envelopId={env.envelopId}
+                envelopeName={env.name}
+                envelopeCadence={env.cadence as Cadence}
+                envelopeColor={env.color}
+                open={topUpOpen}
+                onOpenChange={setTopUpOpen}
+                hideDefaultTrigger
+            />
         </span>
     );
 }
@@ -765,6 +809,64 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
 /* ============================================================
    Helpers
    ============================================================ */
+
+function UnbudgetedBanner({
+    unallocated,
+    isOverAllocated,
+    spaceId,
+    viewingDate,
+}: {
+    unallocated: number;
+    isOverAllocated: boolean;
+    spaceId: string;
+    viewingDate: Date;
+}) {
+    const monthSlug = `${viewingDate.getFullYear()}-${String(
+        viewingDate.getMonth() + 1
+    ).padStart(2, "0")}`;
+    const tone = isOverAllocated ? "var(--expense)" : "var(--income)";
+    const title = isOverAllocated ? "Over-planned by" : "Unbudgeted";
+    const value = Math.abs(unallocated);
+    const sub = isOverAllocated
+        ? "Your envelopes plan more than your accounts hold. Add income or reduce a plan."
+        : "Money in your accounts that isn't planned for anything yet.";
+    return (
+        <div className="env-unbudgeted">
+            <div className="env-unbudgeted-cell">
+                <span
+                    className="env-unbudgeted-dot"
+                    style={{ background: tone }}
+                />
+                <span className="env-unbudgeted-text">
+                    <span className="env-unbudgeted-title">
+                        {title}{" "}
+                        <span
+                            className="tabular"
+                            style={{
+                                fontWeight: 600,
+                                color: tone,
+                                marginLeft: 4,
+                            }}
+                        >
+                            $
+                            {value.toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}
+                        </span>
+                    </span>
+                    <span className="env-unbudgeted-sub">{sub}</span>
+                </span>
+            </div>
+            <Link
+                to={ROUTES.spacePlanMonth(spaceId, monthSlug)}
+                className="env-unbudgeted-cta"
+            >
+                Plan this month →
+            </Link>
+        </div>
+    );
+}
 
 function HeroStat({
     label,
@@ -1384,6 +1486,65 @@ const ENV_STYLES = `
     color: var(--fg);
 }
 .env-hero-arrow:disabled { opacity: 0.4; cursor: not-allowed; }
+.env-unbudgeted {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+    position: relative;
+    z-index: 1;
+    flex-wrap: wrap;
+}
+.env-unbudgeted-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.env-unbudgeted-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    flex-shrink: 0;
+}
+.env-unbudgeted-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    line-height: 1.25;
+    min-width: 0;
+}
+.env-unbudgeted-title {
+    font-size: 13px;
+    color: var(--fg-2);
+    font-weight: 500;
+}
+.env-unbudgeted-sub {
+    font-size: 11px;
+    color: var(--fg-4);
+}
+.env-unbudgeted-cta {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--brand);
+    text-decoration: none;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    transition: background 140ms ease, border-color 140ms ease;
+    white-space: nowrap;
+}
+.env-unbudgeted-cta:hover {
+    background: var(--bg-elev-3);
+    border-color: var(--line-strong);
+}
+
 .env-hero-stats {
     margin-top: 14px;
     display: grid;

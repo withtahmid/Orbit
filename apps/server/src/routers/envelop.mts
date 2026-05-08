@@ -1,3 +1,4 @@
+import { borrowFromNextMonth } from "../procedures/envelop/borrowFromNextMonth.mjs";
 import { createEnvelop } from "../procedures/envelop/create.mjs";
 import { createEnvelopAllocation } from "../procedures/envelop/createAllocation.mjs";
 import { deleteEnvelopAllocation } from "../procedures/envelop/deleteAllocation.mjs";
@@ -15,4 +16,5 @@ export const envelopRouter = router({
     allocationCreate: createEnvelopAllocation,
     allocationDelete: deleteEnvelopAllocation,
     allocationListBySpace: listEnvelopAllocationsBySpace,
+    borrowFromNextMonth,
 });

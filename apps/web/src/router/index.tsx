@@ -28,6 +28,7 @@ const AccountDetailPage = lazy(() => import("@/pages/space/accounts/AccountDetai
 const TransactionsPage = lazy(() => import("@/pages/space/transactions/TransactionsPage"));
 const EnvelopesPage = lazy(() => import("@/pages/space/envelopes/EnvelopesPage"));
 const EnvelopeDetailPage = lazy(() => import("@/pages/space/envelopes/EnvelopeDetailPage"));
+const PlanMonthPage = lazy(() => import("@/pages/space/plan/PlanMonthPage"));
 const PlansPage = lazy(() => import("@/pages/space/plans/PlansPage"));
 const PlanDetailPage = lazy(() => import("@/pages/space/plans/PlanDetailPage"));
 const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
@@ -163,6 +164,10 @@ export const router = createBrowserRouter([
                                     {
                                         path: "envelopes/:envelopeId",
                                         element: withSuspense(<EnvelopeDetailPage />),
+                                    },
+                                    {
+                                        path: "plan/:month",
+                                        element: withSuspense(<PlanMonthPage />),
                                     },
                                     {
                                         path: "plans",

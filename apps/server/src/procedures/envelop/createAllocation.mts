@@ -4,26 +4,28 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
-import { resolveSpaceUnallocated } from "../allocation/utils/resolveSpaceUnallocated.mjs";
 import { resolveEnvelopePeriodBalance } from "./utils/resolveEnvelopePeriodBalance.mjs";
 import { effectivePeriodStart, type Cadence } from "./utils/periodWindow.mjs";
 
 /**
  * Create an envelope allocation — positive to allocate, negative to
- * deallocate. New optional scoping:
+ * deallocate. Allocations are *intent*: the user can plan more than
+ * they currently have funded. Visibility lives on the envelope dashboard
+ * (planned vs funded).
  *
- *   - `accountId` (optional): pin this allocation to a specific account.
- *     Null/omitted = unassigned pool.
+ *   - `accountId` (optional, legacy): pin to a specific account. New UI
+ *     no longer surfaces this; always passes null. Kept nullable for
+ *     back-compat with existing rows.
  *   - `periodStart` (optional, for monthly cadence): which period this
  *     allocation applies to. Defaults to the period containing today
  *     for monthly envelopes; irrelevant for cadence='none'.
  *
  * Balance checks:
- *   - Positive (allocating): must have enough unallocated space-cash.
+ *   - Positive (allocating): no balance guard. Soft "over-allocation" is
+ *     reported by the UI from `analytics.spaceSummary.unallocated`.
  *   - Negative (deallocating): can't pull more than the partition's
  *     current-period remaining, to prevent the partition from going
- *     artificially negative via deallocation (real spending can still
- *     push it negative — that's drift, not prevented here).
+ *     artificially negative via deallocation.
  */
 export const createEnvelopAllocation = authorizedProcedure
     .input(
@@ -86,31 +88,33 @@ export const createEnvelopAllocation = authorizedProcedure
                     (envelop.cadence as Cadence) === "none" ? null : effPeriod;
 
                 if (input.amount > 0) {
-                    // Allocating: space must have enough unallocated cash
-                    const free = await resolveSpaceUnallocated({
-                        trx,
-                        spaceId: envelop.space_id,
-                    });
-                    if (free < input.amount) {
-                        throw new TRPCError({
-                            code: "BAD_REQUEST",
-                            message: `Only ${free.toFixed(2)} is unallocated. Increase income or pull from another envelope/plan first.`,
-                        });
-                    }
+                    // Allocating is *intent* — over-allocation is allowed.
+                    // The UI reports the soft "planned > funded" status from
+                    // analytics.spaceSummary.unallocated.
                 } else {
                     // Deallocating: the target partition for this period must
                     // have enough remaining to cover the pull without going
                     // artificially negative.
+                    //
+                    // accountId scoping: the new UI always passes `null`
+                    // (intent is space-wide). For that case, check against
+                    // the envelope's top-line / aggregate remaining so legacy
+                    // account-pinned allocations contribute their balance.
+                    // Only when an explicit string accountId is provided
+                    // (legacy partition-fixing flow) do we scope to that
+                    // specific partition.
+                    const accountScope =
+                        input.accountId == null ? undefined : input.accountId;
                     const bal = await resolveEnvelopePeriodBalance({
                         trx,
                         envelopId: input.envelopId,
-                        accountId: input.accountId ?? null,
+                        accountId: accountScope,
                         at: effPeriod,
                     });
                     if (bal.remaining + input.amount < 0) {
                         throw new TRPCError({
                             code: "BAD_REQUEST",
-                            message: `Partition only has ${bal.remaining.toFixed(2)} available to deallocate.`,
+                            message: `Envelope only has ${bal.remaining.toFixed(2)} available to deallocate.`,
                         });
                     }
                 }

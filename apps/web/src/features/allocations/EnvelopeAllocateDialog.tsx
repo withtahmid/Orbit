@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { ArrowUp, ArrowDown } from "lucide-react";
+import { useState, useMemo } from "react";
+import { ArrowUp, ArrowDown, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import {
     Dialog,
@@ -20,29 +20,27 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { startOfMonth, endOfMonth, addMonths } from "@/lib/dates";
 
 type Direction = "allocate" | "deallocate";
 
 /**
- * Envelope allocate/deallocate dialog. Exposes the new (account, period)
- * scope:
- *  - Account selector: "Unassigned pool" (null) or any space account
- *  - Period selector: only shown when the envelope is monthly; defaults to
- *    "This month" and also offers "Next month"
+ * Envelope allocate/deallocate dialog. Account-agnostic — allocations are
+ * intent (planning), so the picker for "from account" is gone. Soft
+ * over-allocation is allowed; the dialog surfaces "Unbudgeted: $X" inline
+ * so the user can see the gap.
  */
 export function EnvelopeAllocateDialog({
     envelopId,
     envelopCadence,
-    /** Controls whether the dialog opens already pinned to a specific account. */
-    defaultAccountId,
     direction,
     trigger,
 }: {
     envelopId: string;
     envelopCadence: "none" | "monthly";
+    /** Legacy prop, ignored. Kept so existing callers don't break. */
     defaultAccountId?: string | null;
     direction: Direction;
     trigger?: React.ReactNode;
@@ -50,13 +48,19 @@ export function EnvelopeAllocateDialog({
     const { space } = useCurrentSpace();
     const [open, setOpen] = useState(false);
     const [amount, setAmount] = useState("");
-    const [accountKey, setAccountKey] = useState<string>(
-        defaultAccountId === undefined ? "unassigned" : defaultAccountId ?? "unassigned"
-    );
     const [periodChoice, setPeriodChoice] = useState<"this" | "next">("this");
 
-    const accountsQuery = trpc.account.listBySpace.useQuery(
-        { spaceId: space.id },
+    const isMonthly = envelopCadence === "monthly";
+    const { periodStart, periodEnd } = useMemo(() => {
+        const ref = new Date();
+        return {
+            periodStart: startOfMonth(ref),
+            periodEnd: endOfMonth(ref),
+        };
+    }, []);
+
+    const summaryQuery = trpc.analytics.spaceSummary.useQuery(
+        { spaceId: space.id, periodStart, periodEnd },
         { enabled: open }
     );
     const utils = trpc.useUtils();
@@ -76,8 +80,6 @@ export function EnvelopeAllocateDialog({
         onError: (e) => toast.error(e.message),
     });
 
-    const isMonthly = envelopCadence === "monthly";
-
     const resolvePeriodStart = (): Date | undefined => {
         if (!isMonthly) return undefined;
         const now = new Date();
@@ -87,7 +89,14 @@ export function EnvelopeAllocateDialog({
         return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
     };
 
-    const accountId = accountKey === "unassigned" ? null : accountKey;
+    const unallocated = summaryQuery.data?.unallocated ?? null;
+    const numAmount = Number(amount) || 0;
+    const overAllocating =
+        direction === "allocate" &&
+        unallocated !== null &&
+        numAmount > unallocated;
+    const overBy =
+        overAllocating && unallocated !== null ? numAmount - unallocated : 0;
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -115,8 +124,8 @@ export function EnvelopeAllocateDialog({
                     </DialogTitle>
                     <DialogDescription>
                         {direction === "allocate"
-                            ? "Move unallocated cash into this envelope."
-                            : "Pull money back out of this envelope partition."}
+                            ? "Plan how much you intend to spend from this envelope."
+                            : "Pull money back out of this envelope."}
                     </DialogDescription>
                 </DialogHeader>
                 <form
@@ -131,7 +140,7 @@ export function EnvelopeAllocateDialog({
                         mutation.mutate({
                             envelopId,
                             amount: direction === "allocate" ? n : -n,
-                            accountId,
+                            accountId: null,
                             periodStart: resolvePeriodStart(),
                         });
                     }}
@@ -150,49 +159,54 @@ export function EnvelopeAllocateDialog({
                             autoFocus
                             required
                         />
-                    </div>
-                    <div className="grid gap-1.5">
-                        <Label>From account</Label>
-                        <Select value={accountKey} onValueChange={setAccountKey}>
-                            <SelectTrigger>
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="unassigned">
-                                    Unassigned (any account)
-                                </SelectItem>
-                                {(accountsQuery.data ?? []).map((a) => (
-                                    <SelectItem key={a.id} value={a.id}>
-                                        <span className="flex items-center gap-2">
-                                            <EntityAvatar
-                                                size="sm"
-                                                color={a.color}
-                                                icon={a.icon}
-                                            />
-                                            {a.name}
-                                        </span>
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                            Unassigned is a virtual pool for this envelope — use it if you
-                            don&apos;t want to pin the allocation to a specific account.
-                        </p>
+                        {direction === "allocate" && unallocated !== null && (
+                            <p
+                                className="text-xs"
+                                style={{
+                                    color: overAllocating
+                                        ? "var(--expense)"
+                                        : "var(--fg-3)",
+                                }}
+                            >
+                                {overAllocating ? (
+                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                        <AlertTriangle className="size-3" />
+                                        Planning ${overBy.toFixed(2)} more than
+                                        currently funded. You'll need that much
+                                        more income — or reduce another envelope.
+                                    </span>
+                                ) : (
+                                    <>
+                                        Unbudgeted available:{" "}
+                                        <strong>${unallocated.toFixed(2)}</strong>
+                                    </>
+                                )}
+                            </p>
+                        )}
                     </div>
                     {isMonthly && (
                         <div className="grid gap-1.5">
                             <Label>Apply to</Label>
                             <Select
                                 value={periodChoice}
-                                onValueChange={(v) => setPeriodChoice(v as any)}
+                                onValueChange={(v) => setPeriodChoice(v as "this" | "next")}
                             >
                                 <SelectTrigger>
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="this">This month</SelectItem>
-                                    <SelectItem value="next">Next month</SelectItem>
+                                    <SelectItem value="this">
+                                        {addMonths(new Date(), 0).toLocaleString("en-US", {
+                                            month: "long",
+                                        })}{" "}
+                                        (this month)
+                                    </SelectItem>
+                                    <SelectItem value="next">
+                                        {addMonths(new Date(), 1).toLocaleString("en-US", {
+                                            month: "long",
+                                        })}{" "}
+                                        (next month)
+                                    </SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

@@ -20,22 +20,25 @@ import { cn } from "@/lib/utils";
 export type MetricMode = "cash" | "operational";
 
 /**
- * URL-persisted metric mode (`?metric=cash|operational`). Each view
- * declares its own default — for example Cash Flow defaults to `cash`
- * (matches the bank-balance reading) while Spending Trends defaults
- * to `operational` (true expense, transfer principal excluded).
+ * URL-persisted metric mode (`?metric=cash|operational`). The default
+ * is `operational` everywhere — true income vs expense is the more
+ * useful headline for most users; transfer-inclusive cash flow is
+ * available via the toggle for power users who want to reconcile
+ * against their bank statement.
  *
- * When a view's `defaultMode` is in effect we don't write the URL —
- * keeps shared links clean. The opposite mode always writes `?metric`
- * so the choice persists across reloads and across cards.
+ * When the active mode equals the view's `defaultMode` we don't write
+ * the URL (keeps shared links clean). Picking the non-default mode
+ * always writes `?metric=...` so the choice persists across reloads
+ * and across cards on the same page.
  *
- * Trade-off: on a page hosting two views with different defaults
- * (e.g., Overview's Cash Flow + Spending Trends cards) and no URL
- * param, the two cards render in different modes by design. The
- * moment the user clicks any toggle, the URL gets written and both
- * cards converge to the chosen mode.
+ * Per-view defaults are still supported via the `defaultMode` arg —
+ * a future view that wants `cash` as its default can opt in. Critically,
+ * `MetricToggle` accepts the same arg so its setter agrees with the
+ * parent's reader on what counts as "default" — otherwise clicking the
+ * toggle could write a URL that the parent's reader interprets back
+ * to the wrong mode (the bug that made Spending Trends look stuck).
  */
-export function useMetricMode(defaultMode: MetricMode = "cash"): {
+export function useMetricMode(defaultMode: MetricMode = "operational"): {
     mode: MetricMode;
     setMode: (m: MetricMode) => void;
 } {
@@ -69,10 +72,19 @@ export function useMetricMode(defaultMode: MetricMode = "cash"): {
 /**
  * Segmented `Cash | Operational` toggle. Designed to sit in a card
  * header or alongside `<PeriodChip>` in the actions slot of an
- * analytics view. Drives `useMetricMode` directly — no prop wiring.
+ * analytics view. `defaultMode` MUST match whatever the parent passes
+ * to `useMetricMode` — otherwise the toggle's URL writes (which gate
+ * on `defaultMode`) get out of sync with the parent's reads, so
+ * clicking a button can leave the chart unchanged.
  */
-export function MetricToggle({ className }: { className?: string }) {
-    const { mode, setMode } = useMetricMode();
+export function MetricToggle({
+    defaultMode = "operational",
+    className,
+}: {
+    defaultMode?: MetricMode;
+    className?: string;
+}) {
+    const { mode, setMode } = useMetricMode(defaultMode);
     return (
         <div
             role="tablist"
