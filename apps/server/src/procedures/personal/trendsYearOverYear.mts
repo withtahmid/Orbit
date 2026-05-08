@@ -76,6 +76,12 @@ export const personalTrendsYearOverYear = authorizedProcedure
                             (${year} - 1)::text || '-01-01' AS y0,
                             (${year} + 1)::text || '-01-01' AS y1
                     )
+                    /* Spending = real consumption only. Transfers between
+                       the user's owned accounts (or out to accounts they
+                       don't own) are excluded — moving money isn't
+                       spending. Transfer fees DO count because the fee
+                       is money genuinely lost to a provider. See
+                       engineering spec §"Spending vs cash flow". */
                     SELECT
                         EXTRACT(YEAR FROM date_trunc('month', t.transaction_datetime))::int AS year,
                         (EXTRACT(MONTH FROM date_trunc('month', t.transaction_datetime))::int - 1) AS month_idx,
@@ -83,9 +89,6 @@ export const personalTrendsYearOverYear = authorizedProcedure
                             CASE
                                 WHEN t.type = 'expense'
                                     AND t.source_account_id = ANY(${owned}) THEN t.amount
-                                WHEN t.type = 'transfer'
-                                    AND t.source_account_id = ANY(${owned})
-                                    AND t.destination_account_id <> ALL(${owned}) THEN t.amount
                                 ELSE 0
                             END
                             + CASE
@@ -99,10 +102,7 @@ export const personalTrendsYearOverYear = authorizedProcedure
                     WHERE t.space_id = ANY(${memberSpaces})
                       AND t.transaction_datetime >= (SELECT y0::timestamptz FROM bounds)
                       AND t.transaction_datetime < (SELECT y1::timestamptz FROM bounds)
-                      AND (
-                          t.source_account_id = ANY(${owned})
-                          OR t.destination_account_id = ANY(${owned})
-                      )
+                      AND t.source_account_id = ANY(${owned})
                     GROUP BY 1, 2
                 `.execute(ctx.services.qb);
 

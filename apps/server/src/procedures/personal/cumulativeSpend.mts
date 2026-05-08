@@ -48,15 +48,19 @@ export const personalCumulativeSpend = authorizedProcedure
                         )::date AS d
                     ),
                     spend AS (
+                        /* Spending = real consumption only. Transfers
+                           between the user's owned accounts (or out to
+                           accounts they don't own) are excluded — moving
+                           money isn't spending. Transfer fees DO count
+                           because the fee is money genuinely lost to a
+                           provider. See engineering spec §"Spending vs
+                           cash flow". */
                         SELECT
                             date_trunc('day', t.transaction_datetime)::date AS d,
                             SUM(
                                 CASE
                                     WHEN t.type = 'expense'
                                         AND t.source_account_id = ANY(${owned}) THEN t.amount
-                                    WHEN t.type = 'transfer'
-                                        AND t.source_account_id = ANY(${owned})
-                                        AND t.destination_account_id <> ALL(${owned}) THEN t.amount
                                     ELSE 0
                                 END
                                 + CASE
@@ -70,10 +74,7 @@ export const personalCumulativeSpend = authorizedProcedure
                         WHERE t.space_id = ANY(${memberSpaces})
                           AND t.transaction_datetime >= ${prevStart}
                           AND t.transaction_datetime < ${input.periodEnd}
-                          AND (
-                              t.source_account_id = ANY(${owned})
-                              OR t.destination_account_id = ANY(${owned})
-                          )
+                          AND t.source_account_id = ANY(${owned})
                         GROUP BY 1
                     )
                     SELECT

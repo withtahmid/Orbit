@@ -1883,4 +1883,30 @@ const CA_STYLES = `
     gap: 8px;
 }
 .ca-popover-item:hover { background: var(--bg-elev-2); color: var(--fg); }
+
+/* Phone (<720px) — collapse the 5-col tree table to name + amount only,
+   since the priority + trend columns crush below readability. */
+@media (max-width: 720px) {
+    .ca-th-row,
+    .ca-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        padding: 11px 12px;
+    }
+    .ca-th-row > :nth-child(2),
+    .ca-th-row > :nth-child(4),
+    .ca-th-row > :nth-child(5),
+    .ca-row > :nth-child(2),
+    .ca-row > :nth-child(4),
+    .ca-row > :nth-child(5) {
+        display: none;
+    }
+}
+
+/* Phone (<640px) — section padding tightening. */
+@media (max-width: 640px) {
+    .ca-section { padding: 16px; }
+    .ca-priority-amt { font-size: 18px; }
+    .ca-priority-cell { padding: 8px 10px; }
+}
 `;

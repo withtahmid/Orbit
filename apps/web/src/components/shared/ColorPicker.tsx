@@ -190,7 +190,7 @@ export function ColorPickerButton({
             <PopoverContent
                 portal={false}
                 align="start"
-                className="orbit-design w-[20rem] p-0 bg-transparent border-0 shadow-none"
+                className="orbit-design w-[min(20rem,calc(100vw-1.5rem))] p-0 bg-transparent border-0 shadow-none"
             >
                 <ColorPicker value={value} onChange={onChange} />
             </PopoverContent>

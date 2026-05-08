@@ -243,8 +243,14 @@ export function OrbitFieldRow({
     children: ReactNode;
     cols?: string;
 }) {
+    /* On phones we stack into 1 column. The desktop column ratio is
+       passed via a CSS variable so the @media (min-width: 520px) rule in
+       ORBIT_FORM_STYLES can switch back to it without losing the prop. */
     return (
-        <div className="of-row" style={{ gridTemplateColumns: cols }}>
+        <div
+            className="of-row"
+            style={{ "--of-row-cols": cols } as React.CSSProperties}
+        >
             {children}
         </div>
     );
@@ -616,10 +622,55 @@ const ORBIT_FORM_STYLES = `
     text-transform: uppercase;
 }
 
+/* Phone — scale the hero amount card down so the 40px serif input doesn't
+   overflow on a 320–360px viewport. */
+@media (max-width: 480px) {
+    .of-amount-card { padding: 14px; }
+    .of-amount-currency { font-size: 18px; }
+    .of-amount-input { font-size: 32px; }
+    .of-amount-unit { font-size: 10px; }
+}
+
+/* ============================================================
+   Mobile (≤640px) — bump every input/select/textarea so iOS Safari
+   doesn't auto-zoom on focus (it zooms any input with font-size < 16px),
+   and increases tap heights to a comfortable 44px. Native
+   datetime-local / date inputs honor color-scheme: dark to render the
+   editorial-dark picker chrome. Applies to every form using OrbitForm
+   primitives — including New + Edit transaction drawers, and any
+   future form that opts in.
+   ============================================================ */
+@media (max-width: 640px) {
+    .of-input { height: 44px; }
+    .of-input-control { font-size: 16px; }
+    .of-input-control[type="datetime-local"],
+    .of-input-control[type="date"],
+    input[type="datetime-local"],
+    input[type="date"] {
+        color-scheme: dark;
+        font-size: 16px;
+        min-width: 0;
+    }
+    .of-textarea { font-size: 16px; }
+    .of-select-trigger { height: 44px; font-size: 14px; }
+    /* The hero amount input keeps its serif look but stops triggering
+       the auto-zoom — at 32px on phone it's already over the threshold. */
+}
+
 /* ---- Field row ---- */
+/* Stacks to one column on phones; uses the column template passed in via
+   --of-row-cols at >= 520px. Keeps date + account paired on tablet+ but
+   gives them full width on a 360-wide phone where datetime-local + a
+   select side-by-side is too cramped to read. */
 .of-row {
     display: grid;
     gap: 12px;
+    grid-template-columns: 1fr;
+}
+@media (min-width: 520px) {
+    .of-row {
+        grid-template-columns: var(--of-row-cols, 1fr 1fr);
+    }
 }
 
 /* ---- Radio row ---- */

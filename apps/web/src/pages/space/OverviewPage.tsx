@@ -4209,4 +4209,110 @@ const OV_STYLES = `
     font-size: 11px;
     color: var(--fg-4);
 }
+
+/* ============================================================
+   MOBILE — phone (<640px) tightening for the Overview page
+   ============================================================
+   The desktop layout uses many fixed grid columns (4-up tiles,
+   auto+1fr+auto+auto rows for transaction/bill/mover lists, a
+   280-px sidebar in the net-worth band, etc.). On phones these
+   either crowd or overflow. The block below scales everything
+   down to a single-column, generous-touch-target layout while
+   leaving the desktop styles untouched.
+   ============================================================ */
+@media (max-width: 640px) {
+    .ov-topbar { padding: 14px 14px 10px; gap: 10px; }
+    .ov-title { font-size: 22px; }
+    .ov-scroll { padding: 12px 14px 24px; gap: 14px; }
+    .ov-section { padding: 16px; }
+    .ov-section-eyebrow { margin: 6px 2px 2px; }
+
+    /* Stat tiles: 1-up on the smallest screens. */
+    .ov-stat-row { grid-template-columns: 1fr; gap: 10px; }
+    .ov-stat-tile { padding: 14px 16px; }
+
+    /* Today band — let cells stack instead of horizontally scrolling. */
+    .orbit-design .od-card.ov-today-band {
+        flex-wrap: wrap;
+        padding: 14px 16px;
+        overflow-x: visible;
+    }
+    .ov-today-cell {
+        flex: 1 1 45%;
+        padding: 6px 10px;
+        min-width: 0;
+    }
+    .ov-today-divider { display: none; }
+
+    /* Heatmap shrinks dramatically on phone. */
+    .ov-heatmap-grid { gap: 4px; }
+    .ov-heatmap-cell { min-height: 40px; padding: 4px; aspect-ratio: 1; }
+    .ov-heatmap-dnum { font-size: 9.5px; }
+    .ov-heatmap-damt { font-size: 9px; }
+    .ov-heatmap-foot { gap: 16px; padding-top: 10px; margin-top: 10px; }
+
+    /* Trend KPI row: stack instead of inline. */
+    .ov-trend-kpis {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+
+    /* Transaction list / bills / movers / income / merchants / glance:
+       drop the bar/spark/meta auto column to keep names readable. */
+    .ov-tx-row { grid-template-columns: auto 1fr auto; gap: 10px; }
+    .ov-tx-row .ov-chip-income,
+    .ov-tx-row .ov-chip-expense,
+    .ov-tx-row .ov-chip-transfer { display: none; }
+
+    .ov-bill-row { grid-template-columns: auto 1fr auto; gap: 10px; }
+    .ov-bill-row .ov-bill-sub { display: none; }
+    .ov-bill-name { font-size: 12.5px; }
+
+    .ov-mover-row,
+    .ov-merchant-row,
+    .ov-income-row,
+    .ov-glance-row { grid-template-columns: auto 1fr auto; gap: 10px; }
+    .ov-glance-spark { display: none; }
+    .ov-mover-delta,
+    .ov-income-row-pct { display: none; }
+
+    /* Drift / over-allocation rows */
+    .ov-drift-head { gap: 10px; }
+    .ov-drift-row { padding: 10px; }
+    .ov-drift-row-right { gap: 8px; }
+
+    /* Net worth composition */
+    .ov-nwc { padding: 16px; }
+    .ov-nwc-net { font-size: 26px; }
+    .ov-nwc-pair { grid-template-columns: 1fr; gap: 10px; }
+
+    /* Trends panel */
+    .ov-trends-stat-amt { font-size: 22px; }
+
+    /* Progress strip — unwrap the meta line so labels don't overlap. */
+    .ov-progress-strip { padding: 14px 16px; gap: 14px; }
+    .ov-progress-bar { min-width: 0; }
+    .ov-progress-stats { gap: 14px; }
+
+    /* Two-up grids drop to one column. */
+    .ov-grid-2,
+    .ov-grid-7-5 { grid-template-columns: 1fr; gap: 12px; }
+
+    /* Section heading: titles can wrap, links shrink. */
+    .ov-sect-head { gap: 8px; }
+    .ov-sect-title { font-size: 14.5px; }
+}
+
+/* Very narrow phones (<= 380px) need even tighter padding. */
+@media (max-width: 380px) {
+    .ov-topbar { padding: 12px 12px 8px; }
+    .ov-scroll { padding: 10px 12px 20px; }
+    .ov-section { padding: 14px; }
+    .ov-title { font-size: 20px; }
+    .ov-stat-tile { padding: 12px 14px; }
+    .ov-trend-kpis { grid-template-columns: 1fr; gap: 8px; }
+    .ov-heatmap-grid { gap: 3px; }
+    .ov-heatmap-cell { min-height: 34px; padding: 3px; }
+    .ov-today-cell { flex-basis: 100%; }
+}
 `;

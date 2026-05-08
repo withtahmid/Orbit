@@ -1225,4 +1225,12 @@ const PLANS_STYLES = `
     gap: 8px;
 }
 .plans-popover-item:hover { background: var(--bg-elev-2); color: var(--fg); }
+
+/* Phone (<640px) — tighter cards and hero. */
+@media (max-width: 640px) {
+    .plans-card { padding: 16px; gap: 12px; }
+    .plans-card-actions { gap: 6px; }
+    .plans-card-icon-actions { opacity: 1; }
+    .orbit-design .od-card.plans-empty { padding: 24px; }
+}
 `;

@@ -1738,4 +1738,10 @@ const ENV_STYLES = `
     gap: 8px;
 }
 .env-popover-item:hover { background: var(--bg-elev-2); color: var(--fg); }
+
+/* Phone (<640px) — tighter spacing on the envelope page. */
+@media (max-width: 640px) {
+    .env-grid { grid-template-columns: 1fr; }
+    .env-empty { padding: 24px; }
+}
 `;

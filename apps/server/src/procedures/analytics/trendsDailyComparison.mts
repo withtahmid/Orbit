@@ -140,15 +140,19 @@ export const trendsDailyComparison = authorizedProcedure
                         ) AS bucket_ts
                     ),
                     spend AS (
+                        /* Spending = real consumption only. Outbound transfers
+                           (source in scope, destination outside) are excluded
+                           because moving money to another of the user's
+                           accounts isn't spending — see engineering spec
+                           §"Spending vs cash flow". Transfer fees DO count
+                           because the fee is money genuinely lost to a
+                           provider. */
                         SELECT
                             date_trunc(${cfg.bucketUnit}, t.transaction_datetime) AS bucket_ts,
                             SUM(
                                 CASE
                                     WHEN t.type = 'expense'
                                         AND t.source_account_id IN (SELECT account_id FROM scope_accounts) THEN t.amount
-                                    WHEN t.type = 'transfer'
-                                        AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                                        AND t.destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN t.amount
                                     ELSE 0
                                 END
                                 + CASE
@@ -160,10 +164,7 @@ export const trendsDailyComparison = authorizedProcedure
                             ) AS expense
                         FROM transactions t
                         WHERE t.transaction_datetime < (SELECT cur_end FROM bounds)
-                          AND (
-                              t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                              OR t.destination_account_id IN (SELECT account_id FROM scope_accounts)
-                          )
+                          AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
                         GROUP BY 1
                     ),
                     classified AS (

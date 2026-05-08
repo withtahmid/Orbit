@@ -959,4 +959,10 @@ const EV_STYLES = `
     gap: 8px;
 }
 .ev-popover-item:hover { background: var(--bg-elev-2); color: var(--fg); }
+
+/* Phone (<640px) — tighten event cards. */
+@media (max-width: 640px) {
+    .ev-card-stats { gap: 10px; padding: 10px 0; }
+    .orbit-design .od-card.ev-empty { padding: 24px; }
+}
 `;

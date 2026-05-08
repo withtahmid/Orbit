@@ -816,4 +816,80 @@ const DATE_PICKER_STYLES = `
     border-color: oklch(78% 0.14 165);
 }
 .op-date-btn-primary:hover { filter: brightness(1.05); }
+
+/* ============================================================
+   Mobile (≤720px) — narrow phones use a horizontal scrolling
+   preset row above the calendar instead of the broken wrap-row
+   layout (.op-date-preset's width:100% defeated flex-wrap).
+   ============================================================ */
+@media (max-width: 720px) {
+    .op-date-presets {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        gap: 4px;
+        padding: 8px 10px;
+        max-height: none;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+    /* Override the desktop full-width rule so each preset becomes a
+       horizontally-scrollable chip. */
+    .op-date-preset {
+        width: auto;
+        flex: 0 0 auto;
+        white-space: nowrap;
+        padding: 7px 12px;
+        border: 1px solid var(--line-soft);
+        border-radius: 999px;
+    }
+    .op-date-preset.is-active {
+        background: var(--brand-soft);
+        color: var(--brand);
+        border-color: color-mix(in oklab, var(--brand) 35%, transparent);
+    }
+}
+
+/* ============================================================
+   Phone (≤480px) — tighter calendar, larger touch targets,
+   stacked header inputs with the swap arrow becoming an
+   inline divider rather than its own column.
+   ============================================================ */
+@media (max-width: 480px) {
+    .op-date-head {
+        padding: 12px 14px;
+        gap: 8px;
+    }
+    .op-date-head-label { width: 100%; }
+    .op-date-inputs { gap: 6px; }
+    .op-date-input { height: 38px; font-size: 13.5px; }
+    .op-date-swap {
+        margin-top: 18px;
+        width: 24px;
+        height: 24px;
+    }
+    .op-date-cal { padding: 10px 12px; gap: 10px; }
+    .op-date-cal-grid { gap: 14px; }
+    .op-date-month-head { font-size: 13px; }
+    /* Larger day cells for tap accuracy. min-height: 38 + aspect 1
+       gives roughly 38×38 cells which is just under Apple's 44 guideline
+       but works at 320–360 viewports without horizontal overflow. */
+    .op-date-day {
+        min-height: 38px;
+        font-size: 13px;
+        border-radius: 6px;
+    }
+    .op-date-weekday { font-size: 10px; padding: 3px 0; }
+    /* Footer wraps + actions stretch to full row on tiny phones for
+       proper tap targets. */
+    .op-date-foot {
+        padding: 12px 14px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    .op-date-foot-summary { text-align: center; }
+    .op-date-foot-actions { width: 100%; }
+    .op-date-foot-actions .op-date-btn { flex: 1; height: 38px; }
+}
 `;

@@ -1929,4 +1929,26 @@ const TX_STYLES = `
     .tx-row-grid > :nth-child(5),
     .tx-row-grid > :nth-child(6) { display: none; }
 }
+
+/* Phone (<640px) — tighten filters, search, summary tiles. */
+@media (max-width: 640px) {
+    .tx-topbar { padding: 14px 14px 10px; }
+    .tx-title { font-size: 22px; }
+    .tx-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .tx-search { min-width: 0; width: 100%; flex: 1 1 100%; }
+    .tx-filter-row1 { gap: 8px; }
+    .tx-filter-count { margin-left: 0; flex: 1 1 100%; text-align: right; }
+    .orbit-design .od-card.tx-summary {
+        grid-template-columns: 1fr 1fr;
+        padding: 12px 14px;
+        gap: 12px;
+    }
+    .tx-mrow { padding: 10px 12px; gap: 10px; }
+    .tx-table-foot { padding: 12px; gap: 10px; }
+    .tx-period-pop { width: min(320px, calc(100vw - 2rem)); }
+}
+
+@media (max-width: 380px) {
+    .orbit-design .od-card.tx-summary { grid-template-columns: 1fr; }
+}
 `;

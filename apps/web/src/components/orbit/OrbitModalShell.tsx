@@ -393,4 +393,59 @@ const OMS_STYLES = `
    the .od-btn primitives but namespaced so they don't depend on the
    .orbit-design root class wrapping the whole document — the shell
    already provides that wrapper. */
+
+/* ============================================================
+   Mobile (<640px) — drawer + modal
+   ============================================================
+   Tighten paddings, allow footer buttons to grow to full width
+   (since on phones two side-by-side actions can overflow), and
+   ensure the modal shell doesn't outgrow the screen.
+   ============================================================ */
+@media (max-width: 640px) {
+    .oms-root {
+        max-width: calc(100vw - 1rem);
+        max-height: calc(100dvh - 1rem);
+    }
+    .oms-head,
+    .ods-head {
+        padding: 16px 16px 12px;
+        gap: 12px;
+    }
+    .oms-body,
+    .ods-body {
+        padding: 14px 16px;
+        gap: 14px;
+    }
+    .oms-foot,
+    .ods-foot {
+        padding: 12px 16px;
+        gap: 8px;
+    }
+    /* Footer buttons fill the row on phone so the primary CTA is always
+       large enough to tap. Two-button footers wrap with the primary on
+       top (visual order via order:1 on .oms-foot > :last-child). */
+    .oms-foot > *,
+    .ods-foot > * {
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+    /* Smaller display title so it doesn't crowd the close button. */
+    .oms-title { font-size: 18px; }
+    .oms-sub { font-size: 12px; }
+    /* Lead icon shrinks. */
+    .oms-lead { width: 32px; height: 32px; }
+}
+
+@media (max-width: 380px) {
+    .oms-head,
+    .ods-head {
+        padding: 14px 14px 10px;
+        gap: 10px;
+    }
+    .oms-body,
+    .ods-body { padding: 12px 14px; }
+    .oms-foot,
+    .ods-foot { padding: 10px 14px; }
+    .oms-title { font-size: 17px; }
+}
 `;

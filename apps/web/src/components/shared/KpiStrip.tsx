@@ -37,15 +37,23 @@ export function KpiStrip({
     return (
         <div
             className={cn(
-                "grid divide-y divide-border/60 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4",
+                "kpi-strip grid grid-cols-1 divide-y divide-border/60 overflow-hidden rounded-xl border border-border bg-card sm:grid-cols-[var(--kpi-cols-sm)] sm:divide-x sm:divide-y-0 lg:grid-cols-[var(--kpi-cols-lg)]",
                 className
             )}
-            style={{
-                gridTemplateColumns:
-                    items.length <= 4
-                        ? `repeat(${items.length}, minmax(0, 1fr))`
-                        : undefined,
-            }}
+            style={
+                {
+                    // 2-up at sm if we have 2+ items, otherwise 1.
+                    "--kpi-cols-sm":
+                        items.length >= 2
+                            ? "repeat(2, minmax(0, 1fr))"
+                            : "1fr",
+                    // At lg: lay out 1..4 items as N columns, 5+ as 4.
+                    "--kpi-cols-lg":
+                        items.length <= 4
+                            ? `repeat(${items.length}, minmax(0, 1fr))`
+                            : "repeat(4, minmax(0, 1fr))",
+                } as React.CSSProperties
+            }
         >
             {items.map((it, i) => (
                 <div

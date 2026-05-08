@@ -81,7 +81,10 @@ export function PeriodSelector({
                             Edit range
                         </Button>
                     </PopoverTrigger>
-                    <PopoverContent align="end" className="w-72">
+                    <PopoverContent
+                        align="end"
+                        className="w-[min(18rem,calc(100vw-1.5rem))]"
+                    >
                         <div className="grid gap-3">
                             <div className="grid gap-1.5">
                                 <Label htmlFor="period-from">From</Label>
