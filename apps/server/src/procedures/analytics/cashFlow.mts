@@ -13,6 +13,21 @@ export const cashFlow = authorizedProcedure
             periodStart: z.coerce.date(),
             periodEnd: z.coerce.date(),
             bucket: z.enum(["day", "week", "month"]).default("month"),
+            /**
+             * Classification mode:
+             *   - `cash` (default): inflows include cross-space transfer
+             *     principal, outflows include cross-space outbound
+             *     transfer principal. Matches what shows up in the bank
+             *     ledger for accounts in this space.
+             *   - `operational`: only true `type='income'` deposits and
+             *     `type='expense'` debits + transfer fees. Transfer
+             *     principal is excluded both directions — gives the
+             *     "did I actually earn / spend" view.
+             *
+             * See engineering spec §12 and the `operational*` fields on
+             * `spaceSummary` for the matching semantics.
+             */
+            mode: z.enum(["cash", "operational"]).default("cash"),
         })
     )
     .query(async ({ ctx, input }) => {
@@ -32,15 +47,27 @@ export const cashFlow = authorizedProcedure
                           ? "1 week"
                           : "1 month";
 
-                // Account-flow cash flow. The population is every
-                // transaction touching at least one account shared
-                // into this space (ignoring `transactions.space_id`,
-                // which is a categorization tag — see spec §12). The
-                // CASE branches then classify each leg via scope. A
-                // transfer that moves money from outside the space
-                // into it shows up as income here regardless of which
-                // space_id the row was stamped with; internal
-                // transfers (both legs in scope) net to zero.
+                /* Account-flow cash flow. Population: every transaction
+                   touching at least one account shared into this space
+                   (ignoring `transactions.space_id` — it's a
+                   categorization tag, see spec §12).
+
+                   Classification differs by mode:
+
+                   - cash         → cross-space transfer principal counts
+                                    on the leg that's in scope. Internal
+                                    transfers net to zero. Fees count as
+                                    outflow.
+
+                   - operational  → transfer principal excluded both
+                                    directions; only true income/expense
+                                    + transfer fees + adjustments.
+
+                   The transfer-principal CASE branches are always emitted;
+                   their result is multiplied by a 0/1 factor derived from
+                   the Zod-validated `mode` enum (no injection surface). */
+                const xferFactor = input.mode === "cash" ? 1 : 0;
+
                 const query = sql<{
                     bucket: Date;
                     income: string;
@@ -66,7 +93,7 @@ export const cashFlow = authorizedProcedure
                                     AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                                 WHEN type = 'transfer'
                                     AND destination_account_id IN (SELECT account_id FROM scope_accounts)
-                                    AND source_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount
+                                    AND source_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount * ${xferFactor}
                                 WHEN type = 'adjustment'
                                     AND destination_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                                 ELSE 0
@@ -77,7 +104,7 @@ export const cashFlow = authorizedProcedure
                                         AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                                     WHEN type = 'transfer'
                                         AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                                        AND destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount
+                                        AND destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN amount * ${xferFactor}
                                     WHEN type = 'adjustment'
                                         AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                                     ELSE 0

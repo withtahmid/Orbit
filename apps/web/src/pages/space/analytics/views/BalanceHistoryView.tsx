@@ -45,6 +45,7 @@ import {
     bucketLabelPattern,
     bucketTickPattern,
     BUCKET_LABEL,
+    compactMoney,
     type Bucket,
     type BucketSelection,
 } from "@/lib/chartBucket";
@@ -163,6 +164,25 @@ export default function BalanceHistoryView() {
         { enabled: space.isPersonal }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
+
+    /* Covenant probe — fetch the cash-flow net for the same window so
+       we can show it side-by-side with the balance-derived delta and
+       flag any drift between the two views. Per spec §12, these should
+       always agree (account-flow rule guarantees balance↔cashflow). */
+    const summarySpaceQ = trpc.analytics.spaceSummary.useQuery(
+        {
+            spaceId: space.id,
+            periodStart: period.start,
+            periodEnd: period.end,
+        },
+        { enabled: !space.isPersonal }
+    );
+    const summaryPersonalQ = trpc.personal.summary.useQuery(
+        { periodStart: period.start, periodEnd: period.end },
+        { enabled: space.isPersonal }
+    );
+    const summaryData =
+        (space.isPersonal ? summaryPersonalQ.data : summarySpaceQ.data) ?? null;
 
     const chartAccounts = q.data?.accounts ?? [];
     const chartData = useMemo(() => {
@@ -310,6 +330,31 @@ export default function BalanceHistoryView() {
                 : "—",
         },
     ];
+
+    /* Covenant tile — only shown when no account filter is active
+       (otherwise the balance-vs-cash check compares apples to oranges:
+       the chart sums a subset of accounts but cash flow is whole-space).
+       The spaceSummary period covers exactly `[period.start, period.end)`
+       which equals the chart's window, so `periodNet` and the chart's
+       `kpi.periodChange` should agree to within rounding. */
+    if (!hasFilter && summaryData) {
+        const cashNet = summaryData.periodNet;
+        const balanceDelta = kpi.periodChange;
+        const drift = balanceDelta - cashNet;
+        const driftAbs = Math.abs(drift);
+        const isMatch = driftAbs < 1; // < $1 = effectively equal
+        kpiItems.push({
+            label: "Cash flow ↔ balance",
+            value: cashNet,
+            money: true,
+            tone: cashNet < 0 ? "expense" : "income",
+            sub: isMatch
+                ? "Matches balance delta"
+                : `Drift ${
+                      drift >= 0 ? "+" : "−"
+                  }$${driftAbs.toFixed(0)} vs balance`,
+        });
+    }
 
     const toggle = (id: string) => {
         setSelected((prev) => {
@@ -546,23 +591,29 @@ export default function BalanceHistoryView() {
                                         axisLine={false}
                                         tickMargin={8}
                                     />
-                                    {/* Y-axis hidden — design renders the
-                                        balance line as a pure trend signal
-                                        without numeric tick labels (the KPI
-                                        strip carries the absolute numbers).
+                                    {/* Y-axis carries compact-money tick
+                                        labels ($91k, $96k, $102k...) so the
+                                        chart can be read on its own without
+                                        scrubbing back to the KPI strip.
                                         Domain is tightened to [min×0.95,
                                         max×1.02] so the actual peak/trough
                                         variation reads — recharts' default
                                         anchors at zero, which compresses a
                                         91k→102k swing into a flat sliver. */}
                                     <YAxis
-                                        hide
                                         domain={[
                                             (min: number) =>
                                                 Math.floor(min * 0.95),
                                             (max: number) =>
                                                 Math.ceil(max * 1.02),
                                         ]}
+                                        stroke="var(--muted-foreground)"
+                                        fontSize={11}
+                                        width={56}
+                                        tickFormatter={compactMoney}
+                                        tickLine={false}
+                                        axisLine={false}
+                                        tickMargin={4}
                                     />
                                     <RTooltip
                                         contentStyle={{
@@ -712,13 +763,19 @@ export default function BalanceHistoryView() {
                                     tickMargin={8}
                                 />
                                 <YAxis
-                                    hide
                                     domain={[
                                         (min: number) =>
                                             Math.floor(min * 0.95),
                                         (max: number) =>
                                             Math.ceil(max * 1.02),
                                     ]}
+                                    stroke="var(--muted-foreground)"
+                                    fontSize={11}
+                                    width={56}
+                                    tickFormatter={compactMoney}
+                                    tickLine={false}
+                                    axisLine={false}
+                                    tickMargin={4}
                                 />
                                 <RTooltip
                                     content={(props) => (

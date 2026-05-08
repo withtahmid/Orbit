@@ -11,8 +11,16 @@ import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mj
  * regular expense transactions and transfer fees (stored on transfer
  * rows as `fee_amount` + `fee_expense_category_id`) — the fee is real
  * money leaving the system and users categorize them like any other
- * expense. A single unified CTE lets the category roll-up SQL stay
- * simple.
+ * expense.
+ *
+ * Scope rule: per spec §12, money-flow analytics are *account-scoped*,
+ * not `space_id`-tag scoped. The previous implementation filtered by
+ * `transactions.space_id = ?`, which drifted from `cashFlow` /
+ * `spaceSummary` (account-scoped) — categories that belonged to this
+ * space could appear with totals that disagreed with the cash-flow
+ * expense bar. This version uses the `scope_accounts` CTE pattern and
+ * additionally filters categories to ones that belong to this space
+ * (categories ARE space-scoped, so the constraint is meaningful).
  */
 export const topCategories = authorizedProcedure
     .input(
@@ -40,11 +48,16 @@ export const topCategories = authorizedProcedure
                     icon: string;
                     total: string;
                 }>`
-                    WITH spending AS (
+                    WITH scope_accounts AS (
+                        SELECT account_id
+                        FROM space_accounts
+                        WHERE space_id = ${input.spaceId}
+                    ),
+                    spending AS (
                         SELECT expense_category_id AS category_id, amount
                         FROM transactions
                         WHERE type = 'expense'
-                          AND space_id = ${input.spaceId}
+                          AND source_account_id IN (SELECT account_id FROM scope_accounts)
                           AND expense_category_id IS NOT NULL
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
@@ -53,7 +66,8 @@ export const topCategories = authorizedProcedure
                         FROM transactions
                         WHERE type = 'transfer'
                           AND fee_amount IS NOT NULL
-                          AND space_id = ${input.spaceId}
+                          AND source_account_id IN (SELECT account_id FROM scope_accounts)
+                          AND fee_expense_category_id IS NOT NULL
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
                     )
@@ -65,6 +79,7 @@ export const topCategories = authorizedProcedure
                         SUM(s.amount)::text AS total
                     FROM spending s
                     JOIN expense_categories ec ON ec.id = s.category_id
+                    WHERE ec.space_id = ${input.spaceId}
                     GROUP BY ec.id, ec.name, ec.color, ec.icon
                     ORDER BY SUM(s.amount) DESC
                     LIMIT ${input.limit}

@@ -60,6 +60,19 @@ export const trendsDailyComparison = authorizedProcedure
             spaceId: z.string().uuid(),
             anchor: z.coerce.date().optional(),
             granularity: granularitySchema.default("month"),
+            /**
+             * `cash` (default) — outflows include cross-space outbound
+             * transfer principal (matches `cashFlow` mode='cash' and
+             * the bank-balance view).
+             * `operational` — only true type='expense' debits +
+             * transfer fees. Transfer principal excluded.
+             *
+             * Note: this proc has no income column — it's an outflow /
+             * spending series. The mode controls whether the spend
+             * total counts cross-space outbound transfers as
+             * "spending."
+             */
+            mode: z.enum(["cash", "operational"]).default("cash"),
         })
     )
     .query(async ({ ctx, input }) => {
@@ -74,6 +87,10 @@ export const trendsDailyComparison = authorizedProcedure
 
                 const cfg = GRANULARITY_CONFIG[input.granularity];
                 const anchor = input.anchor ?? new Date();
+                /* Multiplier for the cross-space transfer-principal
+                   branch — derived from the Zod enum, no injection
+                   surface. Same pattern as cashFlow.mts. */
+                const xferFactor = input.mode === "cash" ? 1 : 0;
 
                 /* The query produces three logical streams in one shot:
                    - kind='cur'  : one row per bucket of the active period
@@ -148,7 +165,7 @@ export const trendsDailyComparison = authorizedProcedure
                                         AND t.source_account_id IN (SELECT account_id FROM scope_accounts) THEN t.amount
                                     WHEN t.type = 'transfer'
                                         AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                                        AND t.destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN t.amount
+                                        AND t.destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN t.amount * ${xferFactor}
                                     ELSE 0
                                 END
                                 + CASE

@@ -10,6 +10,7 @@ import { addDays, addMonths, endOfMonth, startOfMonth } from "@/lib/dates";
 import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 import { useStore } from "@/stores/useStore";
 import { CumulativeRaceChart } from "@/pages/space/analytics/views/TrendsView";
+import { MetricToggle, useMetricMode } from "@/components/shared/MetricMode";
 
 /* =============================================================
    OVERVIEW PAGE — editorial-dark design (orbit-4)
@@ -29,6 +30,14 @@ export default observer(function OverviewPage() {
     const lastMonthStart = addMonths(thisMonthStart, -1);
     const cashFlowStart = addMonths(thisMonthStart, -2);
     const trendStart = addDays(now, -29);
+
+    /* Metric mode (URL-persisted via ?metric=cash|operational). The
+       Cash Flow card defaults to `cash` (matches bank balance) while
+       the Spending Trends card defaults to `operational` (true expense
+       only). Both read the same `?metric` URL param so the moment a
+       user toggles either, both cards converge. */
+    const { mode } = useMetricMode("cash");
+    const { mode: trendsMode } = useMetricMode("operational");
 
     /* ---------- Queries: real-space + personal variants ---------- */
     const summarySpace = trpc.analytics.spaceSummary.useQuery(
@@ -52,11 +61,11 @@ export default observer(function OverviewPage() {
     const lastMonthSummary = isPersonal ? lastMonthPersonal : lastMonthSpace;
 
     const cashFlowSpace = trpc.analytics.cashFlow.useQuery(
-        { spaceId: space.id, periodStart: cashFlowStart, periodEnd: thisMonthEnd, bucket: "week" },
+        { spaceId: space.id, periodStart: cashFlowStart, periodEnd: thisMonthEnd, bucket: "week", mode },
         { enabled: !isPersonal }
     );
     const cashFlowPersonal = trpc.personal.cashFlow.useQuery(
-        { periodStart: cashFlowStart, periodEnd: thisMonthEnd, bucket: "week" },
+        { periodStart: cashFlowStart, periodEnd: thisMonthEnd, bucket: "week", mode },
         { enabled: isPersonal }
     );
     const cashFlow = isPersonal ? cashFlowPersonal : cashFlowSpace;
@@ -199,11 +208,16 @@ export default observer(function OverviewPage() {
        proc returns reliable per-day deltas and we cumulate client-side
        (matching how the detail view does it). */
     const trendsSpaceQ = trpc.analytics.trends.dailyComparison.useQuery(
-        { spaceId: space.id, anchor: now, granularity: "month" },
+        {
+            spaceId: space.id,
+            anchor: now,
+            granularity: "month",
+            mode: trendsMode,
+        },
         { enabled: !isPersonal }
     );
     const trendsPersonalQ = trpc.personal.trends.dailyComparison.useQuery(
-        { anchor: now, granularity: "month" },
+        { anchor: now, granularity: "month", mode: trendsMode },
         { enabled: isPersonal }
     );
     const trendsData =
@@ -378,6 +392,18 @@ export default observer(function OverviewPage() {
 
     const overAllocated = summary.data?.isOverAllocated ?? false;
 
+    /* Picker for the "Net this month" eyebrow under the cash-flow
+       chart — that single number does follow `mode` because it sits
+       inside the cash-flow card. The Position row above is static
+       (shows both pairs unconditionally) so it doesn't need a picker. */
+    const pickNet = (
+        s?: { periodNet: number; operationalNet: number } | null
+    ) => (mode === "cash" ? s?.periodNet : s?.operationalNet);
+
+    /* MoM deltas for the operational Income / Expense tiles.
+       Operational deltas mean "true earning / spending changed by X%"
+       — cleaner than cash-flow deltas because cross-space transfer
+       activity in one month doesn't masquerade as a spending spike. */
     const monthOverMonth = useMemo(() => {
         const cur = summary.data;
         const prev = lastMonthSummary.data;
@@ -387,8 +413,14 @@ export default observer(function OverviewPage() {
             return ((c - p) / Math.abs(p)) * 100;
         };
         return {
-            incomeDelta: delta(cur?.periodIncome, prev?.periodIncome),
-            expenseDelta: delta(cur?.periodExpense, prev?.periodExpense),
+            incomeDelta: delta(
+                cur?.operationalIncome,
+                prev?.operationalIncome
+            ),
+            expenseDelta: delta(
+                cur?.operationalExpense,
+                prev?.operationalExpense
+            ),
         };
     }, [summary.data, lastMonthSummary.data]);
 
@@ -526,6 +558,14 @@ export default observer(function OverviewPage() {
                 <SectionEyebrow label="Position" sub="Where you stand right now" />
 
                 {/* 4-stat row */}
+                {/* Position row — Net worth, the cash-flow pair
+                    (Inflow / Outflow, includes cross-space transfers),
+                    the operational pair (Income / Expense, transfer
+                    principal excluded), and Unallocated. Showing both
+                    pairs side-by-side rather than toggling labels lets
+                    the user compare at a glance — the gap between
+                    Inflow and Income is exactly the cross-space
+                    transfer activity for the month. */}
                 <div className="ov-stat-row">
                     <StatTile
                         label="Net worth"
@@ -542,8 +582,27 @@ export default observer(function OverviewPage() {
                         }
                     />
                     <StatTile
-                        label={`Income · ${formatInAppTz(now, "MMM")}`}
+                        label={`Inflow · ${formatInAppTz(now, "MMM")}`}
                         amount={summary.data?.periodIncome ?? 0}
+                        variant="income"
+                        loading={summary.isLoading}
+                        icon={<TrendUpIcon />}
+                        accent="color-mix(in oklab, var(--income) 14%, transparent)"
+                        delta="incl. transfers in"
+                        signed
+                    />
+                    <StatTile
+                        label={`Outflow · ${formatInAppTz(now, "MMM")}`}
+                        amount={summary.data?.periodExpense ?? 0}
+                        variant="expense"
+                        loading={summary.isLoading}
+                        icon={<TrendDownIcon />}
+                        accent="color-mix(in oklab, var(--expense) 14%, transparent)"
+                        delta="incl. transfers out"
+                    />
+                    <StatTile
+                        label={`Income · ${formatInAppTz(now, "MMM")}`}
+                        amount={summary.data?.operationalIncome ?? 0}
                         variant="income"
                         loading={summary.isLoading}
                         icon={<TrendUpIcon />}
@@ -556,8 +615,8 @@ export default observer(function OverviewPage() {
                         signed
                     />
                     <StatTile
-                        label={`Expenses · ${formatInAppTz(now, "MMM")}`}
-                        amount={summary.data?.periodExpense ?? 0}
+                        label={`Expense · ${formatInAppTz(now, "MMM")}`}
+                        amount={summary.data?.operationalExpense ?? 0}
                         variant="expense"
                         loading={summary.isLoading}
                         icon={<TrendDownIcon />}
@@ -702,17 +761,25 @@ export default observer(function OverviewPage() {
                     <SectionHead
                         title={
                             <>
-                                <TrendUpIcon color="var(--income)" /> Cash flow
+                                <TrendUpIcon color="var(--income)" />{" "}
+                                {mode === "cash" ? "Cash flow" : "Operational flow"}
                             </>
                         }
-                        sub="Weekly income vs expense, last 3 months"
+                        sub={
+                            mode === "cash"
+                                ? "Weekly inflow vs outflow, last 3 months — incl. cross-space transfers"
+                                : "Weekly income vs expense, last 3 months — true earnings vs spending"
+                        }
                         action={
                             <span className="ov-cf-legend">
+                                <MetricToggle />
                                 <span className="ov-legend-chip">
-                                    <span style={{ background: "var(--income)" }} /> Income
+                                    <span style={{ background: "var(--income)" }} />{" "}
+                                    {mode === "cash" ? "Inflow" : "Income"}
                                 </span>
                                 <span className="ov-legend-chip">
-                                    <span style={{ background: "var(--expense)" }} /> Expense
+                                    <span style={{ background: "var(--expense)" }} />{" "}
+                                    {mode === "cash" ? "Outflow" : "Expense"}
                                 </span>
                                 <Link
                                     to={ROUTES.spaceAnalyticsDetail(space.id, "cash-flow")}
@@ -752,10 +819,18 @@ export default observer(function OverviewPage() {
                         </div>
                         <div className="ov-progress-stats">
                             <div>
-                                <div className="ov-stat-eyebrow">Net this month</div>
+                                <div className="ov-stat-eyebrow">
+                                    {mode === "cash"
+                                        ? "Net cash this month"
+                                        : "Net this month"}
+                                </div>
                                 <Money
-                                    amount={summary.data.periodNet}
-                                    variant={summary.data.periodNet < 0 ? "expense" : "income"}
+                                    amount={pickNet(summary.data) ?? 0}
+                                    variant={
+                                        (pickNet(summary.data) ?? 0) < 0
+                                            ? "expense"
+                                            : "income"
+                                    }
                                     size={14}
                                     weight={500}
                                     signed
@@ -932,6 +1007,7 @@ export default observer(function OverviewPage() {
                     monthExpense={summary.data?.periodExpense ?? 0}
                     lastMonthExpense={lastMonthSummary.data?.periodExpense ?? 0}
                     trendsData={trendsData}
+                    detailHref={ROUTES.spaceAnalyticsDetail(space.id, "trends")}
                 />
 
                 <SectionEyebrow
@@ -2414,6 +2490,7 @@ function SpendingTrends({
     monthExpense,
     lastMonthExpense,
     trendsData,
+    detailHref,
 }: {
     monthExpense: number;
     lastMonthExpense: number;
@@ -2426,6 +2503,8 @@ function SpendingTrends({
         bucketDays: number;
         bucketUnit: "day" | "week" | "month";
     } | null;
+    /** Target for the "Open view →" link in the section head. */
+    detailHref: string;
 }) {
     const TODAY = trendsData?.today ?? 1;
     const DAYS_IN_MONTH = trendsData?.periodLength ?? 30;
@@ -2476,9 +2555,9 @@ function SpendingTrends({
                 }
                 sub={`Day ${TODAY} of ${DAYS_IN_MONTH} · cumulative spend vs last month`}
                 action={
-                    <a className="ov-details-link" href="#">
+                    <Link to={detailHref} className="ov-details-link">
                         Open view →
-                    </a>
+                    </Link>
                 }
             />
             <div className="ov-trends-body">
@@ -3203,13 +3282,19 @@ const OV_STYLES = `
 }
 .ov-details-link:hover { color: var(--fg); background: var(--bg-elev-2); }
 
-/* Stat row */
+/* Stat row — 6 tiles at wide widths (Net worth, Inflow, Outflow,
+   Income, Expense, Unallocated). Drops to 3 then 2 then 1 on smaller
+   viewports. Uses an explicit ladder rather than auto-fit so all
+   tiles stay the same width within a row. */
 .ov-stat-row {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
 }
-@media (max-width: 1100px) {
+@media (max-width: 1400px) {
+    .ov-stat-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+}
+@media (max-width: 800px) {
     .ov-stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .ov-stat-tile {

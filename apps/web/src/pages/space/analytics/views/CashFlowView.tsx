@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { PeriodChip } from "@/components/shared/PeriodChip";
+import { MetricToggle, useMetricMode } from "@/components/shared/MetricMode";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { trpc } from "@/trpc";
@@ -36,6 +37,7 @@ export default function CashFlowView() {
     const { space } = useCurrentSpace();
     const navigate = useNavigate();
     const { period } = usePeriod("last-6-months");
+    const { mode } = useMetricMode();
 
     const qSpace = trpc.analytics.cashFlow.useQuery(
         {
@@ -43,6 +45,7 @@ export default function CashFlowView() {
             periodStart: period.start,
             periodEnd: period.end,
             bucket: "month",
+            mode,
         },
         { enabled: !space.isPersonal }
     );
@@ -51,6 +54,7 @@ export default function CashFlowView() {
             periodStart: period.start,
             periodEnd: period.end,
             bucket: "month",
+            mode,
         },
         { enabled: space.isPersonal }
     );
@@ -137,9 +141,21 @@ export default function CashFlowView() {
         [rows]
     );
 
+    /* Labels swap based on metric mode so the user always knows
+       which definition they're reading.
+         - cash       → "Inflow / Outflow / Net cash" (incl. transfers)
+         - operational → "Income / Expense / Net" (true earnings/spend) */
+    const inLabel = mode === "cash" ? "Inflow" : "Income";
+    const outLabel = mode === "cash" ? "Outflow" : "Expense";
+    const netLabel = mode === "cash" ? "Net cash" : "Net";
+    const modeNote =
+        mode === "cash"
+            ? "incl. cross-space transfers"
+            : "transfer principal excluded";
+
     const kpiItems: KpiItem[] = [
         {
-            label: "Income",
+            label: inLabel,
             value: summary.income,
             tone: "income",
             money: true,
@@ -151,28 +167,28 @@ export default function CashFlowView() {
                     : "—",
         },
         {
-            label: "Expense",
+            label: outLabel,
             value: summary.expense,
             tone: "expense",
             money: true,
             sub:
                 summary.expense > summary.income
                     ? "Spending outpaced earning"
-                    : "Within reach of income",
+                    : "Within reach of earning",
         },
         {
-            label: "Net",
+            label: netLabel,
             value: summary.net,
             tone: summary.net < 0 ? "expense" : "income",
             money: true,
             sub: summary.net >= 0 ? "Saving consistently" : "Drawdown",
         },
         {
-            label: "Savings rate",
+            label: mode === "cash" ? "Savings rate" : "Operational rate",
             value: summary.savingsRate,
             valueFormat: "percent",
             tone: summary.savingsRate < 0 ? "expense" : "neutral",
-            sub: "% of income retained · target 20%",
+            sub: `% retained · ${modeNote}`,
         },
     ];
 
@@ -181,21 +197,34 @@ export default function CashFlowView() {
     return (
         <AnalyticsDetailLayout
             title="Cash flow"
-            description="Money in versus money out, month by month. The dotted line tracks how much of each month's income survived to the next."
-            actions={<PeriodChip defaultPreset="last-6-months" />}
+            description={
+                mode === "cash"
+                    ? "Money in versus money out, month by month — includes cross-space transfer principal. Switch to Operational for the true income vs expense view."
+                    : "True income versus expense, month by month — transfer principal excluded. Switch to Cash for the bank-balance view that includes cross-space transfers."
+            }
+            actions={
+                <div className="flex flex-wrap items-center gap-2">
+                    <MetricToggle />
+                    <PeriodChip defaultPreset="last-6-months" />
+                </div>
+            }
         >
             <KpiStrip items={kpiItems} isLoading={q.isLoading} />
 
             <Card>
                 <CardHeader className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <CardTitle>Monthly income vs expense</CardTitle>
+                        <CardTitle>
+                            Monthly {inLabel.toLowerCase()} vs{" "}
+                            {outLabel.toLowerCase()}
+                        </CardTitle>
                         <p className="mt-1 text-xs text-muted-foreground">
-                            Bars are paired; the dotted line plots the savings rate
+                            Bars are paired; the dotted line plots the
+                            {mode === "cash" ? " savings" : " operational"} rate
                             (right axis).
                         </p>
                     </div>
-                    <ChartLegend />
+                    <ChartLegend inLabel={inLabel} outLabel={outLabel} />
                 </CardHeader>
                 <CardContent className="h-[320px] px-1 sm:h-[380px] sm:px-6">
                     {q.isLoading ? (
@@ -261,23 +290,28 @@ export default function CashFlowView() {
                                                 <div className="flex flex-col gap-1 tabular-nums">
                                                     <Row
                                                         dot="var(--income)"
-                                                        label="Income"
+                                                        label={inLabel}
                                                         value={d.income}
+                                                        tone="income"
                                                     />
                                                     <Row
                                                         dot="var(--expense)"
-                                                        label="Expense"
+                                                        label={outLabel}
                                                         value={d.expense}
+                                                        tone="expense"
                                                     />
                                                     <div className="my-0.5 h-px bg-border/60" />
                                                     <Row
                                                         dot="var(--muted-foreground)"
-                                                        label="Net"
+                                                        label={netLabel}
                                                         value={d.net}
                                                         signed
                                                     />
                                                     <p className="text-[11px] text-muted-foreground">
-                                                        Savings rate {d.rate.toFixed(1)}%
+                                                        {mode === "cash"
+                                                            ? "Savings"
+                                                            : "Operational"}{" "}
+                                                        rate {d.rate.toFixed(1)}%
                                                     </p>
                                                 </div>
                                             </div>
@@ -353,9 +387,9 @@ export default function CashFlowView() {
                                 <tr className="bg-muted/40">
                                     {[
                                         { label: "Month", align: "left" },
-                                        { label: "Income", align: "right" },
-                                        { label: "Expense", align: "right" },
-                                        { label: "Net", align: "right" },
+                                        { label: inLabel, align: "right" },
+                                        { label: outLabel, align: "right" },
+                                        { label: netLabel, align: "right" },
                                         { label: "Rate", align: "right" },
                                         {
                                             label: "Top expense category",
@@ -468,7 +502,13 @@ export default function CashFlowView() {
     );
 }
 
-function ChartLegend() {
+function ChartLegend({
+    inLabel,
+    outLabel,
+}: {
+    inLabel: string;
+    outLabel: string;
+}) {
     return (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
@@ -477,7 +517,7 @@ function ChartLegend() {
                     style={{ backgroundColor: "var(--income)" }}
                 />
                 <ArrowUp className="size-3 text-[color:var(--income)]" />
-                Income
+                {inLabel}
             </span>
             <span className="inline-flex items-center gap-1.5">
                 <span
@@ -485,14 +525,14 @@ function ChartLegend() {
                     style={{ backgroundColor: "var(--expense)" }}
                 />
                 <ArrowDown className="size-3 text-[color:var(--expense)]" />
-                Expense
+                {outLabel}
             </span>
             <span className="inline-flex items-center gap-1.5">
                 <span
                     className="inline-block h-px w-3.5 border-t border-dashed"
                     style={{ borderColor: "var(--warning)" }}
                 />
-                Savings rate
+                Rate
             </span>
         </div>
     );
@@ -503,31 +543,27 @@ function Row({
     label,
     value,
     signed,
+    tone,
 }: {
     dot: string;
     label: string;
     value: number;
     signed?: boolean;
+    /** Override variant for inflow/outflow rows where the label is
+     *  user-facing copy (Inflow / Outflow / Income / Expense) and we
+     *  shouldn't infer color from the string. Net falls through to
+     *  sign-based inference. */
+    tone?: "income" | "expense";
 }) {
+    const inferred: "income" | "expense" =
+        tone ?? (value < 0 ? "expense" : "income");
     return (
         <div className="flex items-center justify-between gap-6">
             <span className="inline-flex items-center gap-2">
                 <span className="size-2 rounded-sm" style={{ backgroundColor: dot }} />
                 {label}
             </span>
-            <MoneyDisplay
-                amount={value}
-                variant={
-                    label === "Income"
-                        ? "income"
-                        : label === "Expense"
-                          ? "expense"
-                          : value < 0
-                            ? "expense"
-                            : "income"
-                }
-                signed={signed}
-            />
+            <MoneyDisplay amount={value} variant={inferred} signed={signed} />
         </div>
     );
 }

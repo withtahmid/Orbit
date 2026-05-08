@@ -17,6 +17,16 @@ export const personalCashFlow = authorizedProcedure
             periodStart: z.coerce.date(),
             periodEnd: z.coerce.date(),
             bucket: z.enum(["day", "week", "month"]).default("month"),
+            /**
+             * `cash` (default) — cross-space transfer principal counts
+             * directionally (owned↔non-owned). Internal owned↔owned
+             * transfers are always excluded.
+             *
+             * `operational` — transfer principal excluded both
+             * directions. Only true `type='income'` deposits and
+             * `type='expense'` debits + transfer fees + adjustments.
+             */
+            mode: z.enum(["cash", "operational"]).default("cash"),
         })
     )
     .query(async ({ ctx, input }) => {
@@ -57,6 +67,13 @@ export const personalCashFlow = authorizedProcedure
                     }));
                 }
 
+                /* Transfer-principal branches are always emitted; their
+                   result is multiplied by a 0/1 factor derived from the
+                   Zod-validated `mode` enum. Internal owned↔owned
+                   transfers are excluded by the source/destination
+                   conditions regardless of mode. */
+                const xferFactor = input.mode === "cash" ? 1 : 0;
+
                 const query = sql<{
                     bucket: Date;
                     income: string;
@@ -76,7 +93,7 @@ export const personalCashFlow = authorizedProcedure
                                 WHEN type = 'income' AND destination_account_id = ANY(${owned}) THEN amount
                                 WHEN type = 'transfer'
                                     AND destination_account_id = ANY(${owned})
-                                    AND source_account_id <> ALL(${owned}) THEN amount
+                                    AND source_account_id <> ALL(${owned}) THEN amount * ${xferFactor}
                                 WHEN type = 'adjustment' AND destination_account_id = ANY(${owned}) THEN amount
                                 ELSE 0
                             END) AS income,
@@ -85,14 +102,15 @@ export const personalCashFlow = authorizedProcedure
                                     WHEN type = 'expense' AND source_account_id = ANY(${owned}) THEN amount
                                     WHEN type = 'transfer'
                                         AND source_account_id = ANY(${owned})
-                                        AND destination_account_id <> ALL(${owned}) THEN amount
+                                        AND destination_account_id <> ALL(${owned}) THEN amount * ${xferFactor}
                                     WHEN type = 'adjustment' AND source_account_id = ANY(${owned}) THEN amount
                                     ELSE 0
                                 END
                                 -- Transfer fees out of owned accounts
                                 -- are personal outflow regardless of
                                 -- whether the transfer itself is
-                                -- internal (owned→owned).
+                                -- internal (owned-to-owned). Counts in
+                                -- both cash and operational modes.
                                 + CASE
                                     WHEN type = 'transfer'
                                         AND source_account_id = ANY(${owned})

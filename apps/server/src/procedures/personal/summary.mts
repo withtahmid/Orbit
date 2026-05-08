@@ -57,6 +57,9 @@ export const personalSummary = authorizedProcedure
                         periodIncome: 0,
                         periodExpense: 0,
                         periodNet: 0,
+                        operationalIncome: 0,
+                        operationalExpense: 0,
+                        operationalNet: 0,
                         ownedAccountsCount: owned.length,
                         memberSpacesCount: memberSpaces.length,
                     };
@@ -199,9 +202,24 @@ export const personalSummary = authorizedProcedure
                     .execute(ctx.services.qb)
                     .then((r) => r.rows[0]);
 
+                /* Personal flow — two views computed in one pass:
+                 *
+                 * `cash_*` — CASH FLOW. Owned↔owned transfers excluded
+                 *   (internal rebalance, net zero). Owned↔non-owned
+                 *   transfer principal counts directionally as
+                 *   inflow/outflow. Fees count as outflow whenever the
+                 *   source is owned.
+                 *
+                 * `operational_*` — TRUE INCOME / EXPENSE. Excludes ALL
+                 *   transfer principal regardless of direction. Keeps
+                 *   only `type='income'` deposits, `type='expense'`
+                 *   debits, `type='adjustment'`, and transfer fees.
+                 */
                 const flowRow = await sql<{
-                    income: string;
-                    expense: string;
+                    cash_income: string;
+                    cash_expense: string;
+                    operational_income: string;
+                    operational_expense: string;
                 }>`
                     SELECT
                         COALESCE(SUM(CASE
@@ -211,7 +229,7 @@ export const personalSummary = authorizedProcedure
                                 AND source_account_id <> ALL(${owned}) THEN amount
                             WHEN type = 'adjustment' AND destination_account_id = ANY(${owned}) THEN amount
                             ELSE 0
-                        END), 0)::text AS income,
+                        END), 0)::text AS cash_income,
                         COALESCE(SUM(
                             CASE
                                 WHEN type = 'expense' AND source_account_id = ANY(${owned}) THEN amount
@@ -227,7 +245,25 @@ export const personalSummary = authorizedProcedure
                                     AND fee_amount IS NOT NULL THEN fee_amount
                                 ELSE 0
                             END
-                        ), 0)::text AS expense
+                        ), 0)::text AS cash_expense,
+                        COALESCE(SUM(CASE
+                            WHEN type = 'income' AND destination_account_id = ANY(${owned}) THEN amount
+                            WHEN type = 'adjustment' AND destination_account_id = ANY(${owned}) THEN amount
+                            ELSE 0
+                        END), 0)::text AS operational_income,
+                        COALESCE(SUM(
+                            CASE
+                                WHEN type = 'expense' AND source_account_id = ANY(${owned}) THEN amount
+                                WHEN type = 'adjustment' AND source_account_id = ANY(${owned}) THEN amount
+                                ELSE 0
+                            END
+                            + CASE
+                                WHEN type = 'transfer'
+                                    AND source_account_id = ANY(${owned})
+                                    AND fee_amount IS NOT NULL THEN fee_amount
+                                ELSE 0
+                            END
+                        ), 0)::text AS operational_expense
                     FROM transactions
                     WHERE space_id = ANY(${memberSpaces})
                       AND transaction_datetime >= ${input.periodStart}
@@ -247,8 +283,14 @@ export const personalSummary = authorizedProcedure
                 const envelopeConsumed = Number(envelopeRow?.consumed ?? 0);
                 const envelopeRemaining = Number(envelopeRow?.remaining ?? 0);
                 const planAllocated = Number(planRow?.allocated ?? 0);
-                const income = Number(flowRow?.income ?? 0);
-                const expense = Number(flowRow?.expense ?? 0);
+                const cashIncome = Number(flowRow?.cash_income ?? 0);
+                const cashExpense = Number(flowRow?.cash_expense ?? 0);
+                const operationalIncome = Number(
+                    flowRow?.operational_income ?? 0
+                );
+                const operationalExpense = Number(
+                    flowRow?.operational_expense ?? 0
+                );
 
                 const unallocated =
                     spendableBalance - envelopeRemaining - planAllocated;
@@ -263,9 +305,14 @@ export const personalSummary = authorizedProcedure
                     planAllocated,
                     unallocated,
                     isOverAllocated: unallocated < 0,
-                    periodIncome: income,
-                    periodExpense: expense,
-                    periodNet: income - expense,
+                    /* `period*` = cash flow. `operational*` = excludes
+                       all transfer principal. See SQL block above. */
+                    periodIncome: cashIncome,
+                    periodExpense: cashExpense,
+                    periodNet: cashIncome - cashExpense,
+                    operationalIncome,
+                    operationalExpense,
+                    operationalNet: operationalIncome - operationalExpense,
                     ownedAccountsCount: owned.length,
                     memberSpacesCount: memberSpaces.length,
                 };
