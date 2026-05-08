@@ -10,6 +10,7 @@ import { CurrentSpaceProvider } from "@/providers/CurrentSpaceProvider";
 import { RootRedirect } from "@/pages/RootRedirect";
 import { FullPageSpinner } from "@/components/shared/LoadingScreen";
 import NotFoundPage from "@/pages/NotFoundPage";
+import ErrorBoundaryPage from "@/pages/ErrorBoundaryPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
 
 const SignupPage = lazy(() => import("@/pages/auth/signup/index"));
@@ -74,6 +75,7 @@ const withSuspense = (children: React.ReactNode) => (
 export const router = createBrowserRouter([
     {
         element: <RootLayout />,
+        errorElement: <ErrorBoundaryPage />,
         children: [
             { path: "/", element: <RootRedirect /> },
             // Public docs — no auth guard. Prospective users can read

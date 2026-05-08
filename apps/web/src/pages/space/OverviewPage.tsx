@@ -9,6 +9,7 @@ import { ROUTES } from "@/router/routes";
 import { addDays, addMonths, endOfMonth, startOfMonth } from "@/lib/dates";
 import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 import { useStore } from "@/stores/useStore";
+import { CumulativeRaceChart } from "@/pages/space/analytics/views/TrendsView";
 
 /* =============================================================
    OVERVIEW PAGE — editorial-dark design (orbit-4)
@@ -191,20 +192,22 @@ export default observer(function OverviewPage() {
     const moversData =
         (isPersonal ? moversPersonalQ.data : moversSpaceQ.data) ?? [];
 
-    const cumulativeSpaceQ = trpc.analytics.cumulativeSpend.useQuery(
-        {
-            spaceId: space.id,
-            periodStart: thisMonthStart,
-            periodEnd: thisMonthEnd,
-        },
+    /* Spending Trends powered by the same `dailyComparison` proc the
+       /analytics/trends detail view uses — pinned to month granularity
+       on the overview. The standalone `cumulativeSpend` proc was
+       returning a flat projection that collapsed the dotted line; this
+       proc returns reliable per-day deltas and we cumulate client-side
+       (matching how the detail view does it). */
+    const trendsSpaceQ = trpc.analytics.trends.dailyComparison.useQuery(
+        { spaceId: space.id, anchor: now, granularity: "month" },
         { enabled: !isPersonal }
     );
-    const cumulativePersonalQ = trpc.personal.cumulativeSpend.useQuery(
-        { periodStart: thisMonthStart, periodEnd: thisMonthEnd },
+    const trendsPersonalQ = trpc.personal.trends.dailyComparison.useQuery(
+        { anchor: now, granularity: "month" },
         { enabled: isPersonal }
     );
-    const cumulativeData =
-        (isPersonal ? cumulativePersonalQ.data : cumulativeSpaceQ.data) ?? null;
+    const trendsData =
+        (isPersonal ? trendsPersonalQ.data : trendsSpaceQ.data) ?? null;
 
     const incomeBreakdownSpaceQ = trpc.analytics.incomeBreakdown.useQuery(
         {
@@ -926,10 +929,9 @@ export default observer(function OverviewPage() {
 
                 {/* Spending trends — cumulative spend vs last month + projection. */}
                 <SpendingTrends
-                    monthProgress={monthProgress}
                     monthExpense={summary.data?.periodExpense ?? 0}
                     lastMonthExpense={lastMonthSummary.data?.periodExpense ?? 0}
-                    cumulativeData={cumulativeData}
+                    trendsData={trendsData}
                 />
 
                 <SectionEyebrow
@@ -2405,48 +2407,59 @@ function TopMovers({
     );
 }
 
-/** Spending trends — cumulative spend curve vs last period + projection
- *  + linear-runrate dotted projection. Driven by `analytics.cumulativeSpend`. */
+/** Spending trends — embeds the same `CumulativeRaceChart` the
+ *  /analytics/trends detail view uses, pinned to month granularity.
+ *  Driven by `analytics.trends.dailyComparison`. */
 function SpendingTrends({
-    monthProgress,
     monthExpense,
     lastMonthExpense,
-    cumulativeData,
+    trendsData,
 }: {
-    monthProgress: { elapsed: number; total: number };
     monthExpense: number;
     lastMonthExpense: number;
-    cumulativeData: {
-        current: Array<{ day: Date | string; cumulative: number }>;
-        previous: Array<{ day: Date | string; cumulative: number }>;
-        projection: { endOfPeriodTotal: number; method: string } | null;
+    trendsData: {
+        today: number;
+        periodLength: number;
+        current: number[];
+        previous: number[];
+        average: number[] | null;
+        bucketDays: number;
+        bucketUnit: "day" | "week" | "month";
     } | null;
 }) {
-    const totalDays = monthProgress.total || 30;
-    const elapsed = monthProgress.elapsed || 1;
-    /* Real cumulative data when available; otherwise a flat baseline so
-       the chart layout stays during the loading frame. */
-    const thisMonth =
-        cumulativeData?.current.slice(0, elapsed).map((p) => p.cumulative) ??
-        new Array(elapsed).fill(0);
-    const lastMonth =
-        cumulativeData?.previous.map((p) => p.cumulative) ??
-        new Array(totalDays).fill(0);
-    const projectedTotal =
-        cumulativeData?.projection?.endOfPeriodTotal ?? monthExpense;
-    const projection = Array.from(
-        { length: totalDays - elapsed + 1 },
-        (_, i) => {
-            const fraction =
-                totalDays - elapsed > 0
-                    ? i / (totalDays - elapsed)
-                    : 1;
-            return (
-                monthExpense + (projectedTotal - monthExpense) * fraction
-            );
+    const TODAY = trendsData?.today ?? 1;
+    const DAYS_IN_MONTH = trendsData?.periodLength ?? 30;
+    const CUR_DAILY = trendsData?.current ?? [];
+    const PRV_DAILY = trendsData?.previous ?? [];
+    const AVG_DAILY = trendsData?.average ?? null;
+    const BUCKET_UNIT = trendsData?.bucketUnit ?? "day";
+
+    /* Cumulate the per-bucket deltas client-side — mirrors what the
+       detail view does so both surfaces stay in sync. */
+    const cumulative = useMemo(() => {
+        const cur: number[] = [];
+        const prv: number[] = [];
+        const avg: number[] | null = AVG_DAILY ? [] : null;
+        let curAcc = 0;
+        let prvAcc = 0;
+        let avgAcc = 0;
+        const len = Math.max(DAYS_IN_MONTH, PRV_DAILY.length);
+        for (let i = 0; i < len; i++) {
+            curAcc += CUR_DAILY[i] ?? 0;
+            prvAcc += PRV_DAILY[i] ?? 0;
+            cur.push(curAcc);
+            prv.push(prvAcc);
+            if (avg && AVG_DAILY) {
+                avgAcc += AVG_DAILY[i] ?? 0;
+                avg.push(avgAcc);
+            }
         }
-    );
-    const dayAvg = monthExpense / Math.max(1, elapsed);
+        return { cur, prv, avg };
+    }, [CUR_DAILY, PRV_DAILY, AVG_DAILY, DAYS_IN_MONTH]);
+
+    const monthSoFar = cumulative.cur[TODAY - 1] ?? monthExpense;
+    const dailyAvg = TODAY > 0 ? monthSoFar / TODAY : 0;
+    const projectedTotal = Math.max(monthSoFar, dailyAvg * DAYS_IN_MONTH);
     const paceDelta =
         lastMonthExpense > 0
             ? ((projectedTotal - lastMonthExpense) / lastMonthExpense) * 100
@@ -2461,7 +2474,7 @@ function SpendingTrends({
                         trends
                     </>
                 }
-                sub={`Day ${elapsed} of ${totalDays} · cumulative spend vs last month`}
+                sub={`Day ${TODAY} of ${DAYS_IN_MONTH} · cumulative spend vs last month`}
                 action={
                     <a className="ov-details-link" href="#">
                         Open view →
@@ -2470,12 +2483,14 @@ function SpendingTrends({
             />
             <div className="ov-trends-body">
                 <div className="ov-trends-chart">
-                    <TrendsChart
-                        thisMonth={thisMonth}
-                        lastMonth={lastMonth}
-                        projection={projection}
-                        elapsed={elapsed}
-                        totalDays={totalDays}
+                    <CumulativeRaceChart
+                        cur={cumulative.cur}
+                        prv={cumulative.prv}
+                        avg={cumulative.avg}
+                        today={TODAY}
+                        daysInMonth={DAYS_IN_MONTH}
+                        projection={projectedTotal}
+                        bucketUnit={BUCKET_UNIT}
                     />
                     <div className="ov-trends-legend">
                         <span>
@@ -2483,7 +2498,7 @@ function SpendingTrends({
                                 style={{
                                     width: 14,
                                     height: 2,
-                                    background: "var(--gold)",
+                                    background: "var(--warning)",
                                     display: "inline-block",
                                     verticalAlign: "middle",
                                     marginRight: 4,
@@ -2509,7 +2524,7 @@ function SpendingTrends({
                                 style={{
                                     width: 14,
                                     height: 2,
-                                    borderTop: "1px dotted var(--gold)",
+                                    borderTop: "1px dotted var(--warning)",
                                     display: "inline-block",
                                     verticalAlign: "middle",
                                     marginRight: 4,
@@ -2523,11 +2538,11 @@ function SpendingTrends({
                     <div className="od-card ov-trends-stat">
                         <div className="ov-stat-eyebrow">Spent so far</div>
                         <div className="ov-trends-stat-amt">
-                            <Money amount={monthExpense} size={26} weight={500} />
+                            <Money amount={monthSoFar} size={26} weight={500} />
                         </div>
                         <div className="ov-trends-stat-sub">
-                            Day {elapsed} ·{" "}
-                            <Money amount={dayAvg} size={11.5} variant="muted" />
+                            Day {TODAY} ·{" "}
+                            <Money amount={dailyAvg} size={11.5} variant="muted" />
                             /day avg
                         </div>
                     </div>
@@ -2561,88 +2576,6 @@ function SpendingTrends({
     );
 }
 
-function TrendsChart({
-    thisMonth,
-    lastMonth,
-    projection,
-    elapsed,
-    totalDays,
-}: {
-    thisMonth: number[];
-    lastMonth: number[];
-    projection: number[];
-    elapsed: number;
-    totalDays: number;
-}) {
-    const w = 800;
-    const h = 220;
-    const p = 18;
-    const max = Math.max(
-        1,
-        ...thisMonth,
-        ...lastMonth,
-        ...projection
-    );
-    const sx = (i: number) => p + (i / Math.max(1, totalDays - 1)) * (w - p * 2);
-    const sy = (v: number) => h - p - (v / max) * (h - p * 2);
-    const path = (arr: number[], offset = 0) =>
-        arr
-            .map((v, i) => `${i ? "L" : "M"}${sx(i + offset).toFixed(1)} ${sy(v).toFixed(1)}`)
-            .join(" ");
-    return (
-        <svg
-            viewBox={`0 0 ${w} ${h}`}
-            width="100%"
-            height={h}
-            preserveAspectRatio="none"
-            style={{ display: "block" }}
-        >
-            <defs>
-                <linearGradient id="ov-trends-grad" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="var(--gold)" stopOpacity="0.32" />
-                    <stop offset="100%" stopColor="var(--gold)" stopOpacity="0" />
-                </linearGradient>
-            </defs>
-            {/* This month area */}
-            <path
-                d={`${path(thisMonth)} L ${sx(thisMonth.length - 1)} ${h - p} L ${p} ${h - p} Z`}
-                fill="url(#ov-trends-grad)"
-            />
-            {/* Last month dashed */}
-            <path
-                d={path(lastMonth)}
-                fill="none"
-                stroke="var(--fg-3)"
-                strokeWidth="1.2"
-                strokeDasharray="4 4"
-                opacity="0.7"
-            />
-            {/* Projection dotted */}
-            <path
-                d={path(projection, elapsed - 1)}
-                fill="none"
-                stroke="var(--gold)"
-                strokeWidth="1.3"
-                strokeDasharray="2 4"
-                opacity="0.85"
-            />
-            {/* This month line */}
-            <path
-                d={path(thisMonth)}
-                fill="none"
-                stroke="var(--gold)"
-                strokeWidth="1.8"
-            />
-            {/* Today marker */}
-            <circle
-                cx={sx(elapsed - 1)}
-                cy={sy(thisMonth[thisMonth.length - 1] ?? 0)}
-                r="4"
-                fill="var(--gold)"
-            />
-        </svg>
-    );
-}
 
 /** Income breakdown — sources of income.
  * Source = normalized description (no first-class income_category column

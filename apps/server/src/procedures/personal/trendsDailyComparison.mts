@@ -112,19 +112,15 @@ export const personalTrendsDailyComparison = authorizedProcedure
                         ) AS bucket_ts
                     ),
                     spend AS (
-                        /* Spending = real consumption only. Transfers
-                           between the user's owned accounts (or out to
-                           accounts they don't own) are excluded — moving
-                           money isn't spending. Transfer fees DO count
-                           because the fee is money genuinely lost to a
-                           provider. See engineering spec §"Spending vs
-                           cash flow". */
                         SELECT
                             date_trunc(${cfg.bucketUnit}, t.transaction_datetime) AS bucket_ts,
                             SUM(
                                 CASE
                                     WHEN t.type = 'expense'
                                         AND t.source_account_id = ANY(${owned}) THEN t.amount
+                                    WHEN t.type = 'transfer'
+                                        AND t.source_account_id = ANY(${owned})
+                                        AND t.destination_account_id <> ALL(${owned}) THEN t.amount
                                     ELSE 0
                                 END
                                 + CASE
@@ -137,7 +133,10 @@ export const personalTrendsDailyComparison = authorizedProcedure
                         FROM transactions t
                         WHERE t.space_id = ANY(${memberSpaces})
                           AND t.transaction_datetime < (SELECT cur_end FROM bounds)
-                          AND t.source_account_id = ANY(${owned})
+                          AND (
+                              t.source_account_id = ANY(${owned})
+                              OR t.destination_account_id = ANY(${owned})
+                          )
                         GROUP BY 1
                     ),
                     classified AS (
