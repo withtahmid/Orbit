@@ -1,16 +1,22 @@
 import { useMemo, useState } from "react";
-import { Search, X } from "lucide-react";
+import { ChevronDown, Search, X } from "lucide-react";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { Input } from "@/components/ui/input";
 import {
     ENTITY_ICONS,
     ENTITY_ICON_CATEGORIES,
     ENTITY_ICON_NAMES,
+    getIcon,
 } from "@/lib/entityIcons";
 
 /**
- * Emoji-picker style icon picker: search bar on top, scrollable body with
- * category headers. Selecting an icon highlights it with the active color.
+ * Editorial-dark icon picker — search bar on top, scrollable body with
+ * sticky category headers. Selecting an icon highlights it with the active
+ * color tinted background + colored stroke.
  */
 export function IconPicker({
     value,
@@ -39,55 +45,52 @@ export function IconPicker({
     }, [q]);
 
     const totalMatches = groups.reduce((sum, g) => sum + g.names.length, 0);
+    const tone = color ?? "var(--brand)";
 
     return (
         <div
-            className={cn(
-                "flex max-h-[26rem] flex-col rounded-md border border-border bg-muted/30",
-                className
-            )}
+            className={cn("orbit-design op-icon-picker", className)}
         >
-            <div className="relative shrink-0 p-2 pb-1">
+            <style>{ICON_PICKER_STYLES}</style>
+            <div className="op-icon-search">
                 <Search
-                    className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+                    className="op-icon-search-glass size-3.5"
                     aria-hidden
+                    style={{ color: "var(--fg-4)" }}
                 />
-                <Input
+                <input
+                    type="text"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Search icons..."
-                    className="h-8 pl-8 pr-8 text-sm"
+                    placeholder={`Search ${ENTITY_ICON_NAMES.length} icons…`}
+                    className="op-icon-search-input"
                     aria-label="Search icons"
                 />
                 {query && (
                     <button
                         type="button"
                         onClick={() => setQuery("")}
-                        className="absolute right-4 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        className="op-icon-search-clear"
                         aria-label="Clear search"
                     >
-                        <X className="size-3.5" />
+                        <X className="size-3" />
                     </button>
                 )}
             </div>
 
             <div
-                className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-2"
+                className="op-icon-body"
                 role="radiogroup"
                 aria-label="Icon"
             >
                 {totalMatches === 0 ? (
-                    <p className="py-6 text-center text-xs text-muted-foreground">
-                        No icons match "{query}"
-                    </p>
+                    <p className="op-icon-empty">No icons match &ldquo;{query}&rdquo;</p>
                 ) : (
                     groups.map((group) =>
                         group.names.length === 0 ? null : (
-                            <div key={group.label} className="mb-1">
-                                <div className="sticky top-0 z-10 -mx-2 bg-muted/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground backdrop-blur">
-                                    {group.label}
-                                </div>
-                                <div className="grid grid-cols-7 gap-1 pt-1 sm:grid-cols-8">
+                            <div key={group.label} className="op-icon-group">
+                                <div className="op-icon-group-head">{group.label}</div>
+                                <div className="op-icon-grid">
                                     {group.names.map((name) => {
                                         const Icon = ENTITY_ICONS[name];
                                         if (!Icon) return null;
@@ -102,19 +105,20 @@ export function IconPicker({
                                                 title={name}
                                                 onClick={() => onChange(name)}
                                                 className={cn(
-                                                    "flex aspect-square min-h-9 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                                    active && "text-white"
+                                                    "op-icon-cell",
+                                                    active && "is-active"
                                                 )}
                                                 style={
                                                     active
                                                         ? {
-                                                              backgroundColor:
-                                                                  color ?? "var(--primary)",
+                                                              background: `color-mix(in oklab, ${tone} 18%, transparent)`,
+                                                              borderColor: `color-mix(in oklab, ${tone} 35%, transparent)`,
+                                                              color: tone,
                                                           }
                                                         : undefined
                                                 }
                                             >
-                                                <Icon className="size-5" />
+                                                <Icon className="size-4" />
                                             </button>
                                         );
                                     })}
@@ -127,3 +131,172 @@ export function IconPicker({
         </div>
     );
 }
+
+/**
+ * Compact popover-trigger that renders a small icon-preview + chevron
+ * button. Opens the editorial-dark IconPicker in a popover. Use this in
+ * dialogs where the inline picker would dominate the form. `portal={false}`
+ * keeps the popover inside the dialog's focus trap and scroll lock.
+ */
+export function IconPickerButton({
+    value,
+    onChange,
+    color,
+    className,
+}: {
+    value: string;
+    onChange: (name: string) => void;
+    color?: string;
+    className?: string;
+}) {
+    const Icon = getIcon(value);
+    const tone = color ?? "var(--fg-2)";
+    return (
+        <Popover>
+            <PopoverTrigger asChild>
+                <button
+                    type="button"
+                    className={cn("op-picker-trigger", className)}
+                    aria-label="Choose icon"
+                    title="Icon"
+                >
+                    <span
+                        className="op-picker-trigger-icon"
+                        style={{ color: tone }}
+                        aria-hidden
+                    >
+                        <Icon className="size-4" />
+                    </span>
+                    <span className="op-picker-trigger-hex">{value}</span>
+                    <ChevronDown className="size-3 op-picker-trigger-chev" />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent
+                portal={false}
+                align="start"
+                className="orbit-design w-[22rem] p-0 bg-transparent border-0 shadow-none"
+                style={{
+                    maxHeight:
+                        "min(var(--radix-popover-content-available-height, 26rem), 26rem)",
+                }}
+            >
+                <IconPicker value={value} onChange={onChange} color={color} />
+            </PopoverContent>
+        </Popover>
+    );
+}
+
+const ICON_PICKER_STYLES = `
+.op-icon-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 12px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--line);
+    color: var(--fg);
+    max-height: 28rem;
+    font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
+}
+.op-icon-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 10px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line);
+}
+.op-icon-search-glass {
+    margin-right: 8px;
+    flex-shrink: 0;
+}
+.op-icon-search-input {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: var(--fg);
+    font-size: 13px;
+    font-family: inherit;
+    min-width: 0;
+}
+.op-icon-search-input::placeholder { color: var(--fg-4); }
+.op-icon-search-clear {
+    margin-left: 4px;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    background: transparent;
+    border: 0;
+    color: var(--fg-4);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+}
+.op-icon-search-clear:hover { color: var(--fg-2); background: var(--bg-elev-3); }
+
+.op-icon-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 4px 2px;
+}
+.op-icon-empty {
+    padding: 32px 0;
+    text-align: center;
+    color: var(--fg-4);
+    font-size: 12.5px;
+}
+.op-icon-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.op-icon-group-head {
+    position: sticky;
+    top: 0;
+    background: var(--bg-elev-1);
+    padding: 6px 4px;
+    font-size: 10px;
+    color: var(--fg-4);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 500;
+    z-index: 1;
+}
+.op-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+}
+@media (max-width: 480px) {
+    .op-icon-grid { grid-template-columns: repeat(6, 1fr); }
+}
+.op-icon-cell {
+    aspect-ratio: 1;
+    min-height: 36px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--fg-3);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.op-icon-cell:hover {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+}
+.op-icon-cell.is-active {
+    /* inline styles override these for tinted-by-color */
+}
+`;

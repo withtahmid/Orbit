@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./styles/orbit-design.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -25,10 +26,11 @@
     --muted: hsl(180 8% 13%);
     --muted-foreground: hsl(180 10% 64%);
 
-    /* --accent is the *hover surface* for buttons, menus, tabs — keep it a
-       dim dark tone so text stays readable. The brand gradient partner lives
-       in --brand-gradient-to below. */
-    --accent: hsl(180 8% 15%);
+    /* --accent is the *hover surface* for buttons, menus, tabs — needs to be
+       visibly lighter than --background (5%) and --card (9%) or hover/click
+       just looks black on a dark mode. The brand gradient partner lives in
+       --brand-gradient-to below. */
+    --accent: hsl(180 8% 22%);
     --accent-foreground: hsl(180 15% 96%);
 
     /* Brand gradient second stop — pairs with --primary for CTAs. */

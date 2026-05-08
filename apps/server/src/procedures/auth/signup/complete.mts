@@ -75,7 +75,7 @@ export const completeSignup = publicProcedure
             });
         }
 
-        const authToken = signJWT({ userId: userData.id }, 7 * 24 * 60 * 60);
+        const authToken = signJWT({ userId: userData.id });
 
         return {
             token: authToken,

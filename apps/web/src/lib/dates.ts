@@ -130,6 +130,34 @@ export function startOfWeek(date: Date = new Date()): Date {
     return addDays(sod, -day);
 }
 
+/**
+ * Monday at 00:00 APP_TZ of the ISO week containing `date`. Matches the
+ * server's `date_trunc('week', ...)` semantics (Postgres uses ISO
+ * Monday-Sunday weeks). Use this instead of `startOfWeek` whenever a
+ * window is sent to a procedure that boundary-truncates with
+ * `date_trunc('week', ...)`.
+ */
+export function startOfIsoWeek(date: Date = new Date()): Date {
+    const sod = startOfDay(date);
+    const p = projectToAppTz(sod);
+    const dow = p.getUTCDay(); // 0=Sun..6=Sat
+    const daysFromMonday = dow === 0 ? 6 : dow - 1;
+    return addDays(sod, -daysFromMonday);
+}
+
+/**
+ * Start of the calendar quarter containing `date` (Jan 1 / Apr 1 / Jul 1
+ * / Oct 1 at 00:00 APP_TZ). Matches Postgres `date_trunc('quarter', ...)`.
+ */
+export function startOfQuarter(date: Date = new Date()): Date {
+    const p = projectToAppTz(date);
+    const quarterMonth = Math.floor(p.getUTCMonth() / 3) * 3;
+    const start = new Date(
+        Date.UTC(p.getUTCFullYear(), quarterMonth, 1, 0, 0, 0, 0)
+    );
+    return unprojectFromAppTz(start);
+}
+
 export function startOfYear(date: Date = new Date()): Date {
     const p = projectToAppTz(date);
     const start = new Date(Date.UTC(p.getUTCFullYear(), 0, 1, 0, 0, 0, 0));

@@ -61,7 +61,7 @@ services:
         # owned by root and block subsequent host-level `pnpm build`.
         # Export UID/GID in your shell (or .env.local) — on Linux this is
         # usually: `export UID GID=$(id -g)`. Falls back to 1000:1000.
-        user: "${UID:-1000}:${GID:-1000}"
+        # user: "${UID:-1000}:${GID:-1000}"
 
         ports:
             - target: 3000
@@ -71,7 +71,7 @@ services:
               published: 5173
 
         env_file:
-            - ./.env.demo.local
+            - ./.env.development.local
 
         volumes:
             - ./:/app

@@ -50,7 +50,7 @@ export const loginProcedure = publicProcedure
             });
         }
 
-        const token = signJWT({ userId: dbUser.id }, 7 * 24 * 60 * 60);
+        const token = signJWT({ userId: dbUser.id });
 
         return {
             token,

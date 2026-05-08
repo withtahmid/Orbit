@@ -5,12 +5,13 @@ import { trpc } from "@/trpc";
 import { FullPageSpinner } from "@/components/shared/LoadingScreen";
 import { LAST_SPACE_KEY } from "@/providers/CurrentSpaceProvider";
 import { ROUTES } from "@/router/routes";
+import LandingPage from "@/pages/LandingPage";
 
 export const RootRedirect = observer(function RootRedirect() {
     const { authStore } = useStore();
 
     if (authStore.isLoading) return <FullPageSpinner />;
-    if (!authStore.isAuthenticated) return <Navigate to={ROUTES.login} replace />;
+    if (!authStore.isAuthenticated) return <LandingPage />;
 
     return <AuthenticatedRedirect />;
 });

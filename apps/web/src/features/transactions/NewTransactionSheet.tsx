@@ -1,49 +1,64 @@
-import { useState, type FormEvent } from "react";
-import { Plus } from "lucide-react";
+import { useRef, useState, useMemo, type FormEvent, type ReactNode } from "react";
+import {
+    Plus,
+    ArrowDown,
+    ArrowUp,
+    ArrowLeftRight,
+    SlidersHorizontal,
+    Check,
+    Calendar,
+    Layers,
+    Wallet,
+    Briefcase,
+    Tag,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
     Sheet,
     SheetContent,
-    SheetDescription,
-    SheetHeader,
     SheetTitle,
     SheetTrigger,
 } from "@/components/ui/sheet";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { OrbitDrawerShell, OrbitField } from "@/components/orbit/OrbitModalShell";
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
+    OrbitAmountCard,
+    OrbitFieldRow,
+    OrbitFormStyles,
+    OrbitInfoPill,
+    OrbitInput,
+    OrbitRadioRow,
+    OrbitSelect,
+    OrbitTextarea,
+    OrbitToggle,
+    type OrbitSelectItem,
+} from "@/components/orbit/OrbitForm";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { FileUploadField } from "@/components/file-upload-field";
 import { UserAvatar } from "@/components/shared/UserAvatar";
-import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { trpc } from "@/trpc";
 import type { RouterOutput } from "@/trpc";
+import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { cn } from "@/lib/utils";
 import { useCurrentSpaceId } from "@/hooks/useCurrentSpace";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
+import { getIcon } from "@/lib/entityIcons";
 
 type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
+type Envelop = RouterOutput["envelop"]["listBySpace"][number];
+type Category = RouterOutput["expenseCategory"]["listBySpace"][number];
 
 const ownedByMe = (a: SpaceAccount) => a.myRole === "owner";
 
-function AccountOption({ account }: { account: SpaceAccount }) {
+function AccountLabel({ account }: { account: SpaceAccount }) {
     const first = account.owners?.[0];
     const extra = (account.owners?.length ?? 0) - 1;
     return (
-        <span className="inline-flex items-center gap-2">
-            <span>{account.name}</span>
+        <span className="of-acc-label">
+            <span className="of-acc-name">{account.name}</span>
             {first && (
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                    ·
+                <span className="of-acc-meta">
                     <UserAvatar
                         fileId={first.avatar_file_id}
                         firstName={first.first_name}
@@ -57,203 +72,471 @@ function AccountOption({ account }: { account: SpaceAccount }) {
     );
 }
 
+/** Convert a SpaceAccount to an OrbitSelectItem with its icon/color. */
+function toAccountItem(a: SpaceAccount): OrbitSelectItem {
+    const Icon = getIcon(a.icon ?? null);
+    return {
+        value: a.id,
+        label: <AccountLabel account={a} />,
+        leadIcon: <Icon className="size-3.5" />,
+        leadColor: a.color ?? "var(--ent-1)",
+    };
+}
+
 type TxTab = "income" | "expense" | "transfer" | "adjustment";
 
-const TAB_TITLE: Record<TxTab, string> = {
-    income: "New income",
-    expense: "New expense",
-    transfer: "New transfer",
-    adjustment: "Balance adjustment",
+const TAB_META: Record<
+    TxTab,
+    {
+        label: string;
+        icon: typeof ArrowDown;
+        color: string;
+        eyebrow: string;
+        title: string;
+        subtitle: string;
+        leadIcon: typeof ArrowDown;
+    }
+> = {
+    expense: {
+        label: "Expense",
+        icon: ArrowUp,
+        color: "var(--expense)",
+        eyebrow: "New transaction",
+        title: "Add expense",
+        subtitle: "Posted to ledger immediately. Drafts auto-save.",
+        leadIcon: ArrowUp,
+    },
+    income: {
+        label: "Income",
+        icon: ArrowDown,
+        color: "var(--income)",
+        eyebrow: "New transaction",
+        title: "Add income",
+        subtitle: "Posted to ledger immediately. Drafts auto-save.",
+        leadIcon: ArrowDown,
+    },
+    transfer: {
+        label: "Transfer",
+        icon: ArrowLeftRight,
+        color: "var(--transfer)",
+        eyebrow: "New transfer",
+        title: "Move money",
+        subtitle: "Between accounts within this space. Doesn't affect totals.",
+        leadIcon: ArrowLeftRight,
+    },
+    adjustment: {
+        label: "Adjust",
+        icon: SlidersHorizontal,
+        color: "var(--gold)",
+        eyebrow: "New transaction",
+        title: "Reconcile balance",
+        subtitle:
+            "Correct a drift between Orbit's balance and your bank's. Posted as a one-line adjustment.",
+        leadIcon: SlidersHorizontal,
+    },
 };
 
-const TAB_TRIGGER_CLASS: Record<TxTab, string> = {
-    income: "data-[state=active]:bg-emerald-500/10 data-[state=active]:text-emerald-600 data-[state=active]:border-emerald-500/40",
-    expense: "data-[state=active]:bg-rose-500/10 data-[state=active]:text-rose-600 data-[state=active]:border-rose-500/40",
-    transfer: "data-[state=active]:bg-sky-500/10 data-[state=active]:text-sky-600 data-[state=active]:border-sky-500/40",
-    adjustment: "data-[state=active]:bg-muted data-[state=active]:text-foreground data-[state=active]:border-border",
-};
+const TAB_ORDER: TxTab[] = ["expense", "income", "transfer", "adjustment"];
 
-const TAB_BORDER_CLASS: Record<TxTab, string> = {
-    income: "border-emerald-500/60",
-    expense: "border-rose-500/60",
-    transfer: "border-sky-500/60",
-    adjustment: "border-border",
-};
-
-export function NewTransactionSheet() {
+export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } = {}) {
     const [open, setOpen] = useState(false);
     const [activeType, setActiveType] = useState<TxTab>("expense");
+    const [formKey, setFormKey] = useState(0);
+    /* When true, the next successful submit re-renders the form with a fresh
+       key (resetting all field state) instead of closing the sheet. Held in a
+       ref because the mutation's onSuccess fires before React would observe
+       a state change scheduled in the same tick. */
+    const addAnotherRef = useRef(false);
+    const meta = TAB_META[activeType];
+    const LeadIcon = meta.leadIcon;
+
+    const handleDone = () => {
+        if (addAnotherRef.current) {
+            addAnotherRef.current = false;
+            setFormKey((k) => k + 1);
+        } else {
+            setOpen(false);
+        }
+    };
+
+    const submitAddAnother = () => {
+        addAnotherRef.current = true;
+        const form = document.getElementById("nt-form") as HTMLFormElement | null;
+        form?.requestSubmit();
+    };
+
     return (
-        <Sheet open={open} onOpenChange={setOpen}>
+        <Sheet
+            open={open}
+            onOpenChange={(v) => {
+                setOpen(v);
+                if (!v) addAnotherRef.current = false;
+            }}
+        >
             <SheetTrigger asChild>
-                <Button variant="gradient">
-                    <Plus />
-                    <span className="hidden sm:inline">New transaction</span>
-                    <span className="sm:hidden">New</span>
-                </Button>
+                {trigger ?? (
+                    <Button variant="gradient">
+                        <Plus />
+                        <span className="hidden sm:inline">New transaction</span>
+                        <span className="sm:hidden">New</span>
+                    </Button>
+                )}
             </SheetTrigger>
-            <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-lg">
-                <SheetHeader className="border-b border-border p-5">
-                    <SheetTitle className="flex items-center gap-2">
-                        {TAB_TITLE[activeType]}
-                        <TransactionTypeBadge type={activeType} />
-                    </SheetTitle>
-                    <SheetDescription>
-                        Record income, an expense, a transfer, or a balance adjustment.
-                    </SheetDescription>
-                </SheetHeader>
-                <div className="flex-1 overflow-y-auto p-5">
+            <SheetContent
+                side="right"
+                className="orbit-shell-host !p-0 sm:max-w-[520px]"
+            >
+                <SheetTitle className="sr-only">{meta.title}</SheetTitle>
+                <OrbitDrawerShell
+                    eyebrow={meta.eyebrow}
+                    title={meta.title}
+                    subtitle={meta.subtitle}
+                    leadIcon={<LeadIcon className="size-4" />}
+                    leadColor={meta.color}
+                    onClose={() => setOpen(false)}
+                    footer={
+                        <>
+                            {activeType !== "adjustment" && (
+                                <button
+                                    type="button"
+                                    className="nt-btn"
+                                    onClick={submitAddAnother}
+                                >
+                                    Save & add another
+                                </button>
+                            )}
+                            <button
+                                type="submit"
+                                form="nt-form"
+                                className="nt-btn nt-btn-primary"
+                            >
+                                <Check className="size-3.5" />
+                                {activeType === "adjustment"
+                                    ? "Post adjustment"
+                                    : activeType === "transfer"
+                                      ? "Transfer"
+                                      : "Save transaction"}
+                            </button>
+                        </>
+                    }
+                >
+                    <OrbitFormStyles />
+                    <style>{NT_STYLES}</style>
+                    {/* 4-tab type bar */}
+                    <div className="nt-tabs" role="tablist">
+                        {TAB_ORDER.map((id) => {
+                            const m = TAB_META[id];
+                            const active = id === activeType;
+                            return (
+                                <button
+                                    key={id}
+                                    type="button"
+                                    role="tab"
+                                    aria-selected={active}
+                                    className={cn("nt-tab", active && "is-active")}
+                                    style={active ? { color: m.color } : undefined}
+                                    onClick={() => setActiveType(id)}
+                                >
+                                    <m.icon className="size-3" />
+                                    {m.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+
                     <Tabs
                         value={activeType}
                         onValueChange={(v) => setActiveType(v as TxTab)}
                     >
-                        <TabsList className="grid w-full grid-cols-4">
-                            <TabsTrigger
-                                value="income"
-                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.income)}
-                            >
-                                Income
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="expense"
-                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.expense)}
-                            >
-                                Expense
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="transfer"
-                                className={cn("border border-transparent", TAB_TRIGGER_CLASS.transfer)}
-                            >
-                                Transfer
-                            </TabsTrigger>
-                            <TabsTrigger
-                                value="adjustment"
-                                className={cn(
-                                    "border border-transparent",
-                                    TAB_TRIGGER_CLASS.adjustment
-                                )}
-                            >
-                                Adjust
-                            </TabsTrigger>
-                        </TabsList>
                         <TabsContent value="income">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.income
-                                )}
-                            >
-                                <IncomeForm onDone={() => setOpen(false)} />
-                            </div>
+                            <IncomeForm key={`income-${formKey}`} onDone={handleDone} />
                         </TabsContent>
                         <TabsContent value="expense">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.expense
-                                )}
-                            >
-                                <ExpenseForm onDone={() => setOpen(false)} />
-                            </div>
+                            <ExpenseForm key={`expense-${formKey}`} onDone={handleDone} />
                         </TabsContent>
                         <TabsContent value="transfer">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.transfer
-                                )}
-                            >
-                                <TransferForm onDone={() => setOpen(false)} />
-                            </div>
+                            <TransferForm key={`transfer-${formKey}`} onDone={handleDone} />
                         </TabsContent>
                         <TabsContent value="adjustment">
-                            <div
-                                className={cn(
-                                    "border-l-4 pl-3",
-                                    TAB_BORDER_CLASS.adjustment
-                                )}
-                            >
-                                <AdjustmentForm onDone={() => setOpen(false)} />
-                            </div>
+                            <AdjustmentForm key={`adjustment-${formKey}`} onDone={handleDone} />
                         </TabsContent>
                     </Tabs>
-                </div>
+                </OrbitDrawerShell>
             </SheetContent>
         </Sheet>
     );
 }
 
-function BaseFields({
-    amount,
-    setAmount,
-    description,
-    setDescription,
-    datetime,
-    setDatetime,
-    location,
-    setLocation,
-}: {
-    amount: string;
-    setAmount: (v: string) => void;
-    description: string;
-    setDescription: (v: string) => void;
-    datetime: string;
-    setDatetime: (v: string) => void;
-    location?: string;
-    setLocation?: (v: string) => void;
-}) {
-    return (
-        <>
-            <div className="grid gap-1.5">
-                <Label htmlFor="amount">Amount</Label>
-                <Input
-                    id="amount"
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                    placeholder="0.00"
-                    autoFocus
-                />
-            </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="datetime">Date &amp; time</Label>
-                <Input
-                    id="datetime"
-                    type="datetime-local"
-                    value={datetime}
-                    onChange={(e) => setDatetime(e.target.value)}
-                />
-            </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                    id="description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Optional note"
-                    rows={2}
-                />
-            </div>
-            {setLocation && (
-                <div className="grid gap-1.5">
-                    <Label htmlFor="location">Location (optional)</Label>
-                    <Input
-                        id="location"
-                        value={location ?? ""}
-                        onChange={(e) => setLocation(e.target.value)}
-                        placeholder="Where did this happen?"
-                    />
-                </div>
-            )}
-        </>
-    );
+const NT_STYLES = `
+.nt-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-elev-2);
+    border-radius: 10px;
+    border: 1px solid var(--line-soft);
+}
+.nt-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 6px;
+    border-radius: 7px;
+    border: 0;
+    background: transparent;
+    color: var(--fg-3);
+    font-weight: 400;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 140ms ease, color 140ms ease;
+}
+.nt-tab:hover { color: var(--fg-2); }
+.nt-tab.is-active {
+    background: var(--bg-elev-1);
+    color: var(--fg);
+    font-weight: 500;
+    box-shadow: var(--shadow-1);
 }
 
-function EventPicker({
+/* Form layout */
+.nt-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.of-acc-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.of-acc-name { color: var(--fg); }
+.of-acc-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--fg-3);
+}
+.of-acc-meta::before { content: "·"; margin: 0 2px; color: var(--fg-4); }
+
+/* Native datetime-local — make it editorial-dark and force dark UI */
+.nt-form input[type="datetime-local"],
+.nt-form input[type="date"] {
+    color-scheme: dark;
+    color: var(--fg);
+    background: transparent;
+}
+.nt-form input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+.nt-form input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.65) sepia(0.1) saturate(0.4);
+    cursor: pointer;
+}
+
+/* Override CategoryTreeSelect's shadcn outline-button trigger so it matches
+   the editorial-dark Select look. The combobox role is unique to that comp. */
+.orbit-design [role="combobox"] {
+    height: 38px !important;
+    border-radius: 10px !important;
+    background: var(--bg-elev-1) !important;
+    border-color: var(--line) !important;
+    color: var(--fg) !important;
+    font-weight: 400 !important;
+    font-size: 13px !important;
+    box-shadow: none !important;
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+}
+.orbit-design [role="combobox"]:hover {
+    background: var(--bg-elev-1) !important;
+    border-color: var(--line-strong) !important;
+}
+.orbit-design [role="combobox"][data-state="open"] {
+    border-color: var(--brand) !important;
+    box-shadow: 0 0 0 3px var(--brand-soft) !important;
+}
+
+/* Envelope-draw chip (expense only) */
+.nt-env-row {
+    padding: 10px 12px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.nt-env-row-label { font-size: 11.5px; color: var(--fg-3); flex: 1; }
+.nt-env-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 22px;
+    padding: 0 9px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--line);
+}
+
+/* Transfer swap circle */
+.nt-swap {
+    display: flex;
+    justify-content: center;
+    margin: -4px 0;
+}
+.nt-swap > span {
+    width: 36px;
+    height: 36px;
+    border-radius: 99px;
+    border: 1px solid var(--line);
+    background: var(--bg-elev-2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-2);
+}
+
+/* Drift card (adjustment) */
+.nt-drift {
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.nt-drift-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.nt-drift-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.nt-drift-eyebrow {
+    font-size: 10px;
+    color: var(--fg-3);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+.nt-drift-num {
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 24px;
+    line-height: 1;
+    color: var(--fg);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+.nt-drift-num .currency { font-size: 14px; color: var(--fg-3); }
+.nt-drift-actual-input {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    height: 34px;
+    padding: 0 10px;
+    border-radius: 10px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--line);
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.nt-drift-actual-input:focus-within {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px var(--brand-soft);
+}
+.nt-drift-actual-input > input {
+    flex: 1; min-width: 0; height: 100%;
+    border: 0; outline: 0; background: transparent;
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 22px; color: var(--fg); font-weight: 500;
+    padding: 0;
+}
+.nt-drift-actual-input > input::-webkit-outer-spin-button,
+.nt-drift-actual-input > input::-webkit-inner-spin-button {
+    -webkit-appearance: none; margin: 0;
+}
+.nt-drift-actual-input > input { -moz-appearance: textfield; }
+.nt-drift-foot { font-size: 10.5px; color: var(--fg-4); }
+.nt-drift-divider { height: 1px; background: var(--line-soft); }
+.nt-drift-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.nt-drift-summary-label { font-size: 11px; color: var(--fg-3); }
+.nt-drift-summary-num {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: "Newsreader", Georgia, serif;
+    font-size: 26px;
+    line-height: 1;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+}
+.nt-drift-summary-suffix { font-size: 10px; color: var(--fg-4); letter-spacing: 0.08em; text-transform: uppercase; }
+.nt-drift-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 500;
+}
+.nt-drift-chip > .dot { width: 5px; height: 5px; border-radius: 99px; }
+
+/* Footer buttons */
+.nt-btn {
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 10px;
+    background: var(--bg-elev-1);
+    border: 1px solid var(--line);
+    color: var(--fg);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: background 140ms ease, border-color 140ms ease, filter 140ms ease;
+}
+.nt-btn:hover:not(:disabled):not(.nt-btn-primary) {
+    background: var(--bg-elev-2);
+    border-color: var(--line-strong);
+}
+.nt-btn-primary {
+    background: var(--brand);
+    color: var(--brand-fg);
+    border-color: oklch(78% 0.14 165);
+}
+.nt-btn-primary:hover:not(:disabled) {
+    filter: brightness(1.05);
+}
+
+/* Scope FileUploadField inside the drawer to look at home */
+.orbit-design .nt-form label.text-sm,
+.orbit-design .nt-form .text-sm.font-medium {
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--fg-2);
+    letter-spacing: 0.02em;
+}
+`;
+
+function defaultDateTime(): string {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    return toInputDateTime(d);
+}
+
+/** Render an OrbitSelect of events for the current space, including a
+ *  "None" item. Returns null until events are loaded. */
+function EventSelect({
     spaceId,
     value,
     onChange,
@@ -264,39 +547,73 @@ function EventPicker({
 }) {
     const eventsQuery = trpc.event.listBySpace.useQuery({ spaceId });
     if (!eventsQuery.data || eventsQuery.data.length === 0) return null;
+    const items: OrbitSelectItem[] = [
+        { value: "__none", label: "No event" },
+        ...eventsQuery.data.map((ev) => ({
+            value: ev.id,
+            label: ev.name,
+            leadIcon: <Calendar className="size-3.5" />,
+            leadColor: "var(--ent-5)",
+        })),
+    ];
     return (
-        <div className="grid gap-1.5">
-            <Label>Event (optional)</Label>
-            <Select
-                value={value || "none"}
-                onValueChange={(v) => onChange(v === "none" ? "" : v)}
+        <OrbitField
+            label="Link to event"
+            hint="Optional · groups related transactions"
+        >
+            <OrbitSelect
+                value={value || "__none"}
+                onValueChange={(v) => onChange(v === "__none" ? "" : v)}
+                items={items}
+                placeholder="No event"
+            />
+        </OrbitField>
+    );
+}
+
+/** Compact "Will draw from envelope" pill shown under category in expense form. */
+function EnvelopeDrawHint({
+    categoryId,
+    categories,
+    envelopes,
+}: {
+    categoryId: string | null;
+    categories: Category[];
+    envelopes: Envelop[];
+}) {
+    if (!categoryId) return null;
+    const cat = categories.find((c) => c.id === categoryId);
+    const envelopeId = cat?.envelop_id ?? null;
+    const env = envelopeId ? envelopes.find((e) => e.id === envelopeId) : null;
+    if (!env) return null;
+    const color = env.color || "var(--ent-2)";
+    const Icon = getIcon(env.icon ?? null);
+    return (
+        <div className="nt-env-row">
+            <Layers className="size-3.5" style={{ color: "var(--fg-3)" }} aria-hidden />
+            <span className="nt-env-row-label">Will draw from envelope</span>
+            <span
+                className="nt-env-chip"
+                style={{
+                    background: `color-mix(in oklab, ${color} 12%, transparent)`,
+                    borderColor: `color-mix(in oklab, ${color} 30%, transparent)`,
+                    color,
+                }}
             >
-                <SelectTrigger>
-                    <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {eventsQuery.data.map((ev) => (
-                        <SelectItem key={ev.id} value={ev.id}>
-                            {ev.name}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+                <Icon className="size-3" />
+                {env.name}
+            </span>
         </div>
     );
 }
 
-function defaultDateTime(): string {
-    const d = new Date();
-    d.setSeconds(0, 0);
-    return toInputDateTime(d);
-}
-
+/* ============================================================
+   INCOME FORM
+   ============================================================ */
 function IncomeForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -306,12 +623,15 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
     const [eventId, setEventId] = useState("");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
+    const accountItems = useMemo(
+        () => (accountsQuery.data ?? []).map(toAccountItem),
+        [accountsQuery.data]
+    );
+
     const mutate = trpc.transaction.income.useMutation({
         onSuccess: async () => {
             toast.success("Income recorded");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
@@ -319,7 +639,8 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
 
     return (
         <form
-            className="mt-4 grid gap-4"
+            id="nt-form"
+            className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!accountId) {
@@ -339,56 +660,78 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                 });
             }}
         >
-            <BaseFields
-                {...{
-                    amount,
-                    setAmount,
-                    description,
-                    setDescription,
-                    datetime,
-                    setDatetime,
-                    location,
-                    setLocation,
-                }}
+            <OrbitAmountCard
+                value={amount}
+                onChange={setAmount}
+                tone="income"
+                autoFocus
             />
-            <div className="grid gap-1.5">
-                <Label>Into account</Label>
-                <Select value={accountId} onValueChange={setAccountId}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Choose account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {(accountsQuery.data ?? []).map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                                <AccountOption account={a} />
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                    Income can land in any account in this space — including shared
-                    pots and accounts owned by other members.
-                </p>
-            </div>
-            <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
-            <FileUploadField
-                purpose="transaction_receipt"
-                fileIds={attachmentFileIds}
-                onChange={setAttachmentFileIds}
-                label="Receipts"
-            />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Record income"}
-            </Button>
+
+            <OrbitFieldRow>
+                <OrbitField label="Date">
+                    <OrbitInput
+                        type="datetime-local"
+                        value={datetime}
+                        onChange={(e) => setDatetime(e.target.value)}
+                        leadIcon={<Calendar className="size-3.5" />}
+                    />
+                </OrbitField>
+                <OrbitField label="Account" required>
+                    <OrbitSelect
+                        value={accountId}
+                        onValueChange={setAccountId}
+                        items={accountItems}
+                        placeholder="Choose account"
+                        leadIcon={<Wallet className="size-3.5" />}
+                        leadColor="var(--ent-1)"
+                    />
+                </OrbitField>
+            </OrbitFieldRow>
+
+            <OrbitField label="Source / Payer" hint="Optional">
+                <OrbitInput
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Acme Corp · Salary"
+                />
+            </OrbitField>
+
+            <OrbitField label="Location" hint="Optional">
+                <OrbitInput
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Where did this happen?"
+                />
+            </OrbitField>
+
+            <EventSelect spaceId={spaceId} value={eventId} onChange={setEventId} />
+
+            <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
+                <FileUploadField
+                    purpose="transaction_receipt"
+                    fileIds={attachmentFileIds}
+                    onChange={setAttachmentFileIds}
+                    label=""
+                />
+            </OrbitField>
+
+            <OrbitInfoPill tone="brand">
+                Income lands in the chosen account immediately and appears in the
+                ledger and analytics.
+            </OrbitInfoPill>
         </form>
     );
 }
 
+/* ============================================================
+   EXPENSE FORM
+   ============================================================ */
 function ExpenseForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
+    const invalidate = useInvalidateAnalytics();
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -399,27 +742,28 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
     const [eventId, setEventId] = useState("");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
+    const accountItems = useMemo(
+        () =>
+            (accountsQuery.data ?? [])
+                .filter((a) => a.account_type !== "locked")
+                .filter(ownedByMe)
+                .map(toAccountItem),
+        [accountsQuery.data]
+    );
+
     const mutate = trpc.transaction.expense.useMutation({
         onSuccess: async () => {
             toast.success("Expense recorded");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.envelop.listBySpace.invalidate({ spaceId });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({ spaceId });
-            await utils.analytics.envelopeUtilization.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
     });
 
-    const availableAccounts = (accountsQuery.data ?? [])
-        .filter((a) => a.account_type !== "locked")
-        .filter(ownedByMe);
-
     return (
         <form
-            className="mt-4 grid gap-4"
+            id="nt-form"
+            className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!sourceAccountId || !categoryId) {
@@ -440,35 +784,47 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 });
             }}
         >
-            <BaseFields
-                {...{
-                    amount,
-                    setAmount,
-                    description,
-                    setDescription,
-                    datetime,
-                    setDatetime,
-                    location,
-                    setLocation,
-                }}
+            <OrbitAmountCard
+                value={amount}
+                onChange={setAmount}
+                tone="fg"
+                autoFocus
             />
-            <div className="grid gap-1.5">
-                <Label>From account</Label>
-                <Select value={sourceAccountId} onValueChange={setSource}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Choose account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {availableAccounts.map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                                <AccountOption account={a} />
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-            <div className="grid gap-1.5">
-                <Label>Category</Label>
+
+            <OrbitField label="Payee" hint="Optional · helps recognize this entry later">
+                <OrbitInput
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Tartine Bakery"
+                />
+            </OrbitField>
+
+            <OrbitFieldRow>
+                <OrbitField label="Date">
+                    <OrbitInput
+                        type="datetime-local"
+                        value={datetime}
+                        onChange={(e) => setDatetime(e.target.value)}
+                        leadIcon={<Calendar className="size-3.5" />}
+                    />
+                </OrbitField>
+                <OrbitField label="Account" required>
+                    <OrbitSelect
+                        value={sourceAccountId}
+                        onValueChange={setSource}
+                        items={accountItems}
+                        placeholder="Choose account"
+                        leadIcon={<Wallet className="size-3.5" />}
+                        leadColor="var(--ent-1)"
+                    />
+                </OrbitField>
+            </OrbitFieldRow>
+
+            <OrbitField
+                label="Category"
+                hint="Envelope is inferred from the category"
+                required
+            >
                 <CategoryTreeSelect
                     categories={(categoriesQuery.data ?? []) as any}
                     value={categoryId}
@@ -476,26 +832,44 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     placeholder="Choose category"
                     allowAll={false}
                 />
-            </div>
-            <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
-            <FileUploadField
-                purpose="transaction_receipt"
-                fileIds={attachmentFileIds}
-                onChange={setAttachmentFileIds}
-                label="Receipts"
+            </OrbitField>
+
+            <EnvelopeDrawHint
+                categoryId={categoryId}
+                categories={(categoriesQuery.data ?? []) as Category[]}
+                envelopes={(envelopesQuery.data ?? []) as Envelop[]}
             />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Record expense"}
-            </Button>
+
+            <OrbitField label="Location" hint="Optional">
+                <OrbitInput
+                    value={location}
+                    onChange={(e) => setLocation(e.target.value)}
+                    placeholder="Where did this happen?"
+                />
+            </OrbitField>
+
+            <EventSelect spaceId={spaceId} value={eventId} onChange={setEventId} />
+
+            <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
+                <FileUploadField
+                    purpose="transaction_receipt"
+                    fileIds={attachmentFileIds}
+                    onChange={setAttachmentFileIds}
+                    label=""
+                />
+            </OrbitField>
         </form>
     );
 }
 
+/* ============================================================
+   TRANSFER FORM
+   ============================================================ */
 function TransferForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -512,23 +886,31 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const [feeAmount, setFeeAmount] = useState("");
     const [feeCategoryId, setFeeCategoryId] = useState<string | null>(null);
 
+    const sourceItems = useMemo(
+        () =>
+            (accountsQuery.data ?? [])
+                .filter((a) => a.account_type !== "locked")
+                .filter(ownedByMe)
+                .map(toAccountItem),
+        [accountsQuery.data]
+    );
+
+    const destItems = useMemo(
+        () =>
+            (accountsQuery.data ?? [])
+                .filter((a) => a.id !== sourceAccountId)
+                .map(toAccountItem),
+        [accountsQuery.data, sourceAccountId]
+    );
+
     const mutate = trpc.transaction.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Transfer recorded");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.envelop.listBySpace.invalidate({ spaceId });
-            await utils.expenseCategory.listBySpaceWithUsage.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
-            await utils.analytics.envelopeUtilization.invalidate({ spaceId });
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
     });
-
-    const spendable = (accountsQuery.data ?? [])
-        .filter((a) => a.account_type !== "locked")
-        .filter(ownedByMe);
 
     const feeNum = feeEnabled ? Number(feeAmount) : 0;
     const amountNum = Number(amount);
@@ -536,7 +918,8 @@ function TransferForm({ onDone }: { onDone: () => void }) {
 
     return (
         <form
-            className="mt-4 grid gap-4"
+            id="nt-form"
+            className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!sourceAccountId || !destinationAccountId) {
@@ -573,234 +956,464 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                 });
             }}
         >
-            <BaseFields
-                {...{ amount, setAmount, description, setDescription, datetime, setDatetime }}
-            />
-            <div className="grid gap-1.5">
-                <Label>From account</Label>
-                <Select value={sourceAccountId} onValueChange={setSource}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Choose account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {spendable.map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                                <AccountOption account={a} />
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-            <div className="grid gap-1.5">
-                <Label>To account</Label>
-                <Select value={destinationAccountId} onValueChange={setDest}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Choose account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {(accountsQuery.data ?? [])
-                            .filter((a) => a.id !== sourceAccountId)
-                            .map((a) => (
-                                <SelectItem key={a.id} value={a.id}>
-                                    <AccountOption account={a} />
-                                </SelectItem>
-                            ))}
-                    </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                    Transfers out of your money can land in any account — your own,
-                    a shared household pot, or a locked savings account.
-                </p>
+            <OrbitField label="From" required>
+                <OrbitSelect
+                    value={sourceAccountId}
+                    onValueChange={setSource}
+                    items={sourceItems}
+                    placeholder="Choose source account"
+                    leadIcon={<Wallet className="size-3.5" />}
+                    leadColor="var(--ent-1)"
+                />
+            </OrbitField>
+
+            <div className="nt-swap" aria-hidden>
+                <span>
+                    <ArrowDown className="size-3.5" />
+                </span>
             </div>
 
-            {/* Optional fee block */}
-            <div className="rounded-md border border-border bg-card/50 p-3">
-                <label className="flex cursor-pointer items-start gap-3">
-                    <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={feeEnabled}
-                        onChange={(e) => setFeeEnabled(e.target.checked)}
-                    />
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">There's a fee on this transfer</p>
-                        <p className="text-[11px] text-muted-foreground">
-                            Wire fee, ATM fee, FX margin, etc. The fee is deducted
-                            from your source account on top of the transfer amount
-                            and counts as a regular expense in the category you pick.
-                        </p>
-                    </div>
-                </label>
-                {feeEnabled && (
-                    <div className="mt-3 grid gap-3">
-                        <div className="grid gap-1.5">
-                            <Label htmlFor="fee-amount">Fee amount</Label>
-                            <Input
-                                id="fee-amount"
-                                type="number"
-                                inputMode="decimal"
-                                min="0"
-                                step="0.01"
-                                value={feeAmount}
-                                onChange={(e) => setFeeAmount(e.target.value)}
-                                placeholder="0.00"
-                            />
-                        </div>
-                        <div className="grid gap-1.5">
-                            <Label>Fee category</Label>
-                            <CategoryTreeSelect
-                                categories={(categoriesQuery.data ?? []) as any}
-                                value={feeCategoryId}
-                                onChange={setFeeCategoryId}
-                                placeholder="Pick a category (e.g. Bank fees)"
-                                allowAll={false}
-                            />
-                        </div>
-                        {amountNum > 0 && feeNum > 0 && (
-                            <div className="grid gap-1 rounded-sm bg-background/60 px-3 py-2 text-[11px]">
-                                <div className="flex items-center justify-between text-muted-foreground">
-                                    <span>Source debited</span>
-                                    <span className="font-semibold text-foreground tabular-nums">
-                                        −{totalOut.toFixed(2)}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between text-muted-foreground">
-                                    <span>Destination credited</span>
-                                    <span className="text-foreground tabular-nums">
-                                        +{amountNum.toFixed(2)}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between text-muted-foreground">
-                                    <span>Fee (lost to provider)</span>
-                                    <span className="text-expense tabular-nums">
-                                        {feeNum.toFixed(2)}
-                                    </span>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-            </div>
+            <OrbitField label="To" required>
+                <OrbitSelect
+                    value={destinationAccountId}
+                    onValueChange={setDest}
+                    items={destItems}
+                    placeholder="Choose destination account"
+                    leadIcon={<Wallet className="size-3.5" />}
+                    leadColor="var(--ent-3)"
+                />
+            </OrbitField>
 
-            <EventPicker spaceId={spaceId} value={eventId} onChange={setEventId} />
-            <FileUploadField
-                purpose="transaction_receipt"
-                fileIds={attachmentFileIds}
-                onChange={setAttachmentFileIds}
-                label="Receipts"
+            <OrbitAmountCard
+                value={amount}
+                onChange={setAmount}
+                tone="brand"
             />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Record transfer"}
-            </Button>
+
+            <OrbitField label="Date">
+                <OrbitInput
+                    type="datetime-local"
+                    value={datetime}
+                    onChange={(e) => setDatetime(e.target.value)}
+                    leadIcon={<Calendar className="size-3.5" />}
+                />
+            </OrbitField>
+
+            <OrbitToggle
+                checked={feeEnabled}
+                onChange={setFeeEnabled}
+                label="There's a fee on this transfer"
+                hint="Wire fee, ATM fee, FX margin. Deducted from source on top of the amount and logged as a regular expense."
+            />
+
+            {feeEnabled && (
+                <OrbitFieldRow>
+                    <OrbitField label="Fee amount" hint="Charged by source">
+                        <OrbitInput
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={feeAmount}
+                            onChange={(e) => setFeeAmount(e.target.value)}
+                            placeholder="0.00"
+                            prefix="$"
+                        />
+                    </OrbitField>
+                    <OrbitField label="Fee category" hint="Where the fee is logged">
+                        <CategoryTreeSelect
+                            categories={(categoriesQuery.data ?? []) as any}
+                            value={feeCategoryId}
+                            onChange={setFeeCategoryId}
+                            placeholder="Pick category"
+                            allowAll={false}
+                        />
+                    </OrbitField>
+                </OrbitFieldRow>
+            )}
+
+            {feeEnabled && amountNum > 0 && feeNum > 0 && (
+                <FeeBreakdown
+                    totalOut={totalOut}
+                    delivered={amountNum}
+                    fee={feeNum}
+                />
+            )}
+
+            <OrbitField label="Memo" hint="Optional">
+                <OrbitInput
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Monthly emergency-fund top-up"
+                />
+            </OrbitField>
+
+            <EventSelect spaceId={spaceId} value={eventId} onChange={setEventId} />
+
+            <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
+                <FileUploadField
+                    purpose="transaction_receipt"
+                    fileIds={attachmentFileIds}
+                    onChange={setAttachmentFileIds}
+                    label=""
+                />
+            </OrbitField>
+
+            <OrbitInfoPill tone="transfer">
+                Transfers don't show up in income/expense totals. They're recorded as
+                a paired (out, in) ledger entry.
+            </OrbitInfoPill>
         </form>
     );
 }
 
+function FeeBreakdown({
+    totalOut,
+    delivered,
+    fee,
+}: {
+    totalOut: number;
+    delivered: number;
+    fee: number;
+}) {
+    return (
+        <div
+            style={{
+                background: "var(--bg-elev-2)",
+                border: "1px solid var(--line-soft)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                fontSize: 11,
+            }}
+        >
+            <FeeRow
+                label="Source debited"
+                value={`−$${totalOut.toFixed(2)}`}
+                strong
+            />
+            <FeeRow label="Destination credited" value={`+$${delivered.toFixed(2)}`} />
+            <FeeRow
+                label="Fee (lost to provider)"
+                value={`$${fee.toFixed(2)}`}
+                tone="expense"
+            />
+        </div>
+    );
+}
+
+function FeeRow({
+    label,
+    value,
+    strong,
+    tone,
+}: {
+    label: ReactNode;
+    value: ReactNode;
+    strong?: boolean;
+    tone?: "expense";
+}) {
+    return (
+        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--fg-3)" }}>
+            <span>{label}</span>
+            <span
+                style={{
+                    fontFamily: "var(--font-mono, ui-monospace), monospace",
+                    fontVariantNumeric: "tabular-nums",
+                    color:
+                        tone === "expense"
+                            ? "var(--expense)"
+                            : strong
+                              ? "var(--fg)"
+                              : "var(--fg-2)",
+                    fontWeight: strong ? 600 : 400,
+                }}
+            >
+                {value}
+            </span>
+        </div>
+    );
+}
+
+/* ============================================================
+   ADJUSTMENT FORM
+   ============================================================ */
+type AdjReason = "bank-fee" | "missed" | "rounding";
+
 function AdjustmentForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
-    const utils = trpc.useUtils();
+    const invalidate = useInvalidateAnalytics();
 
     const [accountId, setAccountId] = useState("");
     const [newBalance, setNewBalance] = useState("");
     const [description, setDescription] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
+    const [reason, setReason] = useState<AdjReason>("bank-fee");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
+
+    const adjustableItems = useMemo(
+        () =>
+            (accountsQuery.data ?? [])
+                .filter(ownedByMe)
+                .map(toAccountItem),
+        [accountsQuery.data]
+    );
 
     const mutate = trpc.transaction.adjust.useMutation({
         onSuccess: async () => {
             toast.success("Balance adjusted");
-            await utils.transaction.listBySpace.invalidate({ spaceId });
-            await utils.account.listBySpace.invalidate({ spaceId });
-            await utils.analytics.spaceSummary.invalidate();
+            await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
     });
 
     const selected = (accountsQuery.data ?? []).find((a) => a.id === accountId);
+    const orbitBalance = selected ? Number(selected.balance) : 0;
+    const actualBalance = newBalance === "" ? null : Number(newBalance);
+    const delta =
+        actualBalance != null && Number.isFinite(actualBalance)
+            ? actualBalance - orbitBalance
+            : null;
+    const isIncrease = delta != null && delta >= 0;
 
     return (
         <form
-            className="mt-4 grid gap-4"
+            id="nt-form"
+            className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
                 if (!accountId) {
                     toast.error("Pick an account");
                     return;
                 }
+                const reasonText =
+                    reason === "bank-fee"
+                        ? "Bank correction"
+                        : reason === "missed"
+                          ? "Missed transaction"
+                          : "Rounding / FX";
+                const finalDesc = description.trim()
+                    ? `${reasonText} — ${description.trim()}`
+                    : reasonText;
                 mutate.mutate({
                     spaceId,
                     accountId,
                     newBalance: Number(newBalance),
                     datetime: fromInputDateTime(datetime),
-                    description: description || undefined,
+                    description: finalDesc,
                     attachmentFileIds:
                         attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                 });
             }}
         >
-            <div className="grid gap-1.5">
-                <Label>Account</Label>
-                <Select value={accountId} onValueChange={setAccountId}>
-                    <SelectTrigger>
-                        <SelectValue placeholder="Choose account" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {(accountsQuery.data ?? []).filter(ownedByMe).map((a) => (
-                            <SelectItem key={a.id} value={a.id}>
-                                <AccountOption account={a} />
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                {selected && (
-                    <p className="text-xs text-muted-foreground">
-                        Current balance: {selected.balance}
-                    </p>
-                )}
-            </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="new-balance">New balance</Label>
-                <Input
-                    id="new-balance"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    value={newBalance}
-                    onChange={(e) => setNewBalance(e.target.value)}
-                    placeholder="0.00"
-                    required
+            <OrbitField label="Account" required>
+                <OrbitSelect
+                    value={accountId}
+                    onValueChange={setAccountId}
+                    items={adjustableItems}
+                    placeholder="Choose account"
+                    leadIcon={<Wallet className="size-3.5" />}
+                    leadColor="var(--ent-1)"
                 />
+            </OrbitField>
+
+            {/* Drift card */}
+            <div className="nt-drift">
+                <div className="nt-drift-grid">
+                    <div className="nt-drift-col">
+                        <span className="nt-drift-eyebrow">Orbit balance</span>
+                        <div className="nt-drift-num">
+                            <span className="currency">$</span>
+                            {selected
+                                ? formatNum(orbitBalance)
+                                : "0.00"}
+                        </div>
+                        <span className="nt-drift-foot">
+                            {selected
+                                ? `as of ${new Date().toLocaleString(undefined, {
+                                      month: "short",
+                                      day: "numeric",
+                                      hour: "numeric",
+                                      minute: "2-digit",
+                                  })}`
+                                : "Pick an account first"}
+                        </span>
+                    </div>
+                    <div className="nt-drift-col">
+                        <span className="nt-drift-eyebrow">Actual balance</span>
+                        <div className="nt-drift-actual-input">
+                            <span style={{ fontSize: 14, color: "var(--fg-3)" }}>$</span>
+                            <input
+                                type="number"
+                                inputMode="decimal"
+                                step="0.01"
+                                value={newBalance}
+                                onChange={(e) => setNewBalance(e.target.value)}
+                                placeholder="0.00"
+                                required
+                            />
+                        </div>
+                        <span className="nt-drift-foot">What does your bank say?</span>
+                    </div>
+                </div>
+
+                <div className="nt-drift-divider" />
+
+                <div className="nt-drift-summary">
+                    <div className="nt-drift-col">
+                        <span className="nt-drift-summary-label">
+                            Adjustment posted
+                        </span>
+                        <span
+                            className="nt-drift-summary-num"
+                            style={{
+                                color:
+                                    delta == null
+                                        ? "var(--fg-3)"
+                                        : isIncrease
+                                          ? "var(--income)"
+                                          : "var(--expense)",
+                            }}
+                        >
+                            {delta == null ? (
+                                <>—</>
+                            ) : (
+                                <>
+                                    {isIncrease ? (
+                                        <ArrowUp
+                                            className="size-3.5"
+                                            style={{ color: "var(--income)" }}
+                                        />
+                                    ) : (
+                                        <ArrowDown
+                                            className="size-3.5"
+                                            style={{ color: "var(--expense)" }}
+                                        />
+                                    )}
+                                    {formatNum(Math.abs(delta))}
+                                    <span className="nt-drift-summary-suffix">USD</span>
+                                </>
+                            )}
+                        </span>
+                    </div>
+                    <span
+                        className="nt-drift-chip"
+                        style={
+                            delta == null
+                                ? {
+                                      background: "var(--bg-elev-1)",
+                                      color: "var(--fg-3)",
+                                      border: "1px solid var(--line)",
+                                  }
+                                : isIncrease
+                                  ? {
+                                        background: "var(--income-soft)",
+                                        color: "var(--income)",
+                                        border: "1px solid var(--income)",
+                                    }
+                                  : {
+                                        background: "var(--expense-soft)",
+                                        color: "var(--expense)",
+                                        border: "1px solid var(--expense)",
+                                    }
+                        }
+                    >
+                        <span
+                            className="dot"
+                            style={{
+                                background:
+                                    delta == null
+                                        ? "var(--fg-3)"
+                                        : isIncrease
+                                          ? "var(--income)"
+                                          : "var(--expense)",
+                            }}
+                        />
+                        {delta == null
+                            ? "No drift"
+                            : isIncrease
+                              ? "Increase"
+                              : "Decrease"}
+                    </span>
+                </div>
             </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="adj-datetime">Date &amp; time</Label>
-                <Input
-                    id="adj-datetime"
+
+            <OrbitField label="Reason" hint="Required for audit trail" required>
+                <OrbitRadioRow
+                    name="adj-reason"
+                    value={reason}
+                    onChange={setReason}
+                    accent="var(--gold)"
+                    options={[
+                        {
+                            value: "bank-fee",
+                            label: "Bank correction",
+                            hint: "Fees · interest · refunds",
+                        },
+                        {
+                            value: "missed",
+                            label: "Missed transaction",
+                            hint: "Forgot to log",
+                        },
+                        {
+                            value: "rounding",
+                            label: "Rounding / FX",
+                            hint: "Pennies & exchange",
+                        },
+                    ]}
+                />
+            </OrbitField>
+
+            <OrbitField label="Date">
+                <OrbitInput
                     type="datetime-local"
                     value={datetime}
                     onChange={(e) => setDatetime(e.target.value)}
+                    leadIcon={<Calendar className="size-3.5" />}
                 />
-            </div>
-            <div className="grid gap-1.5">
-                <Label htmlFor="adj-desc">Reason (optional)</Label>
-                <Textarea
-                    id="adj-desc"
+            </OrbitField>
+
+            <OrbitField label="Notes" hint="Optional but recommended">
+                <OrbitTextarea
                     rows={2}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Why did the balance drift?"
+                    placeholder="Bank credited interest for April — caught at month-end reconcile."
                 />
-            </div>
-            <FileUploadField
-                purpose="transaction_receipt"
-                fileIds={attachmentFileIds}
-                onChange={setAttachmentFileIds}
-                label="Receipts"
-            />
-            <Button type="submit" variant="gradient" disabled={mutate.isPending}>
-                {mutate.isPending ? "Saving…" : "Adjust balance"}
-            </Button>
+            </OrbitField>
+
+            <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
+                <FileUploadField
+                    purpose="transaction_receipt"
+                    fileIds={attachmentFileIds}
+                    onChange={setAttachmentFileIds}
+                    label=""
+                />
+            </OrbitField>
+
+            <OrbitInfoPill tone="gold">
+                Adjustments don't appear in income or expense totals — they correct
+                your account balance only. They show as <b>adj</b> entries in the
+                ledger.
+            </OrbitInfoPill>
         </form>
     );
 }
+
+/* Format a number with thousand separators + 2 decimals. Defensive against
+   NaN — falls back to "0.00". */
+function formatNum(n: number): string {
+    if (!Number.isFinite(n)) return "0.00";
+    return n.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+}
+
+/* These imports are referenced but unused; keep them tree-shakable. */
+void Briefcase;
+void Tag;

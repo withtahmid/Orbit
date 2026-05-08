@@ -8,11 +8,8 @@ interface JWTPayload {
     userId: string;
 }
 
-export const signJWT = (
-    payload: Omit<JWTPayload, "iat" | "exp">,
-    expiresIn: number = 7 * 24 * 60 * 60
-): string => {
-    return jwt.sign(payload as object, ENV.JWT_SECRET, { expiresIn });
+export const signJWT = (payload: Omit<JWTPayload, "iat" | "exp">): string => {
+    return jwt.sign(payload as object, ENV.JWT_SECRET);
 };
 
 export const authorizeJWT = async (authHeader: string | undefined): Promise<JWTPayload | null> => {

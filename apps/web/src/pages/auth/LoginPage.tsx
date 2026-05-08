@@ -2,15 +2,11 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { observer } from "mobx-react-lite";
 import { toast } from "sonner";
-import { Eye, EyeOff, Loader2, Wand2 } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { trpc } from "@/trpc";
 import { useStore } from "@/stores/useStore";
 import { ROUTES } from "@/router/routes";
 import { IS_DEMO } from "@/config/isDemo";
+import { AuthShell, AuthFormHeader, ArrowRight } from "./AuthShell";
 
 const DEMO_EMAIL = "alex@orbit.dev";
 const DEMO_PASSWORD = "password123";
@@ -48,108 +44,176 @@ export const LoginPage = observer(function LoginPage() {
     };
 
     return (
-        <Card className="border-border/60 shadow-2xl">
-            <CardHeader className="text-center">
-                <CardTitle className="text-2xl">Welcome back</CardTitle>
-                <CardDescription>Sign in to continue to your spaces</CardDescription>
-            </CardHeader>
-            <CardContent>
+        <AuthShell side="right">
+            <form className="oa-form-inner" onSubmit={onSubmit}>
+                <AuthFormHeader
+                    eyebrow="Sign in"
+                    title="Welcome back"
+                    description="Pick up where you left off."
+                />
+
                 {IS_DEMO && (
-                    <div className="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                        <div className="flex items-center justify-between gap-3">
-                            <div className="grid min-w-0 gap-0.5">
-                                <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
-                                    Demo credentials
-                                </p>
-                                <p className="truncate font-mono text-[13px] text-amber-900/80 dark:text-amber-100/80">
-                                    <span className="select-all">{DEMO_EMAIL}</span>
-                                    <span className="mx-1.5 opacity-60">·</span>
-                                    <span className="select-all">{DEMO_PASSWORD}</span>
-                                </p>
-                            </div>
-                            <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={fillDemo}
-                                className="shrink-0"
+                    <div
+                        style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            border: "1px solid color-mix(in oklab, var(--gold) 35%, var(--line))",
+                            background: "var(--gold-soft)",
+                        }}
+                    >
+                        <div style={{ minWidth: 0 }}>
+                            <div
+                                style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: "var(--gold)",
+                                    letterSpacing: "0.04em",
+                                    textTransform: "uppercase",
+                                }}
                             >
-                                <Wand2 className="size-3.5" />
-                                Fill
-                            </Button>
+                                Demo credentials
+                            </div>
+                            <div
+                                className="mono"
+                                style={{
+                                    fontSize: 12.5,
+                                    color: "var(--fg-2)",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                }}
+                            >
+                                <span style={{ userSelect: "all" }}>{DEMO_EMAIL}</span>
+                                <span style={{ margin: "0 6px", opacity: 0.5 }}>·</span>
+                                <span style={{ userSelect: "all" }}>{DEMO_PASSWORD}</span>
+                            </div>
                         </div>
+                        <button
+                            type="button"
+                            onClick={fillDemo}
+                            className="od-btn od-btn-sm"
+                        >
+                            Fill
+                        </button>
                     </div>
                 )}
-                <form onSubmit={onSubmit} className="grid gap-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="email">Email</Label>
-                        <Input
-                            id="email"
-                            type="email"
-                            required
-                            autoComplete="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="you@example.com"
-                        />
-                    </div>
-                    <div className="grid gap-2">
-                        <div className="flex items-center justify-between">
-                            <Label htmlFor="password">Password</Label>
+
+                <div className="oa-fields">
+                    <label className="oa-field">
+                        <span className="oa-field-label">Email</span>
+                        <span className="oa-field-input-wrap">
+                            <input
+                                className="od-input"
+                                type="email"
+                                required
+                                autoComplete="email"
+                                autoFocus
+                                placeholder="you@example.com"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                            />
+                        </span>
+                    </label>
+
+                    <label className="oa-field">
+                        <div className="oa-field-header">
+                            <span className="oa-field-label">Password</span>
                             <Link
                                 to={ROUTES.forgotPassword}
-                                className="text-xs text-primary hover:underline"
+                                className="oa-field-hint-action"
                             >
-                                Forgot?
+                                Forgot password?
                             </Link>
                         </div>
-                        <div className="relative">
-                            <Input
-                                id="password"
+                        <span className="oa-field-input-wrap">
+                            <input
+                                className="od-input"
                                 type={showPassword ? "text" : "password"}
                                 required
                                 autoComplete="current-password"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="pr-10"
+                                style={{ paddingRight: 44 }}
                             />
                             <button
                                 type="button"
+                                className="oa-field-toggle"
                                 onClick={() => setShowPassword((s) => !s)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                aria-label="Toggle password visibility"
+                                aria-label={
+                                    showPassword
+                                        ? "Hide password"
+                                        : "Show password"
+                                }
                             >
                                 {showPassword ? (
-                                    <EyeOff className="size-4" />
+                                    <EyeOffIcon />
                                 ) : (
-                                    <Eye className="size-4" />
+                                    <EyeIcon />
                                 )}
                             </button>
-                        </div>
-                    </div>
-                    <Button
-                        type="submit"
-                        variant="gradient"
-                        className="mt-1"
-                        disabled={login.isPending}
+                        </span>
+                    </label>
+                </div>
+
+                <button
+                    type="submit"
+                    className="od-btn od-btn-primary od-btn-lg"
+                    style={{ width: "100%", justifyContent: "center" }}
+                    disabled={login.isPending}
+                >
+                    {login.isPending ? "Signing in…" : "Continue"}
+                    <ArrowRight size={14} color="var(--brand-fg)" />
+                </button>
+
+                <div
+                    style={{
+                        textAlign: "center",
+                        fontSize: 12.5,
+                        color: "var(--fg-3)",
+                    }}
+                >
+                    New to Orbit?{" "}
+                    <Link
+                        to={ROUTES.signup}
+                        style={{
+                            color: "var(--fg)",
+                            borderBottom: "1px solid var(--line)",
+                            textDecoration: "none",
+                        }}
                     >
-                        {login.isPending ? (
-                            <>
-                                <Loader2 className="animate-spin" />
-                                Signing in…
-                            </>
-                        ) : (
-                            "Sign in"
-                        )}
-                    </Button>
-                </form>
-                <p className="mt-6 text-center text-sm text-muted-foreground">
-                    Don&apos;t have an account?{" "}
-                    <Link to={ROUTES.signup} className="text-primary hover:underline">
-                        Create one
+                        Create account
                     </Link>
-                </p>
-            </CardContent>
-        </Card>
+                </div>
+            </form>
+        </AuthShell>
     );
 });
+
+const EyeIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path
+            d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"
+            stroke="currentColor"
+            strokeWidth={1.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth={1.6} />
+    </svg>
+);
+
+const EyeOffIcon = () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path
+            d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A10.4 10.4 0 0 1 12 5c6.5 0 10 7 10 7a17.5 17.5 0 0 1-3.2 4.1M6.6 6.6A17.6 17.6 0 0 0 2 12s3.5 7 10 7c1.7 0 3.2-.4 4.5-1"
+            stroke="currentColor"
+            strokeWidth={1.6}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        />
+    </svg>
+);
