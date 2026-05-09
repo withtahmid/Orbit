@@ -18,6 +18,8 @@ import {
     Check,
     ArrowRightLeft,
     Coins,
+    Archive,
+    ArchiveRestore,
     AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -159,10 +161,24 @@ export default function EnvelopesPage() {
         periodEnd,
     });
 
-    const envelopes = useMemo(
+    const allEnvelopes = useMemo(
         () => utilizationQuery.data ?? [],
         [utilizationQuery.data]
     );
+
+    // Active envelopes drive the main list, hero stats, and "needs attention".
+    // Archived envelopes are revealed via the toggle below; they have no
+    // current activity (server blocks new transactions/allocations) so
+    // including them in totals would just be misleading zeros.
+    const envelopes = useMemo(
+        () => allEnvelopes.filter((e) => !e.archived),
+        [allEnvelopes]
+    );
+    const archivedEnvelopes = useMemo(
+        () => allEnvelopes.filter((e) => e.archived),
+        [allEnvelopes]
+    );
+    const [showArchived, setShowArchived] = useState(false);
 
     const filtered = useMemo(() => {
         if (!debouncedQuery.trim()) return envelopes;
@@ -569,6 +585,41 @@ export default function EnvelopesPage() {
                         })}
                     </div>
                 )}
+
+                {archivedEnvelopes.length > 0 && (
+                    <div className="env-archived-section">
+                        <button
+                            type="button"
+                            className="env-archived-toggle"
+                            onClick={() => setShowArchived((v) => !v)}
+                        >
+                            {showArchived ? "Hide" : "Show"} archived
+                            <span className="env-archived-count">
+                                {archivedEnvelopes.length}
+                            </span>
+                            <ChevronDown
+                                className="size-3"
+                                style={{
+                                    transform: showArchived
+                                        ? "rotate(180deg)"
+                                        : "none",
+                                    transition: "transform 140ms ease",
+                                }}
+                            />
+                        </button>
+                        {showArchived && (
+                            <div className="env-grid env-archived-grid">
+                                {archivedEnvelopes.map((e) => (
+                                    <EnvelopeCard
+                                        key={e.envelopId}
+                                        env={e}
+                                        spaceId={space.id}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -594,13 +645,20 @@ function EnvelopeCard({
     return (
         <Link
             to={ROUTES.spaceEnvelopeDetail(spaceId, env.envelopId)}
-            className="od-card env-card"
+            className={`od-card env-card${env.archived ? " env-card-archived" : ""}`}
         >
             <div className="env-card-head">
                 <span className="env-card-name">
                     <EntityAvatar icon={env.icon} colorVar={env.color} size={32} />
                     <span className="env-card-text">
-                        <span className="env-card-title">{env.name}</span>
+                        <span className="env-card-title">
+                            {env.name}
+                            {env.archived && (
+                                <span className="env-archived-pill">
+                                    Archived
+                                </span>
+                            )}
+                        </span>
                         <span className="env-card-cadence">
                             {env.cadence === "monthly" ? "Monthly" : "Rolling"}
                             {drift && (
@@ -743,39 +801,53 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
                     </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                    <PermissionGate roles={["owner", "editor"]}>
-                        <EnvelopeAllocateDialog
-                            envelopId={env.envelopId}
-                            envelopCadence={env.cadence as Cadence}
-                            direction="allocate"
-                        />
-                        <EnvelopeAllocateDialog
-                            envelopId={env.envelopId}
-                            envelopCadence={env.cadence as Cadence}
-                            direction="deallocate"
-                        />
-                        <DropdownMenuItem
-                            onSelect={(e) => {
-                                e.preventDefault();
-                                setTopUpOpen(true);
-                            }}
-                        >
-                            <Coins className="size-3.5" /> Top up…
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            onSelect={(e) => {
-                                e.preventDefault();
-                                setMoveOpen(true);
-                            }}
-                        >
-                            <ArrowRightLeft className="size-3.5" /> Move to…
-                        </DropdownMenuItem>
-                    </PermissionGate>
+                    {!env.archived && (
+                        <PermissionGate roles={["owner", "editor"]}>
+                            <EnvelopeAllocateDialog
+                                envelopId={env.envelopId}
+                                envelopCadence={env.cadence as Cadence}
+                                direction="allocate"
+                            />
+                            <EnvelopeAllocateDialog
+                                envelopId={env.envelopId}
+                                envelopCadence={env.cadence as Cadence}
+                                direction="deallocate"
+                            />
+                            <DropdownMenuItem
+                                onSelect={(e) => {
+                                    e.preventDefault();
+                                    setTopUpOpen(true);
+                                }}
+                            >
+                                <Coins className="size-3.5" /> Top up…
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onSelect={(e) => {
+                                    e.preventDefault();
+                                    setMoveOpen(true);
+                                }}
+                            >
+                                <ArrowRightLeft className="size-3.5" /> Move to…
+                            </DropdownMenuItem>
+                        </PermissionGate>
+                    )}
                     <PermissionGate roles={["owner"]}>
-                        <DropdownMenuItem onSelect={() => setEditOpen(true)}>
-                            <Pencil className="size-3.5" /> Edit envelope
-                        </DropdownMenuItem>
-                        <DeleteEnvelopeMenuItem envelopId={env.envelopId} />
+                        {!env.archived && (
+                            <DropdownMenuItem onSelect={() => setEditOpen(true)}>
+                                <Pencil className="size-3.5" /> Edit envelope
+                            </DropdownMenuItem>
+                        )}
+                        <ArchiveEnvelopeMenuItem
+                            envelopId={env.envelopId}
+                            envelopName={env.name}
+                            archived={env.archived}
+                            currentRemaining={env.remaining}
+                        />
+                        {!env.archived && (
+                            <DeleteEnvelopeMenuItem
+                                envelopId={env.envelopId}
+                            />
+                        )}
                     </PermissionGate>
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -1394,6 +1466,66 @@ function DeleteEnvelopeMenuItem({ envelopId }: { envelopId: string }) {
     );
 }
 
+function ArchiveEnvelopeMenuItem({
+    envelopId,
+    envelopName,
+    archived,
+    currentRemaining,
+}: {
+    envelopId: string;
+    envelopName: string;
+    archived: boolean;
+    currentRemaining: number;
+}) {
+    const { space } = useCurrentSpace();
+    const utils = trpc.useUtils();
+    const mutation = trpc.envelop.archive.useMutation({
+        onSuccess: async () => {
+            toast.success(archived ? "Unarchived" : "Archived");
+            await Promise.all([
+                utils.envelop.listBySpace.invalidate({ spaceId: space.id }),
+                utils.analytics.envelopeUtilization.invalidate({
+                    spaceId: space.id,
+                }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    if (archived) {
+        return (
+            <DropdownMenuItem
+                onSelect={(e) => {
+                    e.preventDefault();
+                    mutation.mutate({ envelopId, archived: false });
+                }}
+            >
+                <ArchiveRestore className="size-3.5" /> Unarchive
+            </DropdownMenuItem>
+        );
+    }
+
+    const allocationNote =
+        currentRemaining > 0
+            ? ` It currently has $${currentRemaining.toFixed(2)} allocated this period — that allocation stays put. Deallocate first if you want the cash back.`
+            : "";
+
+    return (
+        <ConfirmDialog
+            trigger={
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                    <Archive className="size-3.5" /> Archive…
+                </DropdownMenuItem>
+            }
+            title={`Archive "${envelopName}"?`}
+            description={`This hides ${envelopName} from the envelopes list and prevents new transactions in its categories. Existing data is preserved.${allocationNote}`}
+            confirmLabel="Archive"
+            onConfirm={() => mutation.mutate({ envelopId, archived: true })}
+        />
+    );
+}
+
 void AlertTriangle; // re-exported below in case future callers rely on the file's surface
 
 const ENV_STYLES = `
@@ -1899,6 +2031,74 @@ const ENV_STYLES = `
     gap: 8px;
 }
 .env-popover-item:hover { background: var(--bg-elev-2); color: var(--fg); }
+
+/* Archived envelopes — collapsible reveal section + dimmed cards. */
+.env-archived-section {
+    margin-top: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line-soft);
+}
+.env-archived-toggle {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 0;
+    color: var(--fg-3);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    padding: 4px 6px;
+    border-radius: 6px;
+    transition: color 140ms ease, background 140ms ease;
+}
+.env-archived-toggle:hover {
+    color: var(--fg);
+    background: var(--bg-elev-2);
+}
+.env-archived-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 18px;
+    min-width: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--bg-elev-3);
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+}
+.env-archived-grid .env-card {
+    opacity: 0.7;
+}
+.env-archived-grid .env-card:hover {
+    opacity: 1;
+}
+.env-card-archived {
+    background: var(--bg-elev-1);
+}
+.env-archived-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 6px;
+    margin-left: 6px;
+    border-radius: 999px;
+    background: var(--bg-elev-3);
+    color: var(--fg-3);
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+}
 
 /* Phone (<640px) — tighter spacing on the envelope page. */
 @media (max-width: 640px) {

@@ -75,6 +75,7 @@ export interface EnvelopAllocations {
 }
 
 export interface Envelops {
+  archived: Generated<boolean>;
   cadence: Generated<string>;
   carry_over: Generated<boolean>;
   color: Generated<string>;

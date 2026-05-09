@@ -43,7 +43,7 @@ export const createEnvelopAllocation = authorizedProcedure
             ctx.services.qb.transaction().execute(async (trx) => {
                 const envelop = await trx
                     .selectFrom("envelops")
-                    .select(["id", "space_id", "cadence"])
+                    .select(["id", "space_id", "cadence", "archived", "name"])
                     .where("envelops.id", "=", input.envelopId)
                     .executeTakeFirst();
 
@@ -51,6 +51,16 @@ export const createEnvelopAllocation = authorizedProcedure
                     throw new TRPCError({
                         code: "NOT_FOUND",
                         message: "Envelop not found",
+                    });
+                }
+
+                // Block ALLOCATING to an archived envelope; allow
+                // DEALLOCATING (so the user can free up trapped cash from
+                // a retired envelope without unarchiving).
+                if (envelop.archived && input.amount > 0) {
+                    throw new TRPCError({
+                        code: "BAD_REQUEST",
+                        message: `Envelope "${envelop.name}" is archived. Unarchive it first to allocate.`,
                     });
                 }
 

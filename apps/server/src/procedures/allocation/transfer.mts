@@ -68,6 +68,23 @@ export const transferAllocation = authorizedProcedure
                     });
                 }
 
+                // Block transfers INTO an archived envelope. Transfers OUT
+                // of one are allowed so trapped cash can be freed without
+                // unarchiving.
+                if (input.to.kind === "envelop") {
+                    const dest = await trx
+                        .selectFrom("envelops")
+                        .select(["archived", "name"])
+                        .where("id", "=", input.to.envelopId)
+                        .executeTakeFirst();
+                    if (dest?.archived) {
+                        throw new TRPCError({
+                            code: "BAD_REQUEST",
+                            message: `Envelope "${dest.name}" is archived. Pick a different destination.`,
+                        });
+                    }
+                }
+
                 await resolveSpaceMembership({
                     trx,
                     spaceId: fromInfo.spaceId,

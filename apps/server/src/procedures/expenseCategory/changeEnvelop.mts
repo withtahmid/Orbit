@@ -50,7 +50,7 @@ export const changeExpenseCategoryEnvelop = authorizedProcedure
 
                 const envelop = await trx
                     .selectFrom("envelops")
-                    .select(["id", "space_id"])
+                    .select(["id", "space_id", "archived", "name"])
                     .where("envelops.id", "=", input.envelopId)
                     .executeTakeFirst();
 
@@ -58,6 +58,13 @@ export const changeExpenseCategoryEnvelop = authorizedProcedure
                     throw new TRPCError({
                         code: "BAD_REQUEST",
                         message: "Target envelope does not belong to this space",
+                    });
+                }
+
+                if (envelop.archived) {
+                    throw new TRPCError({
+                        code: "BAD_REQUEST",
+                        message: `Envelope "${envelop.name}" is archived. Unarchive it first or pick a different destination.`,
                     });
                 }
 

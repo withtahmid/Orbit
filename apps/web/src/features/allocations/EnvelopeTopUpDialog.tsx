@@ -78,10 +78,17 @@ export function EnvelopeTopUpDialog({
     const remaining = targetRow?.remaining ?? null;
     const overBy = remaining !== null && remaining < 0 ? -remaining : 0;
 
+    // Pull sources: any other ACTIVE envelope with positive remaining.
+    // Archived envelopes still hold cash but pulling INTO this one is fine
+    // — we just don't surface them here. The Move dialog (or manual
+    // deallocate) is the explicit path to rescue cash from archived ones.
     const candidates = useMemo(
         () =>
             (utilizationQuery.data ?? []).filter(
-                (e) => e.envelopId !== envelopId && e.remaining > 0
+                (e) =>
+                    e.envelopId !== envelopId &&
+                    e.remaining > 0 &&
+                    !e.archived
             ),
         [utilizationQuery.data, envelopId]
     );

@@ -55,7 +55,7 @@ export const createExpenseCategory = authorizedProcedure
 
                 const envelop = await trx
                     .selectFrom("envelops")
-                    .select(["id", "space_id"])
+                    .select(["id", "space_id", "archived", "name"])
                     .where("envelops.id", "=", input.envelopId)
                     .executeTakeFirst();
 
@@ -63,6 +63,13 @@ export const createExpenseCategory = authorizedProcedure
                     throw new TRPCError({
                         code: "BAD_REQUEST",
                         message: "Invalid envelop for this space",
+                    });
+                }
+
+                if (envelop.archived) {
+                    throw new TRPCError({
+                        code: "BAD_REQUEST",
+                        message: `Envelope "${envelop.name}" is archived. Unarchive it first to add categories.`,
                     });
                 }
 

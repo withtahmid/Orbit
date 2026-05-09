@@ -840,9 +840,11 @@ function EnvelopeStatusCard({
         pendingAmount > remaining ? pendingAmount - remaining : 0;
     const willOverspend = overBy > 0 && pendingAmount > 0;
 
-    // Other envelopes with positive remaining — sources for the "Pull" picker.
+    // Other envelopes with positive remaining — sources for the "Pull"
+    // picker. Skip archived envelopes; they won't accept allocation
+    // changes via transfer either way.
     const pullCandidates = (utilizationQuery.data ?? []).filter(
-        (u) => u.envelopId !== env.id && u.remaining > 0
+        (u) => u.envelopId !== env.id && u.remaining > 0 && !u.archived
     );
 
     return (
@@ -1134,6 +1136,19 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
         [accountsQuery.data]
     );
 
+    // Filter categories whose envelope is archived. Server blocks new
+    // transactions against them anyway; filtering here means the user
+    // never sees them as a selectable option to begin with.
+    const activeCategories = useMemo(() => {
+        const cats = categoriesQuery.data ?? [];
+        const envs = envelopesQuery.data ?? [];
+        const archivedEnvIds = new Set(
+            envs.filter((e) => e.archived).map((e) => e.id)
+        );
+        if (archivedEnvIds.size === 0) return cats;
+        return cats.filter((c) => !archivedEnvIds.has(c.envelop_id));
+    }, [categoriesQuery.data, envelopesQuery.data]);
+
     const mutate = trpc.transaction.expense.useMutation({
         onSuccess: async () => {
             toast.success("Expense recorded");
@@ -1180,7 +1195,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 required
             >
                 <CategoryTreeSelect
-                    categories={(categoriesQuery.data ?? []) as any}
+                    categories={activeCategories as any}
                     value={categoryId}
                     onChange={setCategoryId}
                     placeholder="Choose category"
@@ -1254,7 +1269,16 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
+    const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
+
+    const activeFeeCategories = useMemo(() => {
+        const cats = categoriesQuery.data ?? [];
+        const envs = envelopesQuery.data ?? [];
+        const archived = new Set(envs.filter((e) => e.archived).map((e) => e.id));
+        if (archived.size === 0) return cats;
+        return cats.filter((c) => !archived.has(c.envelop_id));
+    }, [categoriesQuery.data, envelopesQuery.data]);
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -1407,7 +1431,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     </OrbitField>
                     <OrbitField label="Fee category" hint="Where the fee is logged">
                         <CategoryTreeSelect
-                            categories={(categoriesQuery.data ?? []) as any}
+                            categories={activeFeeCategories as any}
                             value={feeCategoryId}
                             onChange={setFeeCategoryId}
                             placeholder="Pick category"

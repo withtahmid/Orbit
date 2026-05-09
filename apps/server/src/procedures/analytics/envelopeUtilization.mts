@@ -72,6 +72,7 @@ export const envelopeUtilization = authorizedProcedure
                     description: string | null;
                     cadence: string;
                     carry_over: boolean;
+                    archived: boolean;
                     allocated: string;
                     consumed: string;
                     carry_in: string;
@@ -84,6 +85,7 @@ export const envelopeUtilization = authorizedProcedure
                         e.description,
                         e.cadence,
                         e.carry_over,
+                        e.archived,
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
@@ -339,6 +341,7 @@ export const envelopeUtilization = authorizedProcedure
                         description: t.description,
                         cadence: t.cadence as "none" | "monthly",
                         carryOver: t.carry_over,
+                        archived: t.archived,
                         allocated,
                         consumed,
                         carryIn,

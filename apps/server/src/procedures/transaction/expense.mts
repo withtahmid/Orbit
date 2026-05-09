@@ -6,6 +6,7 @@ import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpac
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
+import { resolveCategoryEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
@@ -44,6 +45,10 @@ export const createExpenseTransaction = authorizedProcedure
                     trx,
                     expenseCategoryId: input.expense_category_id,
                     spaceId: input.spaceId,
+                });
+                await resolveCategoryEnvelopActive({
+                    trx,
+                    expenseCategoryId: input.expense_category_id,
                 });
 
                 if (input.eventId) {

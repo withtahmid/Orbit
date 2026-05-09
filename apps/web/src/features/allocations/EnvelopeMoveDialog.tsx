@@ -96,11 +96,13 @@ export function EnvelopeMoveDialog({
     );
     const sourceRemaining = sourceRow?.remaining ?? null;
 
-    // Destinations: every other envelope in the space.
+    // Destinations: every other ACTIVE envelope in the space. Archived
+    // envelopes can't receive new allocations (server blocks it) so
+    // showing them as options would just produce errors.
     const destinations = useMemo(
         () =>
             (utilizationQuery.data ?? []).filter(
-                (e) => e.envelopId !== sourceEnvelopId
+                (e) => e.envelopId !== sourceEnvelopId && !e.archived
             ),
         [utilizationQuery.data, sourceEnvelopId]
     );

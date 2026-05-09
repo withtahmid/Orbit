@@ -8,6 +8,7 @@ import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpac
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
+import { resolveCategoryEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
 import type { SpaceMembers, Transactions } from "../../db/kysely/types.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
 
@@ -139,6 +140,21 @@ export const updateTransaction = authorizedProcedure
                         expenseCategoryId: merged.expenseCategoryId,
                         spaceId: existing.space_id,
                     });
+                    // Only enforce the active-envelope check when the user
+                    // is actually changing the category. Edits that keep
+                    // the existing category should pass even if its envelope
+                    // got archived between the original create and this edit
+                    // — otherwise we'd block legitimate corrections to old
+                    // transactions.
+                    if (
+                        merged.expenseCategoryId !==
+                        existing.expense_category_id
+                    ) {
+                        await resolveCategoryEnvelopActive({
+                            trx,
+                            expenseCategoryId: merged.expenseCategoryId,
+                        });
+                    }
                 }
 
                 if (merged.eventId) {

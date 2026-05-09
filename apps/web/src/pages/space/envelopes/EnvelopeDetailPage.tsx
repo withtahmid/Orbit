@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     AlertTriangle,
+    ArchiveRestore,
     ArrowRightLeft,
     ChevronRight,
     Coins,
@@ -166,6 +167,11 @@ export default function EnvelopeDetailPage() {
                                     size={36}
                                 />
                                 {envelope.name}
+                                {envelope.archived && (
+                                    <span className="ed-archived-badge">
+                                        Archived
+                                    </span>
+                                )}
                             </>
                         ) : (
                             "Envelope"
@@ -184,7 +190,7 @@ export default function EnvelopeDetailPage() {
                     </p>
                 </div>
                 <div className="ed-topbar-actions">
-                    {envelope && (
+                    {envelope && !envelope.archived && (
                         <PermissionGate roles={["owner", "editor"]}>
                             <EnvelopeAllocateDialog
                                 envelopId={envelope.envelopId}
@@ -242,11 +248,21 @@ export default function EnvelopeDetailPage() {
                             />
                         </PermissionGate>
                     )}
-                    <PermissionGate roles={["owner"]}>
-                        <button type="button" className="od-btn od-btn-primary">
-                            <Pencil className="size-3.5" /> Edit
-                        </button>
-                    </PermissionGate>
+                    {envelope?.archived && (
+                        <PermissionGate roles={["owner"]}>
+                            <UnarchiveButton
+                                envelopId={envelope.envelopId}
+                                spaceId={space.id}
+                            />
+                        </PermissionGate>
+                    )}
+                    {envelope && !envelope.archived && (
+                        <PermissionGate roles={["owner"]}>
+                            <button type="button" className="od-btn od-btn-primary">
+                                <Pencil className="size-3.5" /> Edit
+                            </button>
+                        </PermissionGate>
+                    )}
                 </div>
             </header>
 
@@ -584,6 +600,38 @@ export default function EnvelopeDetailPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+function UnarchiveButton({
+    envelopId,
+    spaceId,
+}: {
+    envelopId: string;
+    spaceId: string;
+}) {
+    const utils = trpc.useUtils();
+    const mutation = trpc.envelop.archive.useMutation({
+        onSuccess: async () => {
+            toast.success("Unarchived");
+            await Promise.all([
+                utils.envelop.listBySpace.invalidate({ spaceId }),
+                utils.analytics.envelopeUtilization.invalidate({ spaceId }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+    return (
+        <button
+            type="button"
+            className="od-btn od-btn-primary"
+            disabled={mutation.isPending}
+            onClick={() => mutation.mutate({ envelopId, archived: false })}
+        >
+            <ArchiveRestore className="size-3.5" />
+            {mutation.isPending ? "Unarchiving…" : "Unarchive"}
+        </button>
     );
 }
 
@@ -1046,6 +1094,21 @@ const ED_STYLES = `
     gap: 14px;
 }
 .ed-sub { font-size: 13px; color: var(--fg-3); margin: 0; }
+.ed-archived-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    margin-left: 10px;
+    border-radius: 999px;
+    background: var(--bg-elev-3);
+    color: var(--fg-3);
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
+}
 .ed-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 720px) {
     .ed-topbar { padding: 18px 18px 14px; }

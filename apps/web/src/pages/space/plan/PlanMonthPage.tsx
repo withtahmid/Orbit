@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ChevronLeft, Save, ArrowLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
@@ -64,13 +64,38 @@ export default function PlanMonthPage() {
     const utils = trpc.useUtils();
     const allocate = trpc.envelop.allocationCreate.useMutation();
 
+    // Comparable month ordinal so we can decide past / current / future
+    // cleanly across year boundaries (string compare on "YYYY-M" doesn't
+    // sort right when months go single → double digit).
+    const monthOrdinal =
+        monthDate.getFullYear() * 12 + monthDate.getMonth();
+    const nowOrdinal = (() => {
+        const d = new Date();
+        return d.getFullYear() * 12 + d.getMonth();
+    })();
+    const isCurrentMonth = monthOrdinal === nowOrdinal;
+    const isPast = monthOrdinal < nowOrdinal;
+    // Past months are review-only. Editing them silently rewrites history:
+    // changes "spent vs allocated" charts retroactively, and for carry-over
+    // envelopes can shift this month's `carryIn` because that's derived
+    // from the previous period's remaining. Lock the inputs to avoid the
+    // foot-gun. The current and future months remain editable.
+
     // Envelopes filtered to monthly cadence — the start-of-month ritual is
     // for repeating monthly buckets. Rolling envelopes (cadence='none') are
     // accumulators and don't reset.
+    //
+    // Archived envelopes: excluded from current/future planning (you can't
+    // allocate to them anyway — server blocks it). Past-month review keeps
+    // them so historical data renders correctly.
     const envelopes: EnvRow[] = useMemo(
         () =>
-            (currentQuery.data ?? []).filter((e) => e.cadence === "monthly"),
-        [currentQuery.data]
+            (currentQuery.data ?? []).filter(
+                (e) =>
+                    e.cadence === "monthly" &&
+                    (isPast || !e.archived)
+            ),
+        [currentQuery.data, isPast]
     );
 
     // Map prev-month envelope rows by id for quick lookup.
@@ -121,16 +146,6 @@ export default function PlanMonthPage() {
     const unallocatedNow = summaryQuery.data?.unallocated ?? 0;
     const unallocatedAfterSave = unallocatedNow - netChange;
     const overplanning = unallocatedAfterSave < 0;
-
-    // spaceSummary is computed server-side against NOW (resolveSpaceUnallocated
-    // is hard-coded to the current calendar month). Showing "Currently funded"
-    // / "Free after save" for past or future months would be misleading. Gate
-    // those stats to the current month only.
-    const nowKey = (() => {
-        const d = new Date();
-        return `${d.getFullYear()}-${d.getMonth()}`;
-    })();
-    const isCurrentMonth = monthKey === nowKey;
 
     const [saving, setSaving] = useState(false);
 
@@ -201,10 +216,13 @@ export default function PlanMonthPage() {
                     >
                         <ArrowLeft className="size-3.5" /> Envelopes
                     </Link>
-                    <h1 className="display plan-title">Plan {monthLabel}</h1>
+                    <h1 className="display plan-title">
+                        {isPast ? `Review ${monthLabel}` : `Plan ${monthLabel}`}
+                    </h1>
                     <p className="plan-sub">
-                        Set what you intend to spend on each envelope. The
-                        whole month in one screen.
+                        {isPast
+                            ? "Past month — view only. Editing settled allocations would rewrite history and shift carry-over."
+                            : "Set what you intend to spend on each envelope. The whole month in one screen."}
                     </p>
                 </div>
                 <div className="plan-topbar-actions">
@@ -214,21 +232,57 @@ export default function PlanMonthPage() {
                             monthSlug(addMonths(monthDate, -1))
                         )}
                         className="od-btn"
+                        title={`Go to ${addMonths(monthDate, -1).toLocaleString(
+                            "en-US",
+                            { month: "long", year: "numeric" }
+                        )}`}
                     >
                         <ChevronLeft className="size-3.5" />{" "}
                         {addMonths(monthDate, -1).toLocaleString("en-US", {
                             month: "short",
                         })}
                     </Link>
-                    <button
-                        type="button"
-                        className="od-btn od-btn-primary"
-                        onClick={onSave}
-                        disabled={saving || !hydrated}
+                    {!isCurrentMonth && (
+                        <Link
+                            to={ROUTES.spacePlanMonth(
+                                space.id,
+                                monthSlug(new Date())
+                            )}
+                            className="od-btn"
+                            title="Jump to the current month"
+                        >
+                            Today
+                        </Link>
+                    )}
+                    <Link
+                        to={ROUTES.spacePlanMonth(
+                            space.id,
+                            monthSlug(addMonths(monthDate, 1))
+                        )}
+                        className="od-btn"
+                        title={`Go to ${addMonths(monthDate, 1).toLocaleString(
+                            "en-US",
+                            { month: "long", year: "numeric" }
+                        )}`}
                     >
-                        <Save className="size-3.5" />
-                        {saving ? "Saving…" : "Save plan"}
-                    </button>
+                        {addMonths(monthDate, 1).toLocaleString("en-US", {
+                            month: "short",
+                        })}{" "}
+                        <ChevronRight className="size-3.5" />
+                    </Link>
+                    {isPast ? (
+                        <span className="plan-readonly-badge">View only</span>
+                    ) : (
+                        <button
+                            type="button"
+                            className="od-btn od-btn-primary"
+                            onClick={onSave}
+                            disabled={saving || !hydrated}
+                        >
+                            <Save className="size-3.5" />
+                            {saving ? "Saving…" : "Save plan"}
+                        </button>
+                    )}
                 </div>
             </header>
 
@@ -236,11 +290,18 @@ export default function PlanMonthPage() {
                 {/* Summary */}
                 <div className="od-card plan-summary">
                     <SummaryStat
-                        label="Total planned"
-                        value={totalPlanned}
+                        label={isPast ? "Was planned" : "Total planned"}
+                        value={
+                            isPast
+                                ? envelopes.reduce(
+                                      (s, e) => s + e.allocated + e.carryIn,
+                                      0
+                                  )
+                                : totalPlanned
+                        }
                         sub={`across ${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
                     />
-                    {isCurrentMonth ? (
+                    {isCurrentMonth && (
                         <>
                             <SummaryStat
                                 label="Currently funded"
@@ -258,7 +319,44 @@ export default function PlanMonthPage() {
                                 }
                             />
                         </>
-                    ) : (
+                    )}
+                    {isPast &&
+                        (() => {
+                            const totalSpent = envelopes.reduce(
+                                (s, e) => s + e.consumed,
+                                0
+                            );
+                            const totalRem = envelopes.reduce(
+                                (s, e) => s + e.remaining,
+                                0
+                            );
+                            return (
+                                <>
+                                    <SummaryStat
+                                        label="Spent"
+                                        value={totalSpent}
+                                        sub="actual transactions in this period"
+                                    />
+                                    <SummaryStat
+                                        label={
+                                            totalRem < 0
+                                                ? "Over plan"
+                                                : "Under plan"
+                                        }
+                                        value={Math.abs(totalRem)}
+                                        tone={
+                                            totalRem < 0 ? "expense" : "income"
+                                        }
+                                        sub={
+                                            totalRem < 0
+                                                ? "spent more than planned"
+                                                : "spent less than planned"
+                                        }
+                                    />
+                                </>
+                            );
+                        })()}
+                    {!isPast && !isCurrentMonth && (
                         <>
                             <SummaryStat
                                 label="Last month spent"
@@ -274,9 +372,9 @@ export default function PlanMonthPage() {
                                 tone={netChange > 0 ? "expense" : "income"}
                                 sub={
                                     netChange > 0
-                                        ? `more planned than before`
+                                        ? "more planned than before"
                                         : netChange < 0
-                                          ? `less planned than before`
+                                          ? "less planned than before"
                                           : "no change yet"
                                 }
                             />
@@ -308,6 +406,7 @@ export default function PlanMonthPage() {
                                     prevAllocated={prev?.allocated ?? 0}
                                     prevConsumed={prev?.consumed ?? 0}
                                     value={drafts[e.envelopId] ?? ""}
+                                    readOnly={isPast}
                                     onChange={(v) =>
                                         setDrafts((d) => ({
                                             ...d,
@@ -364,16 +463,19 @@ function PlanRow({
     prevAllocated,
     prevConsumed,
     value,
+    readOnly,
     onChange,
 }: {
     env: EnvRow;
     prevAllocated: number;
     prevConsumed: number;
     value: string;
+    readOnly?: boolean;
     onChange: (v: string) => void;
 }) {
     const target = Number(value) || 0;
     const delta = target - env.allocated;
+    const planned = env.allocated + env.carryIn;
     return (
         <div className="plan-row">
             <div className="plan-row-name">
@@ -384,11 +486,21 @@ function PlanRow({
                 <div>
                     <div className="plan-row-title">{env.name}</div>
                     <div className="plan-row-meta">
-                        Already spent this period: $
-                        {env.consumed.toLocaleString("en-US", {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2,
-                        })}
+                        {readOnly
+                            ? `Spent this period: $${env.consumed.toLocaleString(
+                                  "en-US",
+                                  {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                  }
+                              )}`
+                            : `Already spent this period: $${env.consumed.toLocaleString(
+                                  "en-US",
+                                  {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                  }
+                              )}`}
                     </div>
                 </div>
             </div>
@@ -409,35 +521,66 @@ function PlanRow({
                     planned
                 </span>
             </div>
-            <div className="plan-row-input-wrap">
-                <span className="plan-row-input-prefix">$</span>
-                <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    className="plan-row-input"
-                />
-                {delta !== 0 && (
-                    <span
-                        className="plan-row-delta"
-                        style={{
-                            color:
-                                delta > 0
-                                    ? "var(--income)"
-                                    : "var(--expense)",
-                        }}
-                    >
-                        {delta > 0 ? "+" : "−"}$
-                        {Math.abs(delta).toLocaleString("en-US", {
+            {readOnly ? (
+                <div className="plan-row-readonly">
+                    <span className="plan-row-readonly-amt tabular">
+                        $
+                        {planned.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
                         })}
                     </span>
-                )}
-            </div>
+                    {(() => {
+                        const settled = planned - env.consumed;
+                        if (settled === 0) return null;
+                        return (
+                            <span
+                                className="plan-row-readonly-net tabular"
+                                style={{
+                                    color:
+                                        settled < 0
+                                            ? "var(--expense)"
+                                            : "var(--fg-3)",
+                                }}
+                            >
+                                {settled < 0
+                                    ? `−$${Math.abs(settled).toFixed(2)} over`
+                                    : `$${settled.toFixed(2)} unspent`}
+                            </span>
+                        );
+                    })()}
+                </div>
+            ) : (
+                <div className="plan-row-input-wrap">
+                    <span className="plan-row-input-prefix">$</span>
+                    <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        className="plan-row-input"
+                    />
+                    {delta !== 0 && (
+                        <span
+                            className="plan-row-delta"
+                            style={{
+                                color:
+                                    delta > 0
+                                        ? "var(--income)"
+                                        : "var(--expense)",
+                            }}
+                        >
+                            {delta > 0 ? "+" : "−"}$
+                            {Math.abs(delta).toLocaleString("en-US", {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}
+                        </span>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -661,5 +804,37 @@ const PLAN_STYLES = `
     text-align: center;
     color: var(--fg-3);
     font-size: 13px;
+}
+
+.plan-readonly-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line);
+    color: var(--fg-3);
+    font-size: 11.5px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.plan-row-readonly {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    justify-content: flex-end;
+    padding: 0 4px;
+}
+.plan-row-readonly-amt {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg);
+}
+.plan-row-readonly-net {
+    font-size: 11px;
+    white-space: nowrap;
 }
 `;
