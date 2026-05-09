@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { startOfMonth, endOfMonth } from "@/lib/dates";
 
 /**
@@ -134,9 +135,12 @@ export function EnvelopeTopUpDialog({
         ]);
     };
 
+    const pullIdem = useIdempotencyKey();
+    const borrowIdem = useIdempotencyKey();
     const transferMutation = trpc.allocation.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Pulled funds");
+            pullIdem.rotate();
             await invalidate();
             setPullAmount("");
         },
@@ -146,6 +150,7 @@ export function EnvelopeTopUpDialog({
     const borrowMutation = trpc.envelop.borrowFromNextMonth.useMutation({
         onSuccess: async () => {
             toast.success("Borrowed from next month");
+            borrowIdem.rotate();
             await invalidate();
             setBorrowAmount("");
         },
@@ -290,6 +295,7 @@ export function EnvelopeTopUpDialog({
                                                 kind: "envelop",
                                                 envelopId,
                                             },
+                                            idempotencyKey: pullIdem.key,
                                         })
                                     }
                                 >
@@ -356,6 +362,7 @@ export function EnvelopeTopUpDialog({
                                         borrowMutation.mutate({
                                             envelopId,
                                             amount: borrowAmountNum,
+                                            idempotencyKey: borrowIdem.key,
                                         })
                                     }
                                 >

@@ -4,6 +4,7 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -17,43 +18,52 @@ export const createPlan = authorizedProcedure
             description: z.string().max(2000).optional(),
             targetAmount: z.number().positive().optional(),
             targetDate: z.coerce.date().optional(),
+            idempotencyKey: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
-                await resolveSpaceMembership({
+            ctx.services.qb.transaction().execute(async (trx) =>
+                withIdempotency({
                     trx,
-                    spaceId: input.spaceId,
                     userId: ctx.auth.user.id,
-                    roles: ["owner"] as unknown as SpaceMembers["role"][],
-                });
+                    operation: "plan.create",
+                    key: input.idempotencyKey,
+                    fn: async () => {
+                        await resolveSpaceMembership({
+                            trx,
+                            spaceId: input.spaceId,
+                            userId: ctx.auth.user.id,
+                            roles: ["owner"] as unknown as SpaceMembers["role"][],
+                        });
 
-                return trx
-                    .insertInto("plans")
-                    .values({
-                        space_id: input.spaceId,
-                        name: input.name,
-                        color: input.color,
-                        icon: input.icon,
-                        description: input.description ?? null,
-                        target_amount: input.targetAmount ?? null,
-                        target_date: input.targetDate ?? null,
-                    })
-                    .returning([
-                        "id",
-                        "space_id",
-                        "name",
-                        "color",
-                        "icon",
-                        "description",
-                        "target_amount",
-                        "target_date",
-                        "created_at",
-                        "updated_at",
-                    ])
-                    .executeTakeFirstOrThrow();
-            })
+                        return trx
+                            .insertInto("plans")
+                            .values({
+                                space_id: input.spaceId,
+                                name: input.name,
+                                color: input.color,
+                                icon: input.icon,
+                                description: input.description ?? null,
+                                target_amount: input.targetAmount ?? null,
+                                target_date: input.targetDate ?? null,
+                            })
+                            .returning([
+                                "id",
+                                "space_id",
+                                "name",
+                                "color",
+                                "icon",
+                                "description",
+                                "target_amount",
+                                "target_date",
+                                "created_at",
+                                "updated_at",
+                            ])
+                            .executeTakeFirstOrThrow();
+                    },
+                })
+            )
         );
 
         if (error) {

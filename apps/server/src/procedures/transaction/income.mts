@@ -7,6 +7,7 @@ import { resolveTransactionPermission } from "./utils/resolveTransactionPermissi
 import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
+import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 export const createIncomeTransaction = authorizedProcedure
     .input(
@@ -19,60 +20,70 @@ export const createIncomeTransaction = authorizedProcedure
             accountId: z.string().uuid(),
             eventId: z.string().uuid().optional(),
             attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
+            idempotencyKey: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
-                await resolveTransactionPermission({
+            ctx.services.qb.transaction().execute(async (trx) =>
+                withIdempotency({
                     trx,
                     userId: ctx.auth.user.id,
-                    destinationAccountId: input.accountId,
-                    sourceAccountId: null,
-                    type: "income" as unknown as Transactions["type"],
-                });
+                    operation: "transaction.income",
+                    key: input.idempotencyKey,
+                    fn: async () => {
+                        await resolveTransactionPermission({
+                            trx,
+                            userId: ctx.auth.user.id,
+                            destinationAccountId: input.accountId,
+                            sourceAccountId: null,
+                            type: "income" as unknown as Transactions["type"],
+                        });
 
-                await resolveTransactionSpaceIntegrity({
-                    trx,
-                    spaceId: input.spaceId,
-                    sourceAccountId: null,
-                    destinationAccountId: input.accountId,
-                });
+                        await resolveTransactionSpaceIntegrity({
+                            trx,
+                            spaceId: input.spaceId,
+                            sourceAccountId: null,
+                            destinationAccountId: input.accountId,
+                        });
 
-                if (input.eventId) {
-                    await resolveEventBelongsToSpace({
-                        trx,
-                        eventId: input.eventId,
-                        spaceId: input.spaceId,
-                    });
-                }
+                        if (input.eventId) {
+                            await resolveEventBelongsToSpace({
+                                trx,
+                                eventId: input.eventId,
+                                spaceId: input.spaceId,
+                            });
+                        }
 
-                const transaction = await trx
-                    .insertInto("transactions")
-                    .values({
-                        space_id: input.spaceId,
-                        created_by: ctx.auth.user.id,
-                        type: "income" as unknown as Transactions["type"],
-                        amount: input.amount,
-                        source_account_id: null,
-                        destination_account_id: input.accountId,
-                        description: input.description || null,
-                        location: input.location || null,
-                        transaction_datetime: input.datetime || new Date(),
-                        event_id: input.eventId ?? null,
-                    })
-                    .returning(["id"])
-                    .executeTakeFirstOrThrow();
+                        const transaction = await trx
+                            .insertInto("transactions")
+                            .values({
+                                space_id: input.spaceId,
+                                created_by: ctx.auth.user.id,
+                                type: "income" as unknown as Transactions["type"],
+                                amount: input.amount,
+                                source_account_id: null,
+                                destination_account_id: input.accountId,
+                                description: input.description || null,
+                                location: input.location || null,
+                                transaction_datetime:
+                                    input.datetime || new Date(),
+                                event_id: input.eventId ?? null,
+                            })
+                            .returning(["id"])
+                            .executeTakeFirstOrThrow();
 
-                await attachFilesToTransaction({
-                    trx,
-                    transactionId: transaction.id,
-                    fileIds: input.attachmentFileIds ?? [],
-                    userId: ctx.auth.user.id,
-                });
+                        await attachFilesToTransaction({
+                            trx,
+                            transactionId: transaction.id,
+                            fileIds: input.attachmentFileIds ?? [],
+                            userId: ctx.auth.user.id,
+                        });
 
-                return transaction;
-            })
+                        return transaction;
+                    },
+                })
+            )
         );
 
         if (error) {

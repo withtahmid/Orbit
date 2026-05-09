@@ -5,6 +5,7 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 /**
  * Borrow money from next month into the current month for a monthly
@@ -23,86 +24,115 @@ export const borrowFromNextMonth = authorizedProcedure
         z.object({
             envelopId: z.string().uuid(),
             amount: z.number().positive(),
+            idempotencyKey: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
-                const envelop = await trx
-                    .selectFrom("envelops")
-                    .select(["id", "space_id", "cadence", "archived", "name"])
-                    .where("envelops.id", "=", input.envelopId)
-                    .executeTakeFirst();
-
-                if (!envelop) {
-                    throw new TRPCError({
-                        code: "NOT_FOUND",
-                        message: "Envelop not found",
-                    });
-                }
-
-                if (envelop.archived) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: `Envelope "${envelop.name}" is archived. Unarchive it first to borrow.`,
-                    });
-                }
-
-                if (envelop.cadence !== "monthly") {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message:
-                            "Borrowing only works for monthly envelopes — rolling envelopes accumulate.",
-                    });
-                }
-
-                await resolveSpaceMembership({
+            ctx.services.qb.transaction().execute(async (trx) =>
+                withIdempotency({
                     trx,
-                    spaceId: envelop.space_id,
                     userId: ctx.auth.user.id,
-                    roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
-                });
+                    operation: "envelop.borrowFromNextMonth",
+                    key: input.idempotencyKey,
+                    fn: async () => {
+                        const envelop = await trx
+                            .selectFrom("envelops")
+                            .select([
+                                "id",
+                                "space_id",
+                                "cadence",
+                                "archived",
+                                "name",
+                            ])
+                            .where("envelops.id", "=", input.envelopId)
+                            .executeTakeFirst();
 
-                // Both rows live on UTC month boundaries — matches how
-                // createAllocation stores period_start.
-                const now = new Date();
-                const currentPeriodStart = new Date(
-                    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
-                );
-                const nextPeriodStart = new Date(
-                    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)
-                );
+                        if (!envelop) {
+                            throw new TRPCError({
+                                code: "NOT_FOUND",
+                                message: "Envelop not found",
+                            });
+                        }
 
-                const linkId = randomUUID();
+                        if (envelop.archived) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message: `Envelope "${envelop.name}" is archived. Unarchive it first to borrow.`,
+                            });
+                        }
 
-                const currentRow = await trx
-                    .insertInto("envelop_allocations")
-                    .values({
-                        envelop_id: input.envelopId,
-                        amount: input.amount,
-                        created_by: ctx.auth.user.id,
-                        account_id: null,
-                        period_start: currentPeriodStart,
-                        borrowed_link_id: linkId,
-                    })
-                    .returning(["id", "envelop_id", "amount", "period_start"])
-                    .executeTakeFirstOrThrow();
+                        if (envelop.cadence !== "monthly") {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "Borrowing only works for monthly envelopes — rolling envelopes accumulate.",
+                            });
+                        }
 
-                const nextRow = await trx
-                    .insertInto("envelop_allocations")
-                    .values({
-                        envelop_id: input.envelopId,
-                        amount: -input.amount,
-                        created_by: ctx.auth.user.id,
-                        account_id: null,
-                        period_start: nextPeriodStart,
-                        borrowed_link_id: linkId,
-                    })
-                    .returning(["id", "envelop_id", "amount", "period_start"])
-                    .executeTakeFirstOrThrow();
+                        await resolveSpaceMembership({
+                            trx,
+                            spaceId: envelop.space_id,
+                            userId: ctx.auth.user.id,
+                            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
+                        });
 
-                return { linkId, currentRow, nextRow };
-            })
+                        // Both rows live on UTC month boundaries — matches how
+                        // createAllocation stores period_start.
+                        const now = new Date();
+                        const currentPeriodStart = new Date(
+                            Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+                        );
+                        const nextPeriodStart = new Date(
+                            Date.UTC(
+                                now.getUTCFullYear(),
+                                now.getUTCMonth() + 1,
+                                1
+                            )
+                        );
+
+                        const linkId = randomUUID();
+
+                        const currentRow = await trx
+                            .insertInto("envelop_allocations")
+                            .values({
+                                envelop_id: input.envelopId,
+                                amount: input.amount,
+                                created_by: ctx.auth.user.id,
+                                account_id: null,
+                                period_start: currentPeriodStart,
+                                borrowed_link_id: linkId,
+                            })
+                            .returning([
+                                "id",
+                                "envelop_id",
+                                "amount",
+                                "period_start",
+                            ])
+                            .executeTakeFirstOrThrow();
+
+                        const nextRow = await trx
+                            .insertInto("envelop_allocations")
+                            .values({
+                                envelop_id: input.envelopId,
+                                amount: -input.amount,
+                                created_by: ctx.auth.user.id,
+                                account_id: null,
+                                period_start: nextPeriodStart,
+                                borrowed_link_id: linkId,
+                            })
+                            .returning([
+                                "id",
+                                "envelop_id",
+                                "amount",
+                                "period_start",
+                            ])
+                            .executeTakeFirstOrThrow();
+
+                        return { linkId, currentRow, nextRow };
+                    },
+                })
+            )
         );
 
         if (error) {

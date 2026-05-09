@@ -11,11 +11,13 @@ import { personalCashFlow } from "../procedures/personal/cashFlow.mjs";
 import { personalCategoryBreakdown } from "../procedures/personal/categoryBreakdown.mjs";
 import { personalCategoryWoW } from "../procedures/personal/categoryWoW.mjs";
 import { personalCumulativeSpend } from "../procedures/personal/cumulativeSpend.mjs";
+import { personalEnvelopeRecentAverages } from "../procedures/personal/envelopeRecentAverages.mjs";
 import { personalEnvelopeUtilization } from "../procedures/personal/envelopeUtilization.mjs";
 import { personalIncomeBreakdown } from "../procedures/personal/incomeBreakdown.mjs";
 import { personalListCategories } from "../procedures/personal/listCategories.mjs";
 import { personalNetWorthHistory } from "../procedures/personal/netWorthHistory.mjs";
 import { personalPlanProgress } from "../procedures/personal/planProgress.mjs";
+import { personalReckoningListPending } from "../procedures/personal/reckoningListPending.mjs";
 import { personalRecurring } from "../procedures/personal/recurring.mjs";
 import { personalSpaceBreakdown } from "../procedures/personal/spaceBreakdown.mjs";
 import { personalSpendingHeatmap } from "../procedures/personal/spendingHeatmap.mjs";
@@ -29,6 +31,8 @@ import { personalTransactions } from "../procedures/personal/transactions.mjs";
 import { personalTrendsCategoryMovers } from "../procedures/personal/trendsCategoryMovers.mjs";
 import { personalTrendsDailyComparison } from "../procedures/personal/trendsDailyComparison.mjs";
 import { personalTrendsYearOverYear } from "../procedures/personal/trendsYearOverYear.mjs";
+import { personalUnbudgetedTrend } from "../procedures/personal/unbudgetedTrend.mjs";
+import { personalYearReport } from "../procedures/personal/yearReport.mjs";
 import { router } from "../trpc/index.mjs";
 
 /**
@@ -42,6 +46,9 @@ import { router } from "../trpc/index.mjs";
 export const personalRouter = router({
     summary: personalSummary,
     cashFlow: personalCashFlow,
+    unbudgetedTrend: personalUnbudgetedTrend,
+    envelopeRecentAverages: personalEnvelopeRecentAverages,
+    yearReport: personalYearReport,
     topCategories: personalTopCategories,
     topCategoriesByBucket: personalTopCategoriesByBucket,
     categoryBreakdown: personalCategoryBreakdown,
@@ -70,6 +77,12 @@ export const personalRouter = router({
         dailyComparison: personalTrendsDailyComparison,
         yearOverYear: personalTrendsYearOverYear,
         categoryMovers: personalTrendsCategoryMovers,
+    }),
+    /* Cross-space reckoning. The acknowledge mutation lives on the
+       per-space reckoning router; the personal namespace just lists
+       pending items because the resolution touches a specific space. */
+    reckoning: router({
+        listPending: personalReckoningListPending,
     }),
     /* Anomalies view. */
     anomalies: router({

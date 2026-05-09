@@ -29,6 +29,8 @@ const TransactionsPage = lazy(() => import("@/pages/space/transactions/Transacti
 const EnvelopesPage = lazy(() => import("@/pages/space/envelopes/EnvelopesPage"));
 const EnvelopeDetailPage = lazy(() => import("@/pages/space/envelopes/EnvelopeDetailPage"));
 const PlanMonthPage = lazy(() => import("@/pages/space/plan/PlanMonthPage"));
+const ReckoningPage = lazy(() => import("@/pages/space/reckoning/ReckoningPage"));
+const YearReportPage = lazy(() => import("@/pages/space/year/YearReportPage"));
 const PlansPage = lazy(() => import("@/pages/space/plans/PlansPage"));
 const PlanDetailPage = lazy(() => import("@/pages/space/plans/PlanDetailPage"));
 const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
@@ -168,6 +170,14 @@ export const router = createBrowserRouter([
                                     {
                                         path: "plan/:month",
                                         element: withSuspense(<PlanMonthPage />),
+                                    },
+                                    {
+                                        path: "reckoning",
+                                        element: withSuspense(<ReckoningPage />),
+                                    },
+                                    {
+                                        path: "year/:year",
+                                        element: withSuspense(<YearReportPage />),
                                     },
                                     {
                                         path: "plans",

@@ -61,6 +61,29 @@ export default function PlanMonthPage() {
         periodEnd,
     });
 
+    const recentAvgQuery = trpc.analytics.envelopeRecentAverages.useQuery({
+        spaceId: space.id,
+        referenceDate: periodStart,
+    });
+    const recentByEnvelopeId = useMemo(() => {
+        const m = new Map<
+            string,
+            {
+                lastMonthSpend: number;
+                lastMonthPlanned: number;
+                avg3MonthSpend: number;
+            }
+        >();
+        for (const r of recentAvgQuery.data ?? []) {
+            m.set(r.envelopId, {
+                lastMonthSpend: r.lastMonthSpend,
+                lastMonthPlanned: r.lastMonthPlanned,
+                avg3MonthSpend: r.avg3MonthSpend,
+            });
+        }
+        return m;
+    }, [recentAvgQuery.data]);
+
     const utils = trpc.useUtils();
     const allocate = trpc.envelop.allocationCreate.useMutation();
 
@@ -168,6 +191,10 @@ export default function PlanMonthPage() {
                     amount: delta,
                     accountId: null,
                     periodStart: periodStartUtc,
+                    // Fresh idempotency key per row per attempt. If the
+                    // user double-fires Save, each row's second call
+                    // hits the cached result instead of double-allocating.
+                    idempotencyKey: crypto.randomUUID(),
                 });
                 successes.push(e.name);
             } catch (err) {
@@ -399,12 +426,16 @@ export default function PlanMonthPage() {
                         </div>
                         {envelopes.map((e) => {
                             const prev = prevById.get(e.envelopId);
+                            const recent = recentByEnvelopeId.get(e.envelopId);
                             return (
                                 <PlanRow
                                     key={e.envelopId}
                                     env={e}
                                     prevAllocated={prev?.allocated ?? 0}
                                     prevConsumed={prev?.consumed ?? 0}
+                                    avg3MonthSpend={
+                                        recent?.avg3MonthSpend ?? 0
+                                    }
                                     value={drafts[e.envelopId] ?? ""}
                                     readOnly={isPast}
                                     onChange={(v) =>
@@ -462,6 +493,7 @@ function PlanRow({
     env,
     prevAllocated,
     prevConsumed,
+    avg3MonthSpend,
     value,
     readOnly,
     onChange,
@@ -469,6 +501,7 @@ function PlanRow({
     env: EnvRow;
     prevAllocated: number;
     prevConsumed: number;
+    avg3MonthSpend: number;
     value: string;
     readOnly?: boolean;
     onChange: (v: string) => void;
@@ -476,6 +509,14 @@ function PlanRow({
     const target = Number(value) || 0;
     const delta = target - env.allocated;
     const planned = env.allocated + env.carryIn;
+    // Coaching hint: if the proposed plan is meaningfully (>10%) below
+    // the user's 3-month average actual spend, surface that. Threshold
+    // avoids nagging on small differences. Only when not read-only.
+    const showHint =
+        !readOnly &&
+        avg3MonthSpend > 0 &&
+        target > 0 &&
+        target < avg3MonthSpend * 0.9;
     return (
         <div className="plan-row">
             <div className="plan-row-name">
@@ -502,6 +543,40 @@ function PlanRow({
                                   }
                               )}`}
                     </div>
+                    {(env.borrowedIn > 0 || env.borrowedOut > 0) && (
+                        <div className="plan-row-borrow">
+                            {env.borrowedIn > 0 && (
+                                <span
+                                    className="plan-row-borrow-pill"
+                                    style={{ color: "var(--income)" }}
+                                    title={
+                                        "This period received funds borrowed from a future period."
+                                    }
+                                >
+                                    +${env.borrowedIn.toFixed(2)} borrowed in
+                                </span>
+                            )}
+                            {env.borrowedOut > 0 && (
+                                <span
+                                    className="plan-row-borrow-pill"
+                                    style={{ color: "var(--expense)" }}
+                                    title={
+                                        "A previous period borrowed from this one — its planning pool is reduced by this amount."
+                                    }
+                                >
+                                    −${env.borrowedOut.toFixed(2)} borrowed out
+                                </span>
+                            )}
+                        </div>
+                    )}
+                    {showHint && (
+                        <div className="plan-row-coach">
+                            You've averaged $
+                            {avg3MonthSpend.toFixed(0)}/mo over the last 3
+                            months — $
+                            {target.toFixed(0)} will likely fall short.
+                        </div>
+                    )}
                 </div>
             </div>
             <div className="plan-row-prev">
@@ -519,6 +594,15 @@ function PlanRow({
                         maximumFractionDigits: 0,
                     })}{" "}
                     planned
+                    {avg3MonthSpend > 0 && (
+                        <>
+                            {" · "}
+                            <span style={{ color: "var(--fg-3)" }}>
+                                avg $
+                                {avg3MonthSpend.toFixed(0)}/mo
+                            </span>
+                        </>
+                    )}
                 </span>
             </div>
             {readOnly ? (
@@ -729,6 +813,34 @@ const PLAN_STYLES = `
     font-size: 11px;
     color: var(--fg-4);
     margin-top: 2px;
+}
+.plan-row-borrow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+.plan-row-borrow-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 8px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--bg-elev-1);
+    font-size: 10.5px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+.plan-row-coach {
+    margin-top: 4px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--gold) 10%, transparent);
+    border: 1px solid color-mix(in oklab, var(--gold) 30%, transparent);
+    color: var(--fg-2);
+    font-size: 11px;
+    line-height: 1.4;
 }
 .plan-row-prev {
     display: flex;

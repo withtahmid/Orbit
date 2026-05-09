@@ -60,7 +60,7 @@ const SECTIONS: Section[] = [
     { id: "events", title: "Events", icon: CalendarDays },
     { id: "attachments", title: "Attachments & receipts", icon: Paperclip },
     { id: "allocations", title: "Allocations (the 2D idea)", icon: Sparkles },
-    { id: "drift", title: "Drift & rebalancing", icon: Shield },
+    { id: "drift", title: "Overspend & reckoning", icon: Shield },
     { id: "analytics", title: "Analytics", icon: BarChart3 },
     { id: "my-money", title: "Your money across spaces", icon: LineChart },
     { id: "permissions", title: "Roles & permissions", icon: Shield },
@@ -592,10 +592,15 @@ function Envelopes() {
                 them from your space's unallocated pool; as you spend money against
                 categories that roll up to an envelope, its remaining balance drops.
             </Paragraph>
-            <CalloutCard title="Carry-over">
-                Enabled per-envelope. When on, any unspent remainder from last period is
-                added to this period's <i>carriedIn</i>. Overspend does <b>not</b> carry
-                forward as debt — drift is surfaced as a UI state, not an accounting one.
+            <CalloutCard title="Carry policy">
+                Three modes per envelope. <b>Reset</b> wipes the slate each
+                period — useful for "I want a fresh budget every month."{" "}
+                <b>Positive only</b> (the default) carries unspent remainder
+                forward but drops overspend on the floor. <b>Both</b> carries
+                signed: unspent rolls forward as headroom, overspend rolls forward
+                as debt that next period must absorb. Pair "both" with the
+                Reckoning view to settle past-month overspends explicitly instead
+                of letting them stack up silently.
             </CalloutCard>
             <Paragraph>
                 Categories (not envelopes) carry a <b>priority tier</b> —{" "}
@@ -687,7 +692,7 @@ function Transactions() {
                 />
                 <TxTypeCard
                     type="Adjustment"
-                    body="Reconcile a drift. Enter the correct new balance and Orbit computes + records the delta."
+                    body="Reconcile a balance discrepancy. Enter the correct new balance and Orbit computes + records the delta."
                 />
             </div>
             <Paragraph>
@@ -709,7 +714,7 @@ function Transactions() {
                     body="When you transfer money from a personal account (not shared with a space) into that space — e.g. topping up a family pot from your own checking — the space sees it as income for the period, not a mystery balance bump. Internal rebalances (both accounts already in the space) stay neutral. A transfer's fee is the source account's expense, so it only shows up in the space whose accounts actually paid it. You can record the transfer in whichever space makes sense for categorization (e.g. your personal space if you want to keep the sending account private); each space still sees what actually happened to its own accounts."
                 />
                 <InfoCard
-                    title="Inflow & outflow are per-account, not per-space"
+                    title="Cash flow follows the accounts"
                     body="Cash flow, period net, balance trend, and the spending heatmap all read from the accounts shared into the space you're viewing. If an account is shared into two spaces, both spaces see every inflow and outflow on that account. An account you didn't share stays private — no info leaks to spaces that can't see it. This is why 'income this month' and the balance trend always agree now: both are derived from real movement on the space's accounts rather than from which space you happened to record a row in."
                 />
             </div>
@@ -776,31 +781,41 @@ function Allocations() {
         <section className="grid gap-4">
             <SectionHeader
                 id="allocations"
-                title="Allocations — where money lives vs what it's for"
+                title="Envelopes are intent · accounts are the ledger"
                 kicker="What makes Orbit different"
                 icon={Sparkles}
             />
             <Paragraph>
-                Most budgeting apps ask one question: <i>which envelope is this money
-                for?</i> Orbit asks two — and that's the whole trick:
+                Two orthogonal questions about your money — and Orbit gives each
+                one its own surface so you don't conflate them:
             </Paragraph>
             <div className="grid gap-3 sm:grid-cols-2">
                 <InfoCard
-                    title="1. Which envelope (or plan)?"
-                    body="Routes the money's purpose. 'This $500 is for Groceries.'"
+                    title="What is this money FOR?"
+                    body="Answered by envelopes. Allocate, plan, and track intent at the space level — not pinned to any specific account."
                 />
                 <InfoCard
-                    title="2. Which account, if any?"
-                    body="Pins the money's location. 'And specifically, the $500 lives in my wallet.'"
+                    title="Where does this money LIVE?"
+                    body="Answered by accounts. Balances, statements, and the running ledger of every transaction that hit them."
                 />
             </div>
             <Paragraph>
-                Account pinning is optional — allocate to the{" "}
-                <b>unassigned pool</b> when you don't care which account the envelope pulls
-                from. Pin an account when you want a fine-grained answer to "is there
-                enough in the wallet for this week's groceries?"
+                Allocations live on the envelope, not on an account. Plan{" "}
+                <b>$300 for Groceries</b> at the start of the month — the system
+                doesn't care which checking, wallet, or card the actual purchases
+                hit. As the month progresses, transactions tagged to a Groceries
+                category drain that envelope; the accounts independently reflect
+                where the cash actually moved.
             </Paragraph>
-            <ScreenshotPlaceholder label="Allocation flow bar on envelope detail — per-account partitions" />
+            <Paragraph>
+                The <b>Plan this month</b> page gives you a single screen to set
+                every envelope at once — last month's actual, last month's plan,
+                and a fresh column for this month. The legacy{" "}
+                <b>Allocation matrix</b> view still exists but is reporting-only
+                now; it shows the historical envelope × account grid for
+                reconciliation, not as a flow you have to maintain.
+            </Paragraph>
+            <ScreenshotPlaceholder label="Plan this month — bulk-edit screen with last actual / last plan / this plan columns" />
         </section>
     );
 }
@@ -808,23 +823,34 @@ function Allocations() {
 function Drift() {
     return (
         <section className="grid gap-4">
-            <SectionHeader id="drift" title="Drift & rebalancing" icon={Shield} />
+            <SectionHeader id="drift" title="Overspend & reckoning" icon={Shield} />
             <Paragraph>
-                <b>Drift</b> is when an envelope-account partition has spent more than it's
-                been allocated. Example: you allocated $500 for Groceries from your wallet,
-                then accidentally spent $600 from it. The wallet-Groceries partition shows{" "}
-                <span className="text-[color:var(--expense)] font-medium">−$100 drift</span>
-                . It's a display concept, not an accounting error — your accounts are
-                correct, just the earmarking is off.
+                Envelopes are a <b>planning</b> tool, not a cash partition. When an
+                envelope spends more than it was allocated for the period, you have
+                three honest ways to settle it — pick one when the transaction
+                happens, or settle later in the <b>Reckoning</b> view at the end of
+                the month.
             </Paragraph>
+            <ul className="grid gap-2 sm:grid-cols-3">
+                <li className="text-sm">
+                    <b>Pull from another envelope</b> — move allocation from a
+                    less-pressed envelope to cover the gap.
+                </li>
+                <li className="text-sm">
+                    <b>Borrow from next month</b> — links a +$X / −$X allocation
+                    pair, so next month opens already short and you can't forget.
+                </li>
+                <li className="text-sm">
+                    <b>Absorb it</b> — leave the envelope negative on the record.
+                    The annual <b>Year report</b> remembers.
+                </li>
+            </ul>
             <Paragraph>
-                The <b>Overview</b> page shows a Drift Alerts card with the worst
-                offenders. Click one to jump into the envelope detail and rebalance:
-                transfer allocation from a healthy partition (e.g. wallet ⇒ Entertainment
-                has $200 spare) into the drifted one. No accounting gymnastics — just
-                re-label the earmark.
+                The legacy per-account "drift" concept is retired: envelopes are
+                no longer partitioned by account. The historical Allocation matrix
+                is preserved as a reporting view only.
             </Paragraph>
-            <ScreenshotPlaceholder label="Drift alerts card + rebalance dialog" />
+            <ScreenshotPlaceholder label="Reckoning view + borrow-from-next-month dialog" />
         </section>
     );
 }
@@ -844,7 +870,7 @@ function Analytics() {
                     <b>Categories</b> — spend by category with subtree roll-up
                 </li>
                 <li className="text-sm">
-                    <b>Envelopes</b> — utilization + per-account breakdown
+                    <b>Envelopes</b> — utilization + borrow obligations
                 </li>
                 <li className="text-sm">
                     <b>Balance</b> — running total balance over time

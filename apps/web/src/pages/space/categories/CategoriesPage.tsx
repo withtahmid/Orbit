@@ -59,6 +59,7 @@ import { usePeriod } from "@/hooks/usePeriod";
 import { trpc } from "@/trpc";
 import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import { resolvePeriod } from "@/lib/dates";
 
@@ -909,9 +910,11 @@ function CreateCategoryDialog({
     const [priority, setPriority] = useState<Priority | "">("");
     const [notes, setNotes] = useState("");
     const invalidate = useInvalidateAnalytics();
+    const idem = useIdempotencyKey();
     const create = trpc.expenseCategory.create.useMutation({
         onSuccess: async () => {
             toast.success("Category created");
+            idem.rotate();
             await invalidate(space.id);
             setName("");
             setEnvelopId(defaultEnvelopeId ?? "");
@@ -932,6 +935,7 @@ function CreateCategoryDialog({
         : null;
 
     const submit = () => {
+        if (create.isPending) return;
         if (!name.trim()) return;
         if (!effectiveEnvelopId) {
             toast.error("Pick an envelope");
@@ -949,6 +953,7 @@ function CreateCategoryDialog({
             color,
             icon,
             priority: priority === "" ? undefined : priority,
+            idempotencyKey: idem.key,
         });
     };
 

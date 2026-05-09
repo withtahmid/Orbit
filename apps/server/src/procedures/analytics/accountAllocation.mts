@@ -63,7 +63,7 @@ export const accountAllocation = authorizedProcedure
                     color: string;
                     icon: string;
                     cadence: string;
-                    carry_over: boolean;
+                    carry_policy: string;
                     allocated: string;
                     consumed: string;
                     carry_in: string;
@@ -71,7 +71,7 @@ export const accountAllocation = authorizedProcedure
                     WITH period AS (
                         SELECT
                             e.id AS envelop_id,
-                            e.name, e.color, e.icon, e.cadence, e.carry_over,
+                            e.name, e.color, e.icon, e.cadence, e.carry_policy,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '1970-01-01'
                                 WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
@@ -93,7 +93,7 @@ export const accountAllocation = authorizedProcedure
                     )
                     SELECT
                         p.envelop_id::text AS envelop_id,
-                        p.name, p.color, p.icon, p.cadence, p.carry_over,
+                        p.name, p.color, p.icon, p.cadence, p.carry_policy,
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
@@ -133,7 +133,41 @@ export const accountAllocation = authorizedProcedure
                             ) entry
                         ), 0)::text AS consumed,
                         CASE
-                            WHEN p.cadence <> 'none' AND p.carry_over THEN GREATEST(0, (
+                            WHEN p.cadence = 'none' OR p.carry_policy = 'reset' THEN 0
+                            WHEN p.carry_policy = 'both' THEN (
+                                COALESCE((
+                                    SELECT SUM(a.amount)
+                                    FROM envelop_allocations a
+                                    WHERE a.envelop_id = p.envelop_id
+                                      AND a.account_id = ${input.accountId}
+                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
+                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
+                                ), 0)
+                                -
+                                COALESCE((
+                                    SELECT SUM(entry.amount) FROM (
+                                        SELECT t.amount
+                                        FROM transactions t
+                                        JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                        WHERE ec.envelop_id = p.envelop_id
+                                          AND t.type = 'expense'
+                                          AND t.source_account_id = ${input.accountId}
+                                          AND t.transaction_datetime >= p.prev_start
+                                          AND t.transaction_datetime < p.prev_end
+                                        UNION ALL
+                                        SELECT t.fee_amount AS amount
+                                        FROM transactions t
+                                        JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                        WHERE ec.envelop_id = p.envelop_id
+                                          AND t.type = 'transfer'
+                                          AND t.fee_amount IS NOT NULL
+                                          AND t.source_account_id = ${input.accountId}
+                                          AND t.transaction_datetime >= p.prev_start
+                                          AND t.transaction_datetime < p.prev_end
+                                    ) entry
+                                ), 0)
+                            )
+                            ELSE GREATEST(0, (
                                 COALESCE((
                                     SELECT SUM(a.amount)
                                     FROM envelop_allocations a
@@ -166,7 +200,6 @@ export const accountAllocation = authorizedProcedure
                                     ) entry
                                 ), 0)
                             ))
-                            ELSE 0
                         END::text AS carry_in
                     FROM period p
                     ORDER BY p.name ASC

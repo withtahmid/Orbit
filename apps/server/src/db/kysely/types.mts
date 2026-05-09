@@ -78,6 +78,7 @@ export interface Envelops {
   archived: Generated<boolean>;
   cadence: Generated<string>;
   carry_over: Generated<boolean>;
+  carry_policy: Generated<string>;
   color: Generated<string>;
   created_at: Generated<Timestamp>;
   description: string | null;
@@ -141,6 +142,24 @@ export interface Files {
   uploaded_by: string | null;
 }
 
+export interface ReckoningAcknowledgments {
+  acknowledged_at: Generated<Timestamp>;
+  envelop_id: string;
+  period_start: Timestamp;
+  resolution: string;
+  space_id: string;
+  user_id: string;
+}
+
+export interface IdempotencyKeys {
+  created_at: Generated<Timestamp>;
+  expires_at: Generated<Timestamp>;
+  key: string;
+  operation: string;
+  response: Json | null;
+  user_id: string;
+}
+
 export interface PlanAllocations {
   account_id: string | null;
   amount: Numeric;
@@ -177,6 +196,7 @@ export interface SpaceMembers {
 }
 
 export interface Spaces {
+  budget_mode: Generated<string>;
   created_at: Generated<Timestamp>;
   created_by: string;
   id: Generated<string>;
@@ -244,8 +264,10 @@ export interface DB {
   expense_categories: ExpenseCategories;
   exported_reports: ExportedReports;
   files: Files;
+  idempotency_keys: IdempotencyKeys;
   plan_allocations: PlanAllocations;
   plans: Plans;
+  reckoning_acknowledgments: ReckoningAcknowledgments;
   space_accounts: SpaceAccounts;
   space_members: SpaceMembers;
   spaces: Spaces;

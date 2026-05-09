@@ -72,10 +72,13 @@ export const envelopeUtilization = authorizedProcedure
                     description: string | null;
                     cadence: string;
                     carry_over: boolean;
+                    carry_policy: string;
                     archived: boolean;
                     allocated: string;
                     consumed: string;
                     carry_in: string;
+                    borrowed_in: string;
+                    borrowed_out: string;
                 }>`
                     SELECT
                         e.id::text AS envelop_id,
@@ -85,7 +88,47 @@ export const envelopeUtilization = authorizedProcedure
                         e.description,
                         e.cadence,
                         e.carry_over,
+                        e.carry_policy,
                         e.archived,
+                        -- Borrow rows that landed IN this period (positive
+                        -- amounts paired via borrowed_link_id). UI uses
+                        -- this to surface "+$X borrowed from next month"
+                        -- on the period's planning view.
+                        COALESCE((
+                            SELECT SUM(a.amount)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                              AND a.borrowed_link_id IS NOT NULL
+                              AND a.amount > 0
+                              AND COALESCE(
+                                    a.period_start,
+                                    DATE_TRUNC('month', a.created_at)::date
+                                  ) >= ${periodStart}::date
+                              AND COALESCE(
+                                    a.period_start,
+                                    DATE_TRUNC('month', a.created_at)::date
+                                  ) < ${periodEnd}::date
+                        ), 0)::text AS borrowed_in,
+                        -- Borrow rows OWED OUT of this period (negative
+                        -- amounts; the abs value is what a previous
+                        -- period borrowed from this one). Surfaces as
+                        -- "−$X borrowed out" so the user remembers a
+                        -- past period already drew on this one.
+                        COALESCE((
+                            SELECT SUM(-a.amount)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                              AND a.borrowed_link_id IS NOT NULL
+                              AND a.amount < 0
+                              AND COALESCE(
+                                    a.period_start,
+                                    DATE_TRUNC('month', a.created_at)::date
+                                  ) >= ${periodStart}::date
+                              AND COALESCE(
+                                    a.period_start,
+                                    DATE_TRUNC('month', a.created_at)::date
+                                  ) < ${periodEnd}::date
+                        ), 0)::text AS borrowed_out,
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
@@ -121,38 +164,77 @@ export const envelopeUtilization = authorizedProcedure
                                   AND t.transaction_datetime < ${periodEnd}
                             ) entry
                         ), 0)::text AS consumed,
+                        -- carry_in honors the three-mode carry_policy:
+                        --   'reset'         → 0
+                        --   'positive_only' → GREATEST(0, prev_remaining)
+                        --   'both'          → prev_remaining (signed; debt persists)
+                        -- cadence='none' envelopes never carry (single rolling window).
                         CASE
-                            WHEN e.cadence <> 'none' AND e.carry_over THEN GREATEST(0, (
-                                COALESCE((
-                                    SELECT SUM(a.amount)
-                                    FROM envelop_allocations a
-                                    WHERE a.envelop_id = e.id
-                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${prevStart}::date
-                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${prevEnd}::date
-                                ), 0)
-                                -
-                                COALESCE((
-                                    SELECT SUM(entry.amount) FROM (
-                                        SELECT t.amount
-                                        FROM transactions t
-                                        JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                        WHERE ec.envelop_id = e.id
-                                          AND t.type = 'expense'
-                                          AND t.transaction_datetime >= ${prevStart}
-                                          AND t.transaction_datetime < ${prevEnd}
-                                        UNION ALL
-                                        SELECT t.fee_amount AS amount
-                                        FROM transactions t
-                                        JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                        WHERE ec.envelop_id = e.id
-                                          AND t.type = 'transfer'
-                                          AND t.fee_amount IS NOT NULL
-                                          AND t.transaction_datetime >= ${prevStart}
-                                          AND t.transaction_datetime < ${prevEnd}
-                                    ) entry
-                                ), 0)
-                            ))
-                            ELSE 0
+                            WHEN e.cadence = 'none' OR e.carry_policy = 'reset' THEN 0
+                            ELSE (
+                                CASE
+                                    WHEN e.carry_policy = 'both' THEN (
+                                        COALESCE((
+                                            SELECT SUM(a.amount)
+                                            FROM envelop_allocations a
+                                            WHERE a.envelop_id = e.id
+                                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${prevStart}::date
+                                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${prevEnd}::date
+                                        ), 0)
+                                        -
+                                        COALESCE((
+                                            SELECT SUM(entry.amount) FROM (
+                                                SELECT t.amount
+                                                FROM transactions t
+                                                JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                                WHERE ec.envelop_id = e.id
+                                                  AND t.type = 'expense'
+                                                  AND t.transaction_datetime >= ${prevStart}
+                                                  AND t.transaction_datetime < ${prevEnd}
+                                                UNION ALL
+                                                SELECT t.fee_amount AS amount
+                                                FROM transactions t
+                                                JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                                WHERE ec.envelop_id = e.id
+                                                  AND t.type = 'transfer'
+                                                  AND t.fee_amount IS NOT NULL
+                                                  AND t.transaction_datetime >= ${prevStart}
+                                                  AND t.transaction_datetime < ${prevEnd}
+                                            ) entry
+                                        ), 0)
+                                    )
+                                    ELSE GREATEST(0, (
+                                        COALESCE((
+                                            SELECT SUM(a.amount)
+                                            FROM envelop_allocations a
+                                            WHERE a.envelop_id = e.id
+                                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${prevStart}::date
+                                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${prevEnd}::date
+                                        ), 0)
+                                        -
+                                        COALESCE((
+                                            SELECT SUM(entry.amount) FROM (
+                                                SELECT t.amount
+                                                FROM transactions t
+                                                JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                                WHERE ec.envelop_id = e.id
+                                                  AND t.type = 'expense'
+                                                  AND t.transaction_datetime >= ${prevStart}
+                                                  AND t.transaction_datetime < ${prevEnd}
+                                                UNION ALL
+                                                SELECT t.fee_amount AS amount
+                                                FROM transactions t
+                                                JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                                WHERE ec.envelop_id = e.id
+                                                  AND t.type = 'transfer'
+                                                  AND t.fee_amount IS NOT NULL
+                                                  AND t.transaction_datetime >= ${prevStart}
+                                                  AND t.transaction_datetime < ${prevEnd}
+                                            ) entry
+                                        ), 0)
+                                    ))
+                                END
+                            )
                         END::text AS carry_in
                     FROM envelops e
                     WHERE e.space_id = ${input.spaceId}
@@ -170,7 +252,7 @@ export const envelopeUtilization = authorizedProcedure
                     prev_allocated: string;
                     prev_consumed: string;
                     cadence: string;
-                    carry_over: boolean;
+                    carry_policy: string;
                 }>`
                     WITH alloc AS (
                         SELECT a.envelop_id,
@@ -222,7 +304,7 @@ export const envelopeUtilization = authorizedProcedure
                         JOIN envelops e ON e.id = a.envelop_id
                         WHERE e.space_id = ${input.spaceId}
                           AND e.cadence <> 'none'
-                          AND e.carry_over
+                          AND e.carry_policy <> 'reset'
                           AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${prevStart}::date
                           AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${prevEnd}::date
                         GROUP BY a.envelop_id, a.account_id
@@ -238,7 +320,7 @@ export const envelopeUtilization = authorizedProcedure
                             JOIN envelops e ON e.id = ec.envelop_id
                             WHERE ec.space_id = ${input.spaceId}
                               AND e.cadence <> 'none'
-                              AND e.carry_over
+                              AND e.carry_policy <> 'reset'
                               AND t.type = 'expense'
                               AND t.transaction_datetime >= ${prevStart}
                               AND t.transaction_datetime < ${prevEnd}
@@ -251,7 +333,7 @@ export const envelopeUtilization = authorizedProcedure
                             JOIN envelops e ON e.id = ec.envelop_id
                             WHERE ec.space_id = ${input.spaceId}
                               AND e.cadence <> 'none'
-                              AND e.carry_over
+                              AND e.carry_policy <> 'reset'
                               AND t.type = 'transfer'
                               AND t.fee_amount IS NOT NULL
                               AND t.transaction_datetime >= ${prevStart}
@@ -276,7 +358,7 @@ export const envelopeUtilization = authorizedProcedure
                         COALESCE(pa.amount, 0)::text AS prev_allocated,
                         COALESCE(ps.amount, 0)::text AS prev_consumed,
                         e.cadence,
-                        e.carry_over
+                        e.carry_policy
                     FROM merged m
                     JOIN envelops e ON e.id = m.envelop_id
                     LEFT JOIN alloc a
@@ -311,9 +393,11 @@ export const envelopeUtilization = authorizedProcedure
                     const prevAllocated = Number(r.prev_allocated);
                     const prevConsumed = Number(r.prev_consumed);
                     const carryIn =
-                        r.cadence !== "none" && r.carry_over
-                            ? Math.max(0, prevAllocated - prevConsumed)
-                            : 0;
+                        r.cadence === "none" || r.carry_policy === "reset"
+                            ? 0
+                            : r.carry_policy === "both"
+                              ? prevAllocated - prevConsumed
+                              : Math.max(0, prevAllocated - prevConsumed);
                     const remaining = carryIn + allocated - consumed;
                     const row = {
                         accountId: r.account_id,
@@ -341,11 +425,17 @@ export const envelopeUtilization = authorizedProcedure
                         description: t.description,
                         cadence: t.cadence as "none" | "monthly",
                         carryOver: t.carry_over,
+                        carryPolicy: t.carry_policy as
+                            | "reset"
+                            | "positive_only"
+                            | "both",
                         archived: t.archived,
                         allocated,
                         consumed,
                         carryIn,
                         remaining,
+                        borrowedIn: Number(t.borrowed_in),
+                        borrowedOut: Number(t.borrowed_out),
                         isDrift: remaining < 0,
                         breakdown: breakdownByEnvelope.get(t.envelop_id) ?? [],
                     };

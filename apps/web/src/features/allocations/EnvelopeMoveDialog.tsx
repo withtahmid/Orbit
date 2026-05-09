@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { startOfMonth, endOfMonth } from "@/lib/dates";
 
 /**
@@ -71,9 +72,11 @@ export function EnvelopeMoveDialog({
     );
 
     const utils = trpc.useUtils();
+    const idem = useIdempotencyKey();
     const mutation = trpc.allocation.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Moved");
+            idem.rotate();
             await Promise.all([
                 utils.envelop.allocationListBySpace.invalidate({
                     spaceId: space.id,
@@ -145,6 +148,7 @@ export function EnvelopeMoveDialog({
                     className="grid gap-3"
                     onSubmit={(e) => {
                         e.preventDefault();
+                        if (mutation.isPending) return;
                         const n = Number(amount);
                         if (!(n > 0)) {
                             toast.error("Enter a positive amount");
@@ -164,6 +168,7 @@ export function EnvelopeMoveDialog({
                                 kind: "envelop",
                                 envelopId: destinationId,
                             },
+                            idempotencyKey: idem.key,
                         });
                     }}
                 >

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
     Mail,
@@ -56,6 +56,7 @@ import { EnvelopeMoveDialog } from "@/features/allocations/EnvelopeMoveDialog";
 import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { ROUTES } from "@/router/routes";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
@@ -224,6 +225,49 @@ export default function EnvelopesPage() {
               )
             : null;
 
+    // Mid-month gentle nudge. After day 21 of the current month, surface a
+    // one-time toast for each envelope that's already > 80% spent. Tracked
+    // via localStorage so we don't spam — once per envelope per month.
+    // Strict mode is the only thing that *blocks*; this is the soft layer.
+    useEffect(() => {
+        if (monthOffset !== 0) return;
+        const today = new Date();
+        if (today.getDate() < 21) return;
+        const monthKey = `${today.getFullYear()}-${today.getMonth() + 1}`;
+        const storageKey = `orbit:nudge:${space.id}:${monthKey}`;
+        let dismissed: string[] = [];
+        try {
+            dismissed = JSON.parse(
+                localStorage.getItem(storageKey) ?? "[]"
+            );
+        } catch {
+            dismissed = [];
+        }
+        for (const e of envelopes) {
+            if (e.cadence !== "monthly") continue;
+            const total = e.allocated + e.carryIn;
+            if (total <= 0) continue;
+            const ratio = e.consumed / total;
+            if (ratio < 0.8 || ratio > 1.5) continue;
+            if (dismissed.includes(e.envelopId)) continue;
+            const pct = Math.round(ratio * 100);
+            toast.message(`${e.name} is ${pct}% spent`, {
+                description: `${daysLeft} day${daysLeft === 1 ? "" : "s"} left this month. Pull from another envelope, borrow from next month, or just stay aware.`,
+                duration: 8000,
+            });
+            dismissed.push(e.envelopId);
+        }
+        try {
+            localStorage.setItem(storageKey, JSON.stringify(dismissed));
+        } catch {
+            // localStorage might be disabled (private mode) — fail silently.
+        }
+        // We intentionally exclude `daysLeft` from the dep array — the
+        // effect should fire when the envelope set materializes, not on
+        // every minute as `now` shifts. envelopes is the meaningful trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [envelopes, monthOffset, space.id]);
+
     const attention = useMemo(() => buildAttention(envelopes), [envelopes]);
     const priority = (priorityQuery.data ?? []).filter((p) => p.total > 0);
     const prioritySum = priority.reduce((s, p) => s + Number(p.total), 0);
@@ -305,6 +349,9 @@ export default function EnvelopesPage() {
                                 spaceId={space.id}
                                 viewingDate={viewingDate}
                             />
+                        )}
+                        {monthOffset === 0 && (
+                            <ReckoningBanner spaceId={space.id} />
                         )}
                         <div className="env-hero-stats">
                             <HeroStat
@@ -882,6 +929,40 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
    Helpers
    ============================================================ */
 
+function ReckoningBanner({ spaceId }: { spaceId: string }) {
+    // Pulls the count of unresolved past-month overspends. Shows nothing
+    // when zero — the dashboard stays clean unless the user actually has
+    // something to settle.
+    const pendingQuery = trpc.reckoning.listPending.useQuery({ spaceId });
+    const items = pendingQuery.data ?? [];
+    if (items.length === 0) return null;
+    const total = items.reduce((s, i) => s + i.overBy, 0);
+    return (
+        <Link
+            to={ROUTES.spaceReckoning(spaceId)}
+            className="env-reckoning-banner"
+        >
+            <span className="env-reckoning-dot" />
+            <span className="env-reckoning-text">
+                <span className="env-reckoning-title">
+                    {items.length} past-month overspend
+                    {items.length === 1 ? "" : "s"} need
+                    {items.length === 1 ? "s" : ""} attention
+                </span>
+                <span className="env-reckoning-sub">
+                    Total ${total.toFixed(2)} across{" "}
+                    {new Set(items.map((i) => i.envelopId)).size} envelope
+                    {new Set(items.map((i) => i.envelopId)).size === 1
+                        ? ""
+                        : "s"}
+                    . Decide how to settle.
+                </span>
+            </span>
+            <span className="env-reckoning-cta">Settle →</span>
+        </Link>
+    );
+}
+
 function UnbudgetedBanner({
     unallocated,
     isOverAllocated,
@@ -902,6 +983,16 @@ function UnbudgetedBanner({
     const sub = isOverAllocated
         ? "Your envelopes plan more than your accounts hold. Add income or reduce a plan."
         : "Money in your accounts that isn't planned for anything yet.";
+
+    // 90-day drain breakdown — surfaces silent overspend absorption that
+    // would otherwise drain the pool invisibly.
+    const trendQuery = trpc.analytics.unbudgetedTrend.useQuery({
+        spaceId,
+        windowDays: 90,
+    });
+    const [showBreakdown, setShowBreakdown] = useState(false);
+    const t = trendQuery.data;
+
     return (
         <div className="env-unbudgeted">
             <div className="env-unbudgeted-cell">
@@ -926,8 +1017,73 @@ function UnbudgetedBanner({
                                 maximumFractionDigits: 2,
                             })}
                         </span>
+                        {t && t.absorbedOverspend > 0 && (
+                            <button
+                                type="button"
+                                className="env-unbudgeted-trend"
+                                onClick={() => setShowBreakdown((v) => !v)}
+                                title="See what's drained the pool over the last 90 days"
+                            >
+                                ↓ ${t.absorbedOverspend.toFixed(0)} silent
+                                overspend (90d)
+                            </button>
+                        )}
                     </span>
                     <span className="env-unbudgeted-sub">{sub}</span>
+                    {showBreakdown && t && (
+                        <div className="env-unbudgeted-breakdown">
+                            <div className="env-unbudgeted-breakdown-row">
+                                <span>Income</span>
+                                <span className="tabular">
+                                    +${t.income.toFixed(2)}
+                                </span>
+                            </div>
+                            <div className="env-unbudgeted-breakdown-row">
+                                <span>Net new allocations</span>
+                                <span
+                                    className="tabular"
+                                    style={{
+                                        color:
+                                            t.allocationsNet > 0
+                                                ? "var(--expense)"
+                                                : "var(--income)",
+                                    }}
+                                >
+                                    {t.allocationsNet > 0 ? "−" : "+"}$
+                                    {Math.abs(t.allocationsNet).toFixed(2)}
+                                </span>
+                            </div>
+                            <div className="env-unbudgeted-breakdown-row">
+                                <span>Net plan allocations</span>
+                                <span
+                                    className="tabular"
+                                    style={{
+                                        color:
+                                            t.planAllocationsNet > 0
+                                                ? "var(--expense)"
+                                                : "var(--income)",
+                                    }}
+                                >
+                                    {t.planAllocationsNet > 0 ? "−" : "+"}$
+                                    {Math.abs(t.planAllocationsNet).toFixed(2)}
+                                </span>
+                            </div>
+                            <div className="env-unbudgeted-breakdown-row env-unbudgeted-breakdown-emph">
+                                <span>Silent overspend absorbed</span>
+                                <span
+                                    className="tabular"
+                                    style={{ color: "var(--expense)" }}
+                                >
+                                    −${t.absorbedOverspend.toFixed(2)}
+                                </span>
+                            </div>
+                            <div className="env-unbudgeted-breakdown-hint">
+                                Switch overspending envelopes to "Honest"
+                                carry mode to make this leak persist as
+                                debt instead of vanishing.
+                            </div>
+                        </div>
+                    )}
                 </span>
             </div>
             <Link
@@ -1193,6 +1349,8 @@ function SortPicker({
    Dialogs (preserved)
    ============================================================ */
 
+type CarryPolicy = "reset" | "positive_only" | "both";
+
 interface EditableEnvelope {
     envelopId: string;
     name: string;
@@ -1201,6 +1359,7 @@ interface EditableEnvelope {
     description: string | null;
     cadence: Cadence;
     carryOver: boolean;
+    carryPolicy?: CarryPolicy;
 }
 
 function CreateOrEditEnvelopeDialog({
@@ -1227,8 +1386,11 @@ function CreateOrEditEnvelopeDialog({
     const [icon, setIcon] = useState(envelope?.icon ?? "mail");
     const [description, setDescription] = useState(envelope?.description ?? "");
     const [cadence, setCadence] = useState<Cadence>(envelope?.cadence ?? "none");
-    const [carryOver, setCarryOver] = useState<boolean>(
-        envelope?.carryOver ?? false
+    // Three-mode carry policy. Defaults derive from the legacy boolean for
+    // existing envelopes that haven't been re-saved yet.
+    const [carryPolicy, setCarryPolicy] = useState<CarryPolicy>(
+        envelope?.carryPolicy ??
+            (envelope?.carryOver ? "positive_only" : "reset")
     );
 
     const invalidate = async () => {
@@ -1236,9 +1398,11 @@ function CreateOrEditEnvelopeDialog({
         await utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id });
     };
 
+    const idem = useIdempotencyKey();
     const create = trpc.envelop.create.useMutation({
         onSuccess: async () => {
             toast.success("Envelope created");
+            idem.rotate();
             await invalidate();
             setOpen(false);
         },
@@ -1255,7 +1419,9 @@ function CreateOrEditEnvelopeDialog({
     const pending = create.isPending || update.isPending;
 
     const submit = () => {
+        if (pending) return;
         if (!name.trim()) return;
+        const carryOverBool = carryPolicy !== "reset";
         if (editing) {
             update.mutate({
                 envelopId: envelope!.envelopId,
@@ -1264,7 +1430,8 @@ function CreateOrEditEnvelopeDialog({
                 icon,
                 description: description.trim() || null,
                 cadence,
-                carryOver,
+                carryOver: carryOverBool,
+                carryPolicy,
             });
         } else {
             create.mutate({
@@ -1274,7 +1441,9 @@ function CreateOrEditEnvelopeDialog({
                 icon,
                 description: description.trim() || undefined,
                 cadence,
-                carryOver,
+                carryOver: carryOverBool,
+                carryPolicy,
+                idempotencyKey: idem.key,
             });
         }
     };
@@ -1392,23 +1561,36 @@ function CreateOrEditEnvelopeDialog({
                         </OrbitField>
                         {cadence !== "none" ? (
                             <OrbitField
-                                label="Rollover"
-                                hint={carryOver ? "Carries forward" : "Resets monthly"}
+                                label="Carry policy"
+                                hint={
+                                    carryPolicy === "both"
+                                        ? "Surplus AND debt persist"
+                                        : carryPolicy === "positive_only"
+                                          ? "Surplus rolls forward"
+                                          : "Fresh slate every month"
+                                }
                             >
                                 <OrbitRadioRow
-                                    name="env-rollover"
-                                    value={carryOver ? "carry" : "reset"}
-                                    onChange={(v) => setCarryOver(v === "carry")}
+                                    name="env-carry-policy"
+                                    value={carryPolicy}
+                                    onChange={(v) =>
+                                        setCarryPolicy(v as CarryPolicy)
+                                    }
                                     options={[
-                                        {
-                                            value: "carry",
-                                            label: "Carry",
-                                            hint: "Unspent rolls",
-                                        },
                                         {
                                             value: "reset",
                                             label: "Reset",
-                                            hint: "Returns to pool",
+                                            hint: "Both directions",
+                                        },
+                                        {
+                                            value: "positive_only",
+                                            label: "Surplus",
+                                            hint: "Carry unspent",
+                                        },
+                                        {
+                                            value: "both",
+                                            label: "Honest",
+                                            hint: "Carry both",
                                         },
                                     ]}
                                 />
@@ -1479,6 +1661,12 @@ function ArchiveEnvelopeMenuItem({
 }) {
     const { space } = useCurrentSpace();
     const utils = trpc.useUtils();
+    // Pre-load any active borrow obligations so the confirm dialog can
+    // warn the user that archiving doesn't unwind them.
+    const borrowsQuery = trpc.envelop.listBorrows.useQuery(
+        { envelopId },
+        { enabled: !archived }
+    );
     const mutation = trpc.envelop.archive.useMutation({
         onSuccess: async () => {
             toast.success(archived ? "Unarchived" : "Archived");
@@ -1488,6 +1676,7 @@ function ArchiveEnvelopeMenuItem({
                     spaceId: space.id,
                 }),
                 utils.analytics.spaceSummary.invalidate(),
+                utils.envelop.listBorrows.invalidate({ envelopId }),
             ]);
         },
         onError: (e) => toast.error(e.message),
@@ -1511,6 +1700,13 @@ function ArchiveEnvelopeMenuItem({
             ? ` It currently has $${currentRemaining.toFixed(2)} allocated this period — that allocation stays put. Deallocate first if you want the cash back.`
             : "";
 
+    const borrows = borrowsQuery.data ?? [];
+    const borrowTotal = borrows.reduce((s, b) => s + b.amount, 0);
+    const borrowNote =
+        borrowTotal > 0
+            ? ` It also has $${borrowTotal.toFixed(2)} borrowed against future periods (${borrows.length} link${borrows.length === 1 ? "" : "s"}) — those obligations stay put after archive and will keep reducing those periods' planning pool. Use "Cancel borrow" on the envelope detail page first if you want to unwind them.`
+            : "";
+
     return (
         <ConfirmDialog
             trigger={
@@ -1519,7 +1715,7 @@ function ArchiveEnvelopeMenuItem({
                 </DropdownMenuItem>
             }
             title={`Archive "${envelopName}"?`}
-            description={`This hides ${envelopName} from the envelopes list and prevents new transactions in its categories. Existing data is preserved.${allocationNote}`}
+            description={`This hides ${envelopName} from the envelopes list and prevents new transactions in its categories. Existing data is preserved.${allocationNote}${borrowNote}`}
             confirmLabel="Archive"
             onConfirm={() => mutation.mutate({ envelopId, archived: true })}
         />
@@ -1675,6 +1871,102 @@ const ENV_STYLES = `
 .env-unbudgeted-cta:hover {
     background: var(--bg-elev-3);
     border-color: var(--line-strong);
+}
+.env-reckoning-banner {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--expense) 8%, var(--bg-elev-2));
+    border: 1px solid color-mix(in oklab, var(--expense) 30%, transparent);
+    text-decoration: none;
+    color: inherit;
+    transition: background 140ms ease;
+    position: relative;
+    z-index: 1;
+}
+.env-reckoning-banner:hover {
+    background: color-mix(in oklab, var(--expense) 14%, var(--bg-elev-2));
+}
+.env-reckoning-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--expense);
+    flex-shrink: 0;
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--expense) 18%, transparent);
+}
+.env-reckoning-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+}
+.env-reckoning-title {
+    font-size: 13px;
+    color: var(--fg);
+    font-weight: 500;
+}
+.env-reckoning-sub {
+    font-size: 11px;
+    color: var(--fg-3);
+}
+.env-reckoning-cta {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--expense);
+    white-space: nowrap;
+}
+.env-unbudgeted-trend {
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--expense) 12%, transparent);
+    border: 1px solid color-mix(in oklab, var(--expense) 30%, transparent);
+    color: var(--expense);
+    font-size: 10.5px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    vertical-align: middle;
+}
+.env-unbudgeted-trend:hover {
+    background: color-mix(in oklab, var(--expense) 18%, transparent);
+}
+.env-unbudgeted-breakdown {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--bg);
+    border: 1px solid var(--line-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    max-width: 420px;
+}
+.env-unbudgeted-breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+}
+.env-unbudgeted-breakdown-emph {
+    border-top: 1px dashed var(--line);
+    padding-top: 6px;
+    margin-top: 2px;
+    color: var(--fg);
+    font-weight: 500;
+}
+.env-unbudgeted-breakdown-hint {
+    font-size: 10.5px;
+    color: var(--fg-4);
+    margin-top: 4px;
+    line-height: 1.5;
 }
 
 .env-hero-stats {

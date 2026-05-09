@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { startOfMonth, endOfMonth, addMonths } from "@/lib/dates";
 
 type Direction = "allocate" | "deallocate";
@@ -64,10 +65,12 @@ export function EnvelopeAllocateDialog({
         { enabled: open }
     );
     const utils = trpc.useUtils();
+    const idem = useIdempotencyKey();
 
     const mutation = trpc.envelop.allocationCreate.useMutation({
         onSuccess: async () => {
             toast.success(direction === "allocate" ? "Allocated" : "Deallocated");
+            idem.rotate();
             await Promise.all([
                 utils.envelop.allocationListBySpace.invalidate({ spaceId: space.id }),
                 utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id }),
@@ -132,6 +135,7 @@ export function EnvelopeAllocateDialog({
                     className="grid gap-3"
                     onSubmit={(e) => {
                         e.preventDefault();
+                        if (mutation.isPending) return;
                         const n = Number(amount);
                         if (!(n > 0)) {
                             toast.error("Enter a positive amount");
@@ -142,6 +146,7 @@ export function EnvelopeAllocateDialog({
                             amount: direction === "allocate" ? n : -n,
                             accountId: null,
                             periodStart: resolvePeriodStart(),
+                            idempotencyKey: idem.key,
                         });
                     }}
                 >

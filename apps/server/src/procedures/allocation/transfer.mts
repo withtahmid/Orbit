@@ -11,6 +11,7 @@ import {
     effectivePeriodStart,
     type Cadence,
 } from "../envelop/utils/periodWindow.mjs";
+import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 /**
  * Transfer allocation between any two (envelope|plan, optional-account)
@@ -45,133 +46,146 @@ export const transferAllocation = authorizedProcedure
             amount: z.number().positive(),
             from: targetSchema,
             to: targetSchema,
+            idempotencyKey: z.string().uuid().optional(),
         })
     )
     .output(z.object({ message: z.string() }))
     .mutation(async ({ ctx, input }) => {
-        const [error] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
-                const fromInfo = await resolveTargetInfo(trx, input.from);
-                const toInfo = await resolveTargetInfo(trx, input.to);
-
-                if (fromInfo.spaceId !== toInfo.spaceId) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "Source and destination must be in the same space",
-                    });
-                }
-
-                if (sameTarget(input.from, input.to)) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "Source and destination cannot be the same partition",
-                    });
-                }
-
-                // Block transfers INTO an archived envelope. Transfers OUT
-                // of one are allowed so trapped cash can be freed without
-                // unarchiving.
-                if (input.to.kind === "envelop") {
-                    const dest = await trx
-                        .selectFrom("envelops")
-                        .select(["archived", "name"])
-                        .where("id", "=", input.to.envelopId)
-                        .executeTakeFirst();
-                    if (dest?.archived) {
-                        throw new TRPCError({
-                            code: "BAD_REQUEST",
-                            message: `Envelope "${dest.name}" is archived. Pick a different destination.`,
-                        });
-                    }
-                }
-
-                await resolveSpaceMembership({
+        const [error, result] = await safeAwait(
+            ctx.services.qb.transaction().execute(async (trx) =>
+                withIdempotency({
                     trx,
-                    spaceId: fromInfo.spaceId,
                     userId: ctx.auth.user.id,
-                    roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
-                });
+                    operation: "allocation.transfer",
+                    key: input.idempotencyKey,
+                    fn: async () => {
+                        const fromInfo = await resolveTargetInfo(trx, input.from);
+                        const toInfo = await resolveTargetInfo(trx, input.to);
 
-                // Verify any pinned account belongs to the space
-                for (const accountId of [
-                    targetAccountId(input.from),
-                    targetAccountId(input.to),
-                ]) {
-                    if (accountId) {
-                        const sa = await trx
-                            .selectFrom("space_accounts")
-                            .select("account_id")
-                            .where("account_id", "=", accountId)
-                            .where("space_id", "=", fromInfo.spaceId)
-                            .executeTakeFirst();
-                        if (!sa) {
+                        if (fromInfo.spaceId !== toInfo.spaceId) {
                             throw new TRPCError({
                                 code: "BAD_REQUEST",
-                                message: "Account does not belong to this space",
+                                message:
+                                    "Source and destination must be in the same space",
                             });
                         }
-                    }
-                }
 
-                // Source partition must have enough to give. Surface the
-                // available number via `cause` so the client can format
-                // it with MoneyDisplay instead of re-parsing the string.
-                if (fromInfo.available < input.amount) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "Source has insufficient available balance",
-                        cause: { available: fromInfo.available },
-                    });
-                }
+                        if (sameTarget(input.from, input.to)) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "Source and destination cannot be the same partition",
+                            });
+                        }
 
-                // Debit source
-                if (input.from.kind === "envelop") {
-                    await trx
-                        .insertInto("envelop_allocations")
-                        .values({
-                            envelop_id: input.from.envelopId,
-                            amount: -input.amount,
-                            created_by: ctx.auth.user.id,
-                            account_id: input.from.accountId ?? null,
-                            period_start: fromInfo.periodStart ?? null,
-                        })
-                        .execute();
-                } else {
-                    await trx
-                        .insertInto("plan_allocations")
-                        .values({
-                            plan_id: input.from.planId,
-                            amount: -input.amount,
-                            created_by: ctx.auth.user.id,
-                            account_id: input.from.accountId ?? null,
-                        })
-                        .execute();
-                }
+                        // Block transfers INTO an archived envelope.
+                        // Transfers OUT of one are allowed so trapped cash
+                        // can be freed without unarchiving.
+                        if (input.to.kind === "envelop") {
+                            const dest = await trx
+                                .selectFrom("envelops")
+                                .select(["archived", "name"])
+                                .where("id", "=", input.to.envelopId)
+                                .executeTakeFirst();
+                            if (dest?.archived) {
+                                throw new TRPCError({
+                                    code: "BAD_REQUEST",
+                                    message: `Envelope "${dest.name}" is archived. Pick a different destination.`,
+                                });
+                            }
+                        }
 
-                // Credit destination
-                if (input.to.kind === "envelop") {
-                    await trx
-                        .insertInto("envelop_allocations")
-                        .values({
-                            envelop_id: input.to.envelopId,
-                            amount: input.amount,
-                            created_by: ctx.auth.user.id,
-                            account_id: input.to.accountId ?? null,
-                            period_start: toInfo.periodStart ?? null,
-                        })
-                        .execute();
-                } else {
-                    await trx
-                        .insertInto("plan_allocations")
-                        .values({
-                            plan_id: input.to.planId,
-                            amount: input.amount,
-                            created_by: ctx.auth.user.id,
-                            account_id: input.to.accountId ?? null,
-                        })
-                        .execute();
-                }
-            })
+                        await resolveSpaceMembership({
+                            trx,
+                            spaceId: fromInfo.spaceId,
+                            userId: ctx.auth.user.id,
+                            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
+                        });
+
+                        // Verify any pinned account belongs to the space
+                        for (const accountId of [
+                            targetAccountId(input.from),
+                            targetAccountId(input.to),
+                        ]) {
+                            if (accountId) {
+                                const sa = await trx
+                                    .selectFrom("space_accounts")
+                                    .select("account_id")
+                                    .where("account_id", "=", accountId)
+                                    .where("space_id", "=", fromInfo.spaceId)
+                                    .executeTakeFirst();
+                                if (!sa) {
+                                    throw new TRPCError({
+                                        code: "BAD_REQUEST",
+                                        message:
+                                            "Account does not belong to this space",
+                                    });
+                                }
+                            }
+                        }
+
+                        // Source partition must have enough to give.
+                        if (fromInfo.available < input.amount) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "Source has insufficient available balance",
+                                cause: { available: fromInfo.available },
+                            });
+                        }
+
+                        // Debit source
+                        if (input.from.kind === "envelop") {
+                            await trx
+                                .insertInto("envelop_allocations")
+                                .values({
+                                    envelop_id: input.from.envelopId,
+                                    amount: -input.amount,
+                                    created_by: ctx.auth.user.id,
+                                    account_id: input.from.accountId ?? null,
+                                    period_start: fromInfo.periodStart ?? null,
+                                })
+                                .execute();
+                        } else {
+                            await trx
+                                .insertInto("plan_allocations")
+                                .values({
+                                    plan_id: input.from.planId,
+                                    amount: -input.amount,
+                                    created_by: ctx.auth.user.id,
+                                    account_id: input.from.accountId ?? null,
+                                })
+                                .execute();
+                        }
+
+                        // Credit destination
+                        if (input.to.kind === "envelop") {
+                            await trx
+                                .insertInto("envelop_allocations")
+                                .values({
+                                    envelop_id: input.to.envelopId,
+                                    amount: input.amount,
+                                    created_by: ctx.auth.user.id,
+                                    account_id: input.to.accountId ?? null,
+                                    period_start: toInfo.periodStart ?? null,
+                                })
+                                .execute();
+                        } else {
+                            await trx
+                                .insertInto("plan_allocations")
+                                .values({
+                                    plan_id: input.to.planId,
+                                    amount: input.amount,
+                                    created_by: ctx.auth.user.id,
+                                    account_id: input.to.accountId ?? null,
+                                })
+                                .execute();
+                        }
+
+                        return { message: "Allocation transferred" };
+                    },
+                })
+            )
         );
         if (error) {
             if (error instanceof TRPCError) throw error;
@@ -180,7 +194,7 @@ export const transferAllocation = authorizedProcedure
                 message: error.message || "Failed to transfer allocation",
             });
         }
-        return { message: "Allocation transferred" };
+        return result ?? { message: "Allocation transferred" };
     });
 
 async function resolveTargetInfo(
