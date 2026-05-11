@@ -7,7 +7,6 @@ import {
     SlidersHorizontal,
     Check,
     Calendar,
-    Layers,
     Wallet,
     Briefcase,
     Tag,
@@ -42,6 +41,10 @@ import type { RouterOutput } from "@/trpc";
 import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { cn } from "@/lib/utils";
 import { useCurrentSpaceId } from "@/hooks/useCurrentSpace";
+import { Link } from "react-router-dom";
+import { ROUTES } from "@/router/routes";
+import { AlertTriangle } from "lucide-react";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 import { getIcon } from "@/lib/entityIcons";
 
@@ -138,10 +141,45 @@ const TAB_META: Record<
 
 const TAB_ORDER: TxTab[] = ["expense", "income", "transfer", "adjustment"];
 
+/**
+ * Reads the current space's strict-mode status + pending reckoning count
+ * once at the sheet level so both the banner AND the Save button can
+ * react. Without this, the banner could show "you're blocked" while the
+ * button stays enabled — the user submits, gets a server toast, and has
+ * to navigate manually. Hoisting consolidates the truth.
+ */
+function useSheetStrictGate(open: boolean) {
+    const spaceId = useCurrentSpaceId();
+    const isPersonal = spaceId === "me";
+    const spacesQuery = trpc.space.list.useQuery(undefined, {
+        enabled: !isPersonal && open,
+    });
+    const space = spacesQuery.data?.find((s) => s.id === spaceId);
+    const isStrict = space?.budgetMode === "strict";
+    const reckoningQuery = trpc.reckoning.listPending.useQuery(
+        { spaceId },
+        { enabled: !isPersonal && isStrict && open }
+    );
+    const items = reckoningQuery.data ?? [];
+    const blocked = !isPersonal && isStrict && items.length > 0;
+    return {
+        isPersonal,
+        isStrict: !!isStrict,
+        items,
+        blocked,
+        spaceId,
+    };
+}
+
 export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } = {}) {
     const [open, setOpen] = useState(false);
     const [activeType, setActiveType] = useState<TxTab>("expense");
     const [formKey, setFormKey] = useState(0);
+    const strict = useSheetStrictGate(open);
+    // Save is only disabled when strict-blocked AND the user is on a
+    // spending tab. Income always records (server allows it) so the
+    // button stays usable on that tab.
+    const saveBlocked = strict.blocked && activeType !== "income";
     /* When true, the next successful submit re-renders the form with a fresh
        key (resetting all field state) instead of closing the sheet. Held in a
        ref because the mutation's onSuccess fires before React would observe
@@ -201,6 +239,12 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                                     type="button"
                                     className="nt-btn"
                                     onClick={submitAddAnother}
+                                    disabled={saveBlocked}
+                                    title={
+                                        saveBlocked
+                                            ? "Settle past-month overspends first"
+                                            : undefined
+                                    }
                                 >
                                     Save & add another
                                 </button>
@@ -209,6 +253,12 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                                 type="submit"
                                 form="nt-form"
                                 className="nt-btn nt-btn-primary"
+                                disabled={saveBlocked}
+                                title={
+                                    saveBlocked
+                                        ? "Settle past-month overspends first"
+                                        : undefined
+                                }
                             >
                                 <Check className="size-3.5" />
                                 {activeType === "adjustment"
@@ -244,6 +294,14 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                         })}
                     </div>
 
+                    {open && strict.blocked && (
+                        <StrictModeBanner
+                            activeType={activeType}
+                            spaceId={strict.spaceId}
+                            items={strict.items}
+                        />
+                    )}
+
                     <Tabs
                         value={activeType}
                         onValueChange={(v) => setActiveType(v as TxTab)}
@@ -267,7 +325,104 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
     );
 }
 
+/**
+ * Pre-flight banner: shows when the current space is in Strict mode and
+ * there are unresolved past-month overspends. Reading the strict gate
+ * BEFORE the user fills out the form is much better UX than letting them
+ * write a transaction, hit Save, and only then learn the request is
+ * blocked. Income still records (server allows it), so we soften the
+ * copy when the user is on that tab.
+ *
+ * State is fetched once in the parent (`useSheetStrictGate`) and passed
+ * in as props so the Save button + this banner share a single source of
+ * truth.
+ */
+function StrictModeBanner({
+    activeType,
+    spaceId,
+    items,
+}: {
+    activeType: TxTab;
+    spaceId: string;
+    items: { overBy: number }[];
+}) {
+    const total = items.reduce((s, i) => s + i.overBy, 0);
+    const incomeOk = activeType === "income";
+
+    return (
+        <div className="nt-strict-banner">
+            <AlertTriangle className="size-4" />
+            <div className="nt-strict-banner-text">
+                <div className="nt-strict-banner-title">
+                    Strict mode: {items.length} past-month overspend
+                    {items.length === 1 ? "" : "s"} unresolved
+                </div>
+                <div className="nt-strict-banner-sub">
+                    Total ${total.toFixed(2)}.{" "}
+                    {incomeOk
+                        ? "Income still records — but expense / transfer / adjust will be blocked until you settle."
+                        : "Expense / transfer / adjust are blocked until you settle. Income still records."}
+                </div>
+            </div>
+            <Link
+                to={ROUTES.spaceReckoning(spaceId)}
+                className="nt-strict-banner-cta"
+            >
+                Settle now →
+            </Link>
+        </div>
+    );
+}
+
 const NT_STYLES = `
+.nt-strict-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 14px;
+    margin: 12px 0 4px;
+    border-radius: 12px;
+    background: color-mix(in oklab, var(--expense) 10%, var(--bg-elev-2));
+    border: 1px solid color-mix(in oklab, var(--expense) 35%, transparent);
+    color: var(--fg);
+}
+.nt-strict-banner > svg {
+    color: var(--expense);
+    margin-top: 1px;
+    flex-shrink: 0;
+}
+.nt-strict-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+.nt-strict-banner-title {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--fg);
+}
+.nt-strict-banner-sub {
+    font-size: 11px;
+    color: var(--fg-3);
+    line-height: 1.4;
+}
+.nt-strict-banner-cta {
+    align-self: center;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--expense);
+    color: var(--bg);
+    font-size: 11.5px;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: opacity 140ms ease;
+}
+.nt-strict-banner-cta:hover {
+    opacity: 0.9;
+}
 .nt-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr 1fr;
@@ -388,6 +543,151 @@ const NT_STYLES = `
     font-size: 11px;
     font-weight: 500;
     border: 1px solid var(--line);
+}
+.nt-env-card {
+    padding: 12px 14px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.nt-env-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.nt-env-card-meta {
+    font-size: 11.5px;
+    color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+}
+.nt-env-warn {
+    border-top: 1px dashed var(--line);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.nt-env-warn-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+.nt-env-warn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--expense);
+    flex-shrink: 0;
+    margin-top: 6px;
+}
+.nt-env-warn-head-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.nt-env-warn-title {
+    font-size: 13px;
+    color: var(--fg);
+    font-weight: 500;
+    line-height: 1.35;
+}
+.nt-env-warn-sub {
+    font-size: 11.5px;
+    color: var(--fg-3);
+}
+
+.nt-recover-card {
+    background: var(--bg-elev-1);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: border-color 140ms ease;
+}
+.nt-recover-card:hover {
+    border-color: var(--line-strong);
+}
+.nt-recover-card-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.nt-recover-card-title {
+    font-size: 12.5px;
+    color: var(--fg);
+    font-weight: 500;
+    line-height: 1.3;
+}
+.nt-recover-card-hint {
+    font-size: 11px;
+    color: var(--fg-4);
+    line-height: 1.4;
+}
+.nt-recover-card-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.nt-recover-card-row--end {
+    justify-content: flex-end;
+}
+.nt-recover-select {
+    flex: 1 1 180px;
+    min-width: 0;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 12.5px;
+    padding: 0 10px;
+    font-family: inherit;
+    transition: border-color 140ms ease;
+}
+.nt-recover-select:focus {
+    outline: none;
+    border-color: var(--brand);
+}
+.nt-recover-btn {
+    height: 36px;
+    padding: 0 16px;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--bg-elev-2);
+    color: var(--fg);
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 140ms ease, border-color 140ms ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.nt-recover-btn:hover:not(:disabled) {
+    background: var(--bg-elev-3);
+    border-color: var(--line-strong);
+}
+.nt-recover-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+@media (max-width: 480px) {
+    .nt-recover-card-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .nt-recover-card-row--end {
+        align-items: stretch;
+    }
 }
 
 /* Transfer swap circle */
@@ -591,10 +891,12 @@ function EventSelect({
     onChange: (v: string) => void;
 }) {
     const eventsQuery = trpc.event.listBySpace.useQuery({ spaceId });
-    if (!eventsQuery.data || eventsQuery.data.length === 0) return null;
+    if (!eventsQuery.data) return null;
+    const activeEvents = eventsQuery.data.filter((ev) => ev.status === "active");
+    if (activeEvents.length === 0) return null;
     const items: OrbitSelectItem[] = [
         { value: "__none", label: "No event" },
-        ...eventsQuery.data.map((ev) => ({
+        ...activeEvents.map((ev) => ({
             value: ev.id,
             label: ev.name,
             leadIcon: <Calendar className="size-3.5" />,
@@ -616,38 +918,240 @@ function EventSelect({
     );
 }
 
-/** Compact "Will draw from envelope" pill shown under category in expense form. */
-function EnvelopeDrawHint({
+/** Rich status card under the category dropdown — shows the envelope's
+ *  current period spent/planned/remaining, and if this transaction would
+ *  push it negative, offers two recovery actions: Pull from another
+ *  envelope, or Borrow from next month. The transaction can also be saved
+ *  as overspend (the warning is informational, not a block). */
+function EnvelopeStatusCard({
+    spaceId,
     categoryId,
     categories,
     envelopes,
+    pendingAmount,
 }: {
+    spaceId: string;
     categoryId: string | null;
     categories: Category[];
     envelopes: Envelop[];
+    pendingAmount: number;
 }) {
-    if (!categoryId) return null;
-    const cat = categories.find((c) => c.id === categoryId);
+    const cat = categoryId ? categories.find((c) => c.id === categoryId) : null;
     const envelopeId = cat?.envelop_id ?? null;
-    const env = envelopeId ? envelopes.find((e) => e.id === envelopeId) : null;
+    const env = envelopeId
+        ? envelopes.find((e) => e.id === envelopeId)
+        : null;
+
+    const periodStart = useMemo(() => {
+        const d = new Date();
+        return new Date(d.getFullYear(), d.getMonth(), 1);
+    }, []);
+    const periodEnd = useMemo(() => {
+        const d = new Date();
+        return new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    }, []);
+
+    const utilizationQuery = trpc.analytics.envelopeUtilization.useQuery(
+        { spaceId, periodStart, periodEnd },
+        { enabled: !!envelopeId }
+    );
+
+    const utils = trpc.useUtils();
+    const pullIdem = useIdempotencyKey();
+    const borrowIdem = useIdempotencyKey();
+    const transferMutation = trpc.allocation.transfer.useMutation({
+        onSuccess: async () => {
+            toast.success("Pulled funds");
+            pullIdem.rotate();
+            await Promise.all([
+                utils.envelop.allocationListBySpace.invalidate({ spaceId }),
+                utils.analytics.envelopeUtilization.invalidate({ spaceId }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+    const borrowMutation = trpc.envelop.borrowFromNextMonth.useMutation({
+        onSuccess: async () => {
+            toast.success("Borrowed from next month");
+            borrowIdem.rotate();
+            await Promise.all([
+                utils.envelop.allocationListBySpace.invalidate({ spaceId }),
+                utils.analytics.envelopeUtilization.invalidate({ spaceId }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+    const [pullSourceId, setPullSourceId] = useState<string>("");
+
     if (!env) return null;
+
     const color = env.color || "var(--ent-2)";
     const Icon = getIcon(env.icon ?? null);
+
+    const utilRow = utilizationQuery.data?.find(
+        (u) => u.envelopId === env.id
+    );
+    const allocated = utilRow ? utilRow.allocated + utilRow.carryIn : 0;
+    const consumed = utilRow?.consumed ?? 0;
+    const remaining = utilRow?.remaining ?? 0;
+    const isMonthly = env.cadence === "monthly";
+
+    const overBy =
+        pendingAmount > remaining ? pendingAmount - remaining : 0;
+    const willOverspend = overBy > 0 && pendingAmount > 0;
+
+    // Other envelopes with positive remaining — sources for the "Pull"
+    // picker. Skip archived envelopes; they won't accept allocation
+    // changes via transfer either way.
+    const pullCandidates = (utilizationQuery.data ?? []).filter(
+        (u) => u.envelopId !== env.id && u.remaining > 0 && !u.archived
+    );
+
     return (
-        <div className="nt-env-row">
-            <Layers className="size-3.5" style={{ color: "var(--fg-3)" }} aria-hidden />
-            <span className="nt-env-row-label">Will draw from envelope</span>
-            <span
-                className="nt-env-chip"
-                style={{
-                    background: `color-mix(in oklab, ${color} 12%, transparent)`,
-                    borderColor: `color-mix(in oklab, ${color} 30%, transparent)`,
-                    color,
-                }}
-            >
-                <Icon className="size-3" />
-                {env.name}
-            </span>
+        <div className="nt-env-card">
+            <div className="nt-env-card-head">
+                <span
+                    className="nt-env-chip"
+                    style={{
+                        background: `color-mix(in oklab, ${color} 12%, transparent)`,
+                        borderColor: `color-mix(in oklab, ${color} 30%, transparent)`,
+                        color,
+                    }}
+                >
+                    <Icon className="size-3" />
+                    {env.name}
+                </span>
+                <span className="nt-env-card-meta">
+                    Spent ${consumed.toFixed(2)} of ${allocated.toFixed(2)}
+                    {" · "}
+                    <strong
+                        style={{
+                            color:
+                                remaining < 0
+                                    ? "var(--expense)"
+                                    : "var(--fg)",
+                        }}
+                    >
+                        ${remaining.toFixed(2)} left
+                    </strong>
+                </span>
+            </div>
+
+            {willOverspend && (
+                <div className="nt-env-warn">
+                    <div className="nt-env-warn-head">
+                        <span className="nt-env-warn-dot" />
+                        <div className="nt-env-warn-head-text">
+                            <span className="nt-env-warn-title">
+                                Will overspend {env.name} by{" "}
+                                <span className="tabular">
+                                    ${overBy.toFixed(2)}
+                                </span>
+                            </span>
+                            <span className="nt-env-warn-sub">
+                                Save as-is, or recover with one of these:
+                            </span>
+                        </div>
+                    </div>
+
+                    {pullCandidates.length > 0 && (
+                        <div className="nt-recover-card">
+                            <div className="nt-recover-card-head">
+                                <span className="nt-recover-card-title">
+                                    Pull from another envelope
+                                </span>
+                                <span className="nt-recover-card-hint">
+                                    Move ${overBy.toFixed(2)} of plan from
+                                    another bucket into {env.name}.
+                                </span>
+                            </div>
+                            <div className="nt-recover-card-row">
+                                <select
+                                    className="nt-recover-select"
+                                    value={pullSourceId}
+                                    onChange={(e) =>
+                                        setPullSourceId(e.target.value)
+                                    }
+                                >
+                                    <option value="">
+                                        Choose source envelope…
+                                    </option>
+                                    {pullCandidates.map((c) => (
+                                        <option
+                                            key={c.envelopId}
+                                            value={c.envelopId}
+                                        >
+                                            {c.name} · $
+                                            {c.remaining.toFixed(2)} left
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    className="nt-recover-btn"
+                                    disabled={
+                                        !pullSourceId ||
+                                        transferMutation.isPending
+                                    }
+                                    onClick={() =>
+                                        transferMutation.mutate({
+                                            amount: overBy,
+                                            from: {
+                                                kind: "envelop",
+                                                envelopId: pullSourceId,
+                                            },
+                                            to: {
+                                                kind: "envelop",
+                                                envelopId: env.id,
+                                            },
+                                            idempotencyKey: pullIdem.key,
+                                        })
+                                    }
+                                >
+                                    {transferMutation.isPending
+                                        ? "Pulling…"
+                                        : `Pull $${overBy.toFixed(2)}`}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {isMonthly && (
+                        <div className="nt-recover-card">
+                            <div className="nt-recover-card-head">
+                                <span className="nt-recover-card-title">
+                                    Borrow from next month
+                                </span>
+                                <span className="nt-recover-card-hint">
+                                    Adds ${overBy.toFixed(2)} to{" "}
+                                    {env.name} now and removes the same from
+                                    next month's plan.
+                                </span>
+                            </div>
+                            <div className="nt-recover-card-row nt-recover-card-row--end">
+                                <button
+                                    type="button"
+                                    className="nt-recover-btn"
+                                    disabled={borrowMutation.isPending}
+                                    onClick={() =>
+                                        borrowMutation.mutate({
+                                            envelopId: env.id,
+                                            amount: overBy,
+                                            idempotencyKey: borrowIdem.key,
+                                        })
+                                    }
+                                >
+                                    {borrowMutation.isPending
+                                        ? "Borrowing…"
+                                        : `Borrow $${overBy.toFixed(2)}`}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }
@@ -673,9 +1177,11 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
         [accountsQuery.data]
     );
 
+    const idem = useIdempotencyKey();
     const mutate = trpc.transaction.income.useMutation({
         onSuccess: async () => {
             toast.success("Income recorded");
+            idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
@@ -688,6 +1194,7 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
             className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
+                if (mutate.isPending) return;
                 if (!accountId) {
                     toast.error("Pick an account");
                     return;
@@ -702,6 +1209,7 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                     eventId: eventId || undefined,
                     attachmentFileIds:
                         attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    idempotencyKey: idem.key,
                 });
             }}
         >
@@ -796,9 +1304,24 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
         [accountsQuery.data]
     );
 
+    // Filter categories whose envelope is archived. Server blocks new
+    // transactions against them anyway; filtering here means the user
+    // never sees them as a selectable option to begin with.
+    const activeCategories = useMemo(() => {
+        const cats = categoriesQuery.data ?? [];
+        const envs = envelopesQuery.data ?? [];
+        const archivedEnvIds = new Set(
+            envs.filter((e) => e.archived).map((e) => e.id)
+        );
+        if (archivedEnvIds.size === 0) return cats;
+        return cats.filter((c) => !archivedEnvIds.has(c.envelop_id));
+    }, [categoriesQuery.data, envelopesQuery.data]);
+
+    const idem = useIdempotencyKey();
     const mutate = trpc.transaction.expense.useMutation({
         onSuccess: async () => {
             toast.success("Expense recorded");
+            idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
@@ -811,6 +1334,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
             className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
+                if (mutate.isPending) return;
                 if (!sourceAccountId || !categoryId) {
                     toast.error("Pick an account and category");
                     return;
@@ -826,6 +1350,7 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     eventId: eventId || undefined,
                     attachmentFileIds:
                         attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    idempotencyKey: idem.key,
                 });
             }}
         >
@@ -836,13 +1361,27 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 autoFocus
             />
 
-            <OrbitField label="Payee" hint="Optional · helps recognize this entry later">
-                <OrbitInput
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Tartine Bakery"
+            <OrbitField
+                label="Category"
+                hint="Envelope is inferred from the category"
+                required
+            >
+                <CategoryTreeSelect
+                    categories={activeCategories as any}
+                    value={categoryId}
+                    onChange={setCategoryId}
+                    placeholder="Choose category"
+                    allowAll={false}
                 />
             </OrbitField>
+
+            <EnvelopeStatusCard
+                spaceId={spaceId}
+                categoryId={categoryId}
+                categories={(categoriesQuery.data ?? []) as Category[]}
+                envelopes={(envelopesQuery.data ?? []) as Envelop[]}
+                pendingAmount={Number(amount) || 0}
+            />
 
             <OrbitFieldRow>
                 <OrbitField label="Date">
@@ -865,25 +1404,13 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 </OrbitField>
             </OrbitFieldRow>
 
-            <OrbitField
-                label="Category"
-                hint="Envelope is inferred from the category"
-                required
-            >
-                <CategoryTreeSelect
-                    categories={(categoriesQuery.data ?? []) as any}
-                    value={categoryId}
-                    onChange={setCategoryId}
-                    placeholder="Choose category"
-                    allowAll={false}
+            <OrbitField label="Payee" hint="Optional · helps recognize this entry later">
+                <OrbitInput
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Tartine Bakery"
                 />
             </OrbitField>
-
-            <EnvelopeDrawHint
-                categoryId={categoryId}
-                categories={(categoriesQuery.data ?? []) as Category[]}
-                envelopes={(envelopesQuery.data ?? []) as Envelop[]}
-            />
 
             <OrbitField label="Location" hint="Optional">
                 <OrbitInput
@@ -914,7 +1441,16 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
+    const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
+
+    const activeFeeCategories = useMemo(() => {
+        const cats = categoriesQuery.data ?? [];
+        const envs = envelopesQuery.data ?? [];
+        const archived = new Set(envs.filter((e) => e.archived).map((e) => e.id));
+        if (archived.size === 0) return cats;
+        return cats.filter((c) => !archived.has(c.envelop_id));
+    }, [categoriesQuery.data, envelopesQuery.data]);
 
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
@@ -948,9 +1484,11 @@ function TransferForm({ onDone }: { onDone: () => void }) {
         [accountsQuery.data, sourceAccountId]
     );
 
+    const idem = useIdempotencyKey();
     const mutate = trpc.transaction.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Transfer recorded");
+            idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
@@ -967,6 +1505,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
             className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
+                if (mutate.isPending) return;
                 if (!sourceAccountId || !destinationAccountId) {
                     toast.error("Pick both accounts");
                     return;
@@ -998,6 +1537,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     feeAmount: feeEnabled ? feeNum : undefined,
                     feeExpenseCategoryId:
                         feeEnabled && feeCategoryId ? feeCategoryId : undefined,
+                    idempotencyKey: idem.key,
                 });
             }}
         >
@@ -1067,7 +1607,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     </OrbitField>
                     <OrbitField label="Fee category" hint="Where the fee is logged">
                         <CategoryTreeSelect
-                            categories={(categoriesQuery.data ?? []) as any}
+                            categories={activeFeeCategories as any}
                             value={feeCategoryId}
                             onChange={setFeeCategoryId}
                             placeholder="Pick category"
@@ -1207,9 +1747,11 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
         [accountsQuery.data]
     );
 
+    const idem = useIdempotencyKey();
     const mutate = trpc.transaction.adjust.useMutation({
         onSuccess: async () => {
             toast.success("Balance adjusted");
+            idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
@@ -1231,6 +1773,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
             className="nt-form"
             onSubmit={(e: FormEvent) => {
                 e.preventDefault();
+                if (mutate.isPending) return;
                 if (!accountId) {
                     toast.error("Pick an account");
                     return;
@@ -1252,6 +1795,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     description: finalDesc,
                     attachmentFileIds:
                         attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    idempotencyKey: idem.key,
                 });
             }}
         >

@@ -54,10 +54,10 @@ export const personalPlanProgress = authorizedProcedure.query(async ({ ctx }) =>
                         SELECT SUM(pa.amount)
                         FROM plan_allocations pa
                         WHERE pa.plan_id = p.id
-                          AND pa.account_id = ANY(${ownedParam})
+                          AND (pa.account_id IS NULL OR pa.account_id = ANY(${ownedParam}))
                     ), 0)::text AS allocated,
-                    (SELECT MIN(pa.created_at) FROM plan_allocations pa WHERE pa.plan_id = p.id AND pa.account_id = ANY(${ownedParam})) AS first_allocated_at,
-                    (SELECT MAX(pa.created_at) FROM plan_allocations pa WHERE pa.plan_id = p.id AND pa.account_id = ANY(${ownedParam})) AS last_allocated_at
+                    (SELECT MIN(pa.created_at) FROM plan_allocations pa WHERE pa.plan_id = p.id AND (pa.account_id IS NULL OR pa.account_id = ANY(${ownedParam}))) AS first_allocated_at,
+                    (SELECT MAX(pa.created_at) FROM plan_allocations pa WHERE pa.plan_id = p.id AND (pa.account_id IS NULL OR pa.account_id = ANY(${ownedParam}))) AS last_allocated_at
                 FROM plans p
                 JOIN spaces s ON s.id = p.space_id
                 WHERE p.space_id = ANY(${memberSpaces})
@@ -76,7 +76,7 @@ export const personalPlanProgress = authorizedProcedure.query(async ({ ctx }) =>
                 FROM plan_allocations pa
                 JOIN plans p ON p.id = pa.plan_id
                 WHERE p.space_id = ANY(${memberSpaces})
-                  AND pa.account_id = ANY(${ownedParam})
+                  AND (pa.account_id IS NULL OR pa.account_id = ANY(${ownedParam}))
                 GROUP BY pa.plan_id, pa.account_id
             `.execute(ctx.services.qb);
 

@@ -1,0 +1,1 @@
+- [Events domain shape](events_domain_shape.md) — Events table/procedures/UI as of 2026-05-11; no personal-space twin for eventTotals.

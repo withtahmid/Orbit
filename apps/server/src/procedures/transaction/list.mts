@@ -5,6 +5,10 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 import type { SpaceMembers, Transactions } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
+import {
+    decodeTransactionCursor,
+    encodeTransactionCursor,
+} from "./utils/cursor.mjs";
 
 export const listTransactionsBySpace = authorizedProcedure
     .input(
@@ -23,7 +27,9 @@ export const listTransactionsBySpace = authorizedProcedure
             amountMax: z.number().nonnegative().nullish(),
             dateFrom: z.coerce.date().nullish(),
             dateTo: z.coerce.date().nullish(),
-            cursor: z.string().uuid().nullish(),
+            /* Opaque compound cursor `<isoDate>|<uuid>` — see
+               `./utils/cursor.mts`. */
+            cursor: z.string().max(80).nullish(),
             limit: z.number().int().min(1).max(200).default(50),
         })
     )
@@ -134,14 +140,40 @@ export const listTransactionsBySpace = authorizedProcedure
                     .$if(!!input.dateTo, (qb) =>
                         qb.where("transactions.transaction_datetime", "<", input.dateTo!)
                     )
-                    .$if(!!input.cursor, (qb) => qb.where("transactions.id", "<", input.cursor!))
+                    .$if(!!input.cursor, (qb) => {
+                        const decoded = decodeTransactionCursor(input.cursor!);
+                        if (!decoded) return qb;
+                        /* Keyset on (transaction_datetime, id):
+                           rows strictly before the cursor in the
+                           DESC, DESC order. */
+                        return qb.where((eb) =>
+                            eb.or([
+                                eb(
+                                    "transactions.transaction_datetime",
+                                    "<",
+                                    decoded.dt
+                                ),
+                                eb.and([
+                                    eb(
+                                        "transactions.transaction_datetime",
+                                        "=",
+                                        decoded.dt
+                                    ),
+                                    eb("transactions.id", "<", decoded.id),
+                                ]),
+                            ])
+                        );
+                    })
+                    .orderBy("transactions.transaction_datetime", "desc")
                     .orderBy("transactions.id", "desc")
                     .limit(input.limit + 1)
                     .execute();
 
                 const hasMore = rows.length > input.limit;
                 const items = hasMore ? rows.slice(0, input.limit) : rows;
-                const nextCursor = hasMore ? items[items.length - 1].id : null;
+                const nextCursor = hasMore
+                    ? encodeTransactionCursor(items[items.length - 1])
+                    : null;
 
                 return { items, nextCursor };
             })()

@@ -23,6 +23,7 @@ import {
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 
 type Direction = "allocate" | "deallocate";
 
@@ -50,9 +51,11 @@ export function PlanAllocateDialog({
     );
     const utils = trpc.useUtils();
 
+    const idem = useIdempotencyKey();
     const mutation = trpc.plan.allocationCreate.useMutation({
         onSuccess: async () => {
             toast.success(direction === "allocate" ? "Allocated" : "Deallocated");
+            idem.rotate();
             await Promise.all([
                 utils.plan.allocationListBySpace.invalidate({ spaceId: space.id }),
                 utils.analytics.planProgress.invalidate({ spaceId: space.id }),
@@ -101,6 +104,7 @@ export function PlanAllocateDialog({
                     className="grid gap-3"
                     onSubmit={(e) => {
                         e.preventDefault();
+                        if (mutation.isPending) return;
                         const n = Number(amount);
                         if (!(n > 0)) {
                             toast.error("Enter a positive amount");
@@ -110,6 +114,7 @@ export function PlanAllocateDialog({
                             planId,
                             amount: direction === "allocate" ? n : -n,
                             accountId,
+                            idempotencyKey: idem.key,
                         });
                     }}
                 >

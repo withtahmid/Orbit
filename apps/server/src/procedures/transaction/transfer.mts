@@ -8,7 +8,9 @@ import { TRPCError } from "@trpc/server";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
+import { resolveStrictGate } from "../space/utils/resolveStrictGate.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
+import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 export const createTransferTransaction = authorizedProcedure
     .input(
@@ -28,6 +30,7 @@ export const createTransferTransaction = authorizedProcedure
             // fields move together; DB CHECK enforces this.
             feeAmount: z.number().positive().optional(),
             feeExpenseCategoryId: z.string().uuid().optional(),
+            idempotencyKey: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -44,76 +47,91 @@ export const createTransferTransaction = authorizedProcedure
         }
 
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
-                await resolveTransactionPermission({
+            ctx.services.qb.transaction().execute(async (trx) =>
+                withIdempotency({
                     trx,
                     userId: ctx.auth.user.id,
-                    destinationAccountId: input.destinationAccountId,
-                    sourceAccountId: input.sourceAccountId,
-                    type: "transfer" as unknown as Transactions["type"],
-                });
+                    operation: "transaction.transfer",
+                    key: input.idempotencyKey,
+                    fn: async () => {
+                        await resolveStrictGate({
+                            trx,
+                            spaceId: input.spaceId,
+                            userId: ctx.auth.user.id,
+                        });
+                        await resolveTransactionPermission({
+                            trx,
+                            userId: ctx.auth.user.id,
+                            destinationAccountId: input.destinationAccountId,
+                            sourceAccountId: input.sourceAccountId,
+                            type: "transfer" as unknown as Transactions["type"],
+                        });
 
-                await resolveTransactionSpaceIntegrity({
-                    trx,
-                    spaceId: input.spaceId,
-                    sourceAccountId: input.sourceAccountId,
-                    destinationAccountId: input.destinationAccountId,
-                });
+                        await resolveTransactionSpaceIntegrity({
+                            trx,
+                            spaceId: input.spaceId,
+                            sourceAccountId: input.sourceAccountId,
+                            destinationAccountId: input.destinationAccountId,
+                        });
 
-                if (input.eventId) {
-                    await resolveEventBelongsToSpace({
-                        trx,
-                        eventId: input.eventId,
-                        spaceId: input.spaceId,
-                    });
-                }
+                        if (input.eventId) {
+                            await resolveEventBelongsToSpace({
+                                trx,
+                                eventId: input.eventId,
+                                spaceId: input.spaceId,
+                            });
+                        }
 
-                if (input.feeExpenseCategoryId) {
-                    await resolveExpenseCategoryBelongsToSpace({
-                        trx,
-                        expenseCategoryId: input.feeExpenseCategoryId,
-                        spaceId: input.spaceId,
-                    });
-                }
+                        if (input.feeExpenseCategoryId) {
+                            await resolveExpenseCategoryBelongsToSpace({
+                                trx,
+                                expenseCategoryId: input.feeExpenseCategoryId,
+                                spaceId: input.spaceId,
+                            });
+                        }
 
-                // Source must cover amount + fee. Passing the sum keeps
-                // the existing balance guard honest.
-                const totalOut = input.amount + (input.feeAmount ?? 0);
-                await resolveAvailableBalance({
-                    trx,
-                    accountId: input.sourceAccountId,
-                    requiredBalance: totalOut,
-                });
+                        // Source must cover amount + fee. Passing the sum
+                        // keeps the existing balance guard honest.
+                        const totalOut = input.amount + (input.feeAmount ?? 0);
+                        await resolveAvailableBalance({
+                            trx,
+                            accountId: input.sourceAccountId,
+                            requiredBalance: totalOut,
+                        });
 
-                const transaction = await trx
-                    .insertInto("transactions")
-                    .values({
-                        space_id: input.spaceId,
-                        created_by: ctx.auth.user.id,
-                        type: "transfer" as unknown as Transactions["type"],
-                        amount: input.amount,
-                        source_account_id: input.sourceAccountId,
-                        destination_account_id: input.destinationAccountId,
-                        description: input.description || null,
-                        location: input.location || null,
-                        transaction_datetime: input.datetime || new Date(),
-                        event_id: input.eventId ?? null,
-                        fee_amount: input.feeAmount ?? null,
-                        fee_expense_category_id:
-                            input.feeExpenseCategoryId ?? null,
-                    })
-                    .returning(["id"])
-                    .executeTakeFirstOrThrow();
+                        const transaction = await trx
+                            .insertInto("transactions")
+                            .values({
+                                space_id: input.spaceId,
+                                created_by: ctx.auth.user.id,
+                                type: "transfer" as unknown as Transactions["type"],
+                                amount: input.amount,
+                                source_account_id: input.sourceAccountId,
+                                destination_account_id:
+                                    input.destinationAccountId,
+                                description: input.description || null,
+                                location: input.location || null,
+                                transaction_datetime:
+                                    input.datetime || new Date(),
+                                event_id: input.eventId ?? null,
+                                fee_amount: input.feeAmount ?? null,
+                                fee_expense_category_id:
+                                    input.feeExpenseCategoryId ?? null,
+                            })
+                            .returning(["id"])
+                            .executeTakeFirstOrThrow();
 
-                await attachFilesToTransaction({
-                    trx,
-                    transactionId: transaction.id,
-                    fileIds: input.attachmentFileIds ?? [],
-                    userId: ctx.auth.user.id,
-                });
+                        await attachFilesToTransaction({
+                            trx,
+                            transactionId: transaction.id,
+                            fileIds: input.attachmentFileIds ?? [],
+                            userId: ctx.auth.user.id,
+                        });
 
-                return transaction;
-            })
+                        return transaction;
+                    },
+                })
+            )
         );
 
         if (error) {

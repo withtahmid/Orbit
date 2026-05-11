@@ -2,6 +2,14 @@ import { Kysely, sql } from "kysely";
 import type { DB } from "../../../db/kysely/types.mjs";
 import { resolvePeriodWindow, type Cadence } from "./periodWindow.mjs";
 
+/**
+ * Three-mode carry policy for envelopes:
+ *   reset         — fresh slate every period (was carry_over=false).
+ *   positive_only — surplus only (was carry_over=true).
+ *   both          — surplus + debt; overspend persists as obligation.
+ */
+export type CarryPolicy = "reset" | "positive_only" | "both";
+
 export interface PeriodBalanceRow {
     envelopId: string;
     accountId: string | null;
@@ -38,12 +46,13 @@ export async function resolveEnvelopePeriodBalance({
 }: Opts): Promise<PeriodBalanceRow> {
     const envelope = await trx
         .selectFrom("envelops")
-        .select(["id", "cadence", "carry_over"])
+        .select(["id", "cadence", "carry_policy"])
         .where("id", "=", envelopId)
         .executeTakeFirstOrThrow();
 
     const cadence = envelope.cadence as Cadence;
-    const carry = envelope.carry_over;
+    const policy = envelope.carry_policy as CarryPolicy;
+    const carry = policy !== "reset";
     const { start, end, prevStart, prevEnd } = resolvePeriodWindow(cadence, at);
 
     const row = await sql<{
@@ -98,10 +107,14 @@ export async function resolveEnvelopePeriodBalance({
         `
             .execute(trx)
             .then((r) => r.rows[0]);
-        // Carry only positive remainders — overspend doesn't propagate as debt
-        // into the next period automatically. (Matches the principle that
-        // drift is a display concept, not an enforced subtraction.)
-        carriedIn = Math.max(0, Number(prev?.remaining ?? 0));
+        const prevRemaining = Number(prev?.remaining ?? 0);
+        // Carry math depends on policy:
+        //   'positive_only' → only surpluses carry (legacy, asymmetric).
+        //   'both'          → surplus AND debt carry. The honest mode where
+        //                     overspend persists as a real obligation into
+        //                     the next period until covered.
+        carriedIn =
+            policy === "both" ? prevRemaining : Math.max(0, prevRemaining);
     }
 
     const allocated = Number(row?.allocated ?? 0);

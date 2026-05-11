@@ -110,7 +110,7 @@ export const personalSummary = authorizedProcedure
                         SELECT
                             e.id AS envelop_id,
                             e.cadence,
-                            e.carry_over,
+                            e.carry_policy,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '1970-01-01'
                                 WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
@@ -137,7 +137,7 @@ export const personalSummary = authorizedProcedure
                                 SELECT SUM(a.amount)
                                 FROM envelop_allocations a
                                 WHERE a.envelop_id = p.envelop_id
-                                  AND a.account_id = ANY(${owned})
+                                  AND (a.account_id IS NULL OR a.account_id = ANY(${owned}))
                                   AND (
                                       p.cadence = 'none'
                                       OR (
@@ -146,39 +146,103 @@ export const personalSummary = authorizedProcedure
                                       )
                                   )
                             ), 0) AS p_allocated,
+                            -- Consumption unions transfer fees that roll up
+                            -- to this envelope's category — matches the
+                            -- analytics formula so OverviewPage and
+                            -- EnvelopesView reconcile.
                             COALESCE((
-                                SELECT SUM(t.amount)
-                                FROM transactions t
-                                JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                WHERE ec.envelop_id = p.envelop_id
-                                  AND t.type = 'expense'
-                                  AND t.source_account_id = ANY(${owned})
-                                  AND t.transaction_datetime >= p.p_start
-                                  AND t.transaction_datetime < p.p_end
+                                SELECT SUM(entry.amount) FROM (
+                                    SELECT t.amount
+                                    FROM transactions t
+                                    JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                    WHERE ec.envelop_id = p.envelop_id
+                                      AND t.type = 'expense'
+                                      AND t.source_account_id = ANY(${owned})
+                                      AND t.transaction_datetime >= p.p_start
+                                      AND t.transaction_datetime < p.p_end
+                                    UNION ALL
+                                    SELECT t.fee_amount AS amount
+                                    FROM transactions t
+                                    JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                    WHERE ec.envelop_id = p.envelop_id
+                                      AND t.type = 'transfer'
+                                      AND t.fee_amount IS NOT NULL
+                                      AND t.source_account_id = ANY(${owned})
+                                      AND t.transaction_datetime >= p.p_start
+                                      AND t.transaction_datetime < p.p_end
+                                ) entry
                             ), 0) AS p_consumed,
+                            -- Three-mode carry policy:
+                            --   reset → 0; positive_only → max(0, prev_remaining);
+                            --   both → prev_remaining (signed; debt persists).
                             CASE
-                                WHEN p.cadence <> 'none' AND p.carry_over THEN GREATEST(0, (
+                                WHEN p.cadence = 'none' OR p.carry_policy = 'reset' THEN 0
+                                WHEN p.carry_policy = 'both' THEN (
                                     COALESCE((
                                         SELECT SUM(a.amount)
                                         FROM envelop_allocations a
                                         WHERE a.envelop_id = p.envelop_id
-                                          AND a.account_id = ANY(${owned})
+                                          AND (a.account_id IS NULL OR a.account_id = ANY(${owned}))
                                           AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
                                           AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
                                     ), 0)
                                     -
                                     COALESCE((
-                                        SELECT SUM(t.amount)
-                                        FROM transactions t
-                                        JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                        WHERE ec.envelop_id = p.envelop_id
-                                          AND t.type = 'expense'
-                                          AND t.source_account_id = ANY(${owned})
-                                          AND t.transaction_datetime >= p.prev_start
-                                          AND t.transaction_datetime < p.prev_end
+                                        SELECT SUM(entry.amount) FROM (
+                                            SELECT t.amount
+                                            FROM transactions t
+                                            JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                            WHERE ec.envelop_id = p.envelop_id
+                                              AND t.type = 'expense'
+                                              AND t.source_account_id = ANY(${owned})
+                                              AND t.transaction_datetime >= p.prev_start
+                                              AND t.transaction_datetime < p.prev_end
+                                            UNION ALL
+                                            SELECT t.fee_amount AS amount
+                                            FROM transactions t
+                                            JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                            WHERE ec.envelop_id = p.envelop_id
+                                              AND t.type = 'transfer'
+                                              AND t.fee_amount IS NOT NULL
+                                              AND t.source_account_id = ANY(${owned})
+                                              AND t.transaction_datetime >= p.prev_start
+                                              AND t.transaction_datetime < p.prev_end
+                                        ) entry
+                                    ), 0)
+                                )
+                                ELSE GREATEST(0, (
+                                    COALESCE((
+                                        SELECT SUM(a.amount)
+                                        FROM envelop_allocations a
+                                        WHERE a.envelop_id = p.envelop_id
+                                          AND (a.account_id IS NULL OR a.account_id = ANY(${owned}))
+                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
+                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
+                                    ), 0)
+                                    -
+                                    COALESCE((
+                                        SELECT SUM(entry.amount) FROM (
+                                            SELECT t.amount
+                                            FROM transactions t
+                                            JOIN expense_categories ec ON ec.id = t.expense_category_id
+                                            WHERE ec.envelop_id = p.envelop_id
+                                              AND t.type = 'expense'
+                                              AND t.source_account_id = ANY(${owned})
+                                              AND t.transaction_datetime >= p.prev_start
+                                              AND t.transaction_datetime < p.prev_end
+                                            UNION ALL
+                                            SELECT t.fee_amount AS amount
+                                            FROM transactions t
+                                            JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
+                                            WHERE ec.envelop_id = p.envelop_id
+                                              AND t.type = 'transfer'
+                                              AND t.fee_amount IS NOT NULL
+                                              AND t.source_account_id = ANY(${owned})
+                                              AND t.transaction_datetime >= p.prev_start
+                                              AND t.transaction_datetime < p.prev_end
+                                        ) entry
                                     ), 0)
                                 ))
-                                ELSE 0
                             END AS p_carry_in
                         FROM period p
                     )
@@ -197,7 +261,7 @@ export const personalSummary = authorizedProcedure
                     FROM plan_allocations pa
                     JOIN plans p ON p.id = pa.plan_id
                     WHERE p.space_id = ANY(${memberSpaces})
-                      AND pa.account_id = ANY(${owned})
+                      AND (pa.account_id IS NULL OR pa.account_id = ANY(${owned}))
                 `
                     .execute(ctx.services.qb)
                     .then((r) => r.rows[0]);

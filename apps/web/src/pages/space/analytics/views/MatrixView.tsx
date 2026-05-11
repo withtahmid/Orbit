@@ -194,6 +194,20 @@ export default function MatrixView() {
             title="Allocation matrix"
             description="Every envelope × every account in one grid. Cell intensity is the funding amount; an empty cell means no contribution. Margins on the right and bottom show row and column totals."
         >
+            <div
+                className="rounded-lg border px-4 py-3 text-[12.5px]"
+                style={{
+                    borderColor: "color-mix(in oklab, var(--brand) 28%, var(--border))",
+                    background: "color-mix(in oklab, var(--brand) 5%, var(--card))",
+                    color: "var(--fg-2)",
+                }}
+            >
+                <strong style={{ color: "var(--fg)" }}>Legacy reporting view.</strong>{" "}
+                Envelopes are now space-wide intent — they aren't partitioned by
+                account anymore. This grid is preserved as a historical snapshot of
+                where allocation rows were originally tagged.
+            </div>
+
             <KpiStrip items={kpiItems} isLoading={q.isLoading} />
 
             <Card>

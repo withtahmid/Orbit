@@ -4,6 +4,7 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -19,78 +20,95 @@ export const createExpenseCategory = authorizedProcedure
             priority: z
                 .enum(["essential", "important", "discretionary", "luxury"])
                 .optional(),
+            idempotencyKey: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
-                await resolveSpaceMembership({
+            ctx.services.qb.transaction().execute(async (trx) =>
+                withIdempotency({
                     trx,
-                    spaceId: input.spaceId,
                     userId: ctx.auth.user.id,
-                    roles: ["owner"] as unknown as SpaceMembers["role"][],
-                });
-
-                if (input.parentId) {
-                    const parent = await trx
-                        .selectFrom("expense_categories")
-                        .select(["id", "space_id", "envelop_id"])
-                        .where("expense_categories.id", "=", input.parentId)
-                        .executeTakeFirst();
-
-                    if (!parent || parent.space_id !== input.spaceId) {
-                        throw new TRPCError({
-                            code: "BAD_REQUEST",
-                            message: "Invalid parent category for this space",
+                    operation: "expenseCategory.create",
+                    key: input.idempotencyKey,
+                    fn: async () => {
+                        await resolveSpaceMembership({
+                            trx,
+                            spaceId: input.spaceId,
+                            userId: ctx.auth.user.id,
+                            roles: ["owner"] as unknown as SpaceMembers["role"][],
                         });
-                    }
-                    if (parent.envelop_id !== input.envelopId) {
-                        throw new TRPCError({
-                            code: "BAD_REQUEST",
-                            message:
-                                "Sub-categories must share the parent's envelope. Move the parent first if you want a different envelope.",
-                        });
-                    }
-                }
 
-                const envelop = await trx
-                    .selectFrom("envelops")
-                    .select(["id", "space_id"])
-                    .where("envelops.id", "=", input.envelopId)
-                    .executeTakeFirst();
+                        if (input.parentId) {
+                            const parent = await trx
+                                .selectFrom("expense_categories")
+                                .select(["id", "space_id", "envelop_id"])
+                                .where("expense_categories.id", "=", input.parentId)
+                                .executeTakeFirst();
 
-                if (!envelop || envelop.space_id !== input.spaceId) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "Invalid envelop for this space",
-                    });
-                }
+                            if (!parent || parent.space_id !== input.spaceId) {
+                                throw new TRPCError({
+                                    code: "BAD_REQUEST",
+                                    message:
+                                        "Invalid parent category for this space",
+                                });
+                            }
+                            if (parent.envelop_id !== input.envelopId) {
+                                throw new TRPCError({
+                                    code: "BAD_REQUEST",
+                                    message:
+                                        "Sub-categories must share the parent's envelope. Move the parent first if you want a different envelope.",
+                                });
+                            }
+                        }
 
-                return trx
-                    .insertInto("expense_categories")
-                    .values({
-                        space_id: input.spaceId,
-                        name: input.name,
-                        parent_id: input.parentId ?? null,
-                        envelop_id: input.envelopId,
-                        color: input.color,
-                        icon: input.icon,
-                        priority: input.priority ?? null,
-                    })
-                    .returning([
-                        "id",
-                        "space_id",
-                        "parent_id",
-                        "envelop_id",
-                        "name",
-                        "color",
-                        "icon",
-                        "priority",
-                        "created_at",
-                        "updated_at",
-                    ])
-                    .executeTakeFirstOrThrow();
-            })
+                        const envelop = await trx
+                            .selectFrom("envelops")
+                            .select(["id", "space_id", "archived", "name"])
+                            .where("envelops.id", "=", input.envelopId)
+                            .executeTakeFirst();
+
+                        if (!envelop || envelop.space_id !== input.spaceId) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message: "Invalid envelop for this space",
+                            });
+                        }
+
+                        if (envelop.archived) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message: `Envelope "${envelop.name}" is archived. Unarchive it first to add categories.`,
+                            });
+                        }
+
+                        return trx
+                            .insertInto("expense_categories")
+                            .values({
+                                space_id: input.spaceId,
+                                name: input.name,
+                                parent_id: input.parentId ?? null,
+                                envelop_id: input.envelopId,
+                                color: input.color,
+                                icon: input.icon,
+                                priority: input.priority ?? null,
+                            })
+                            .returning([
+                                "id",
+                                "space_id",
+                                "parent_id",
+                                "envelop_id",
+                                "name",
+                                "color",
+                                "icon",
+                                "priority",
+                                "created_at",
+                                "updated_at",
+                            ])
+                            .executeTakeFirstOrThrow();
+                    },
+                })
+            )
         );
 
         if (error) {

@@ -67,43 +67,47 @@ export default function SpaceSettingsPage() {
                 </TabsList>
 
                 <TabsContent value="general">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Space name</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <form
-                                className="flex gap-2"
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    if (!newName.trim() || newName.trim() === space.name) return;
-                                    update.mutate({
-                                        spaceId: space.id,
-                                        name: newName.trim(),
-                                    });
-                                }}
-                            >
-                                <Input
-                                    value={newName}
-                                    onChange={(e) => setNewName(e.target.value)}
-                                    disabled={!isOwner}
-                                    maxLength={255}
-                                />
-                                {isOwner && (
-                                    <Button
-                                        type="submit"
-                                        disabled={
-                                            !newName.trim() ||
-                                            newName.trim() === space.name ||
-                                            update.isPending
-                                        }
-                                    >
-                                        Save
-                                    </Button>
-                                )}
-                            </form>
-                        </CardContent>
-                    </Card>
+                    <div className="grid gap-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Space name</CardTitle>
+                            </CardHeader>
+                            <CardContent>
+                                <form
+                                    className="flex gap-2"
+                                    onSubmit={(e) => {
+                                        e.preventDefault();
+                                        if (!newName.trim() || newName.trim() === space.name) return;
+                                        update.mutate({
+                                            spaceId: space.id,
+                                            name: newName.trim(),
+                                        });
+                                    }}
+                                >
+                                    <Input
+                                        value={newName}
+                                        onChange={(e) => setNewName(e.target.value)}
+                                        disabled={!isOwner}
+                                        maxLength={255}
+                                    />
+                                    {isOwner && (
+                                        <Button
+                                            type="submit"
+                                            disabled={
+                                                !newName.trim() ||
+                                                newName.trim() === space.name ||
+                                                update.isPending
+                                            }
+                                        >
+                                            Save
+                                        </Button>
+                                    )}
+                                </form>
+                            </CardContent>
+                        </Card>
+
+                        <BudgetModeCard />
+                    </div>
                 </TabsContent>
 
                 <TabsContent value="members">
@@ -326,5 +330,85 @@ function AddMember() {
                 Invite
             </Button>
         </div>
+    );
+}
+
+function BudgetModeCard() {
+    const { space } = useCurrentSpace();
+    const isOwner = useIsOwner();
+    const utils = trpc.useUtils();
+    // The space's current budget mode lives on the space list — we
+    // re-read here so the toggle reflects the latest server state.
+    const spacesQuery = trpc.space.list.useQuery();
+    const current =
+        spacesQuery.data?.find((s) => s.id === space.id)?.budgetMode ??
+        "flexible";
+    const update = trpc.space.update.useMutation({
+        onSuccess: async () => {
+            toast.success("Budget mode updated");
+            await utils.space.list.invalidate();
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    const set = (mode: "flexible" | "strict") => {
+        if (!isOwner) return;
+        if (mode === current) return;
+        if (update.isPending) return;
+        update.mutate({ spaceId: space.id, budgetMode: mode });
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Budget mode</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+                <p className="text-sm text-muted-foreground">
+                    How strictly should this space enforce monthly accountability?
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                    <button
+                        type="button"
+                        onClick={() => set("flexible")}
+                        disabled={!isOwner}
+                        className={`rounded-lg border p-4 text-left transition ${
+                            current === "flexible"
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-foreground/30"
+                        } ${!isOwner ? "opacity-60" : ""}`}
+                    >
+                        <div className="text-sm font-medium">Flexible</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                            The reckoning is offered but skippable. New
+                            transactions always record. Default for casual
+                            tracking.
+                        </div>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => set("strict")}
+                        disabled={!isOwner}
+                        className={`rounded-lg border p-4 text-left transition ${
+                            current === "strict"
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-foreground/30"
+                        } ${!isOwner ? "opacity-60" : ""}`}
+                    >
+                        <div className="text-sm font-medium">Strict</div>
+                        <div className="mt-1 text-xs text-muted-foreground">
+                            Past-month overspends must be settled before new
+                            transactions can be recorded. YNAB-style
+                            accountability.
+                        </div>
+                    </button>
+                </div>
+                {!isOwner && (
+                    <p className="text-xs text-muted-foreground">
+                        Only space owners can change budget mode.
+                    </p>
+                )}
+            </CardContent>
+        </Card>
     );
 }

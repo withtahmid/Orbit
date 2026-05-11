@@ -19,6 +19,7 @@ export const updateEvent = authorizedProcedure
                 color: z.string().regex(HEX).optional(),
                 icon: z.string().min(1).max(48).optional(),
                 description: z.string().max(2000).nullable().optional(),
+                estimatedAmount: z.number().nonnegative().max(1e10).nullable().optional(),
                 addAttachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
             })
             .refine(
@@ -29,6 +30,7 @@ export const updateEvent = authorizedProcedure
                     data.color !== undefined ||
                     data.icon !== undefined ||
                     data.description !== undefined ||
+                    data.estimatedAmount !== undefined ||
                     (data.addAttachmentFileIds !== undefined &&
                         data.addAttachmentFileIds.length > 0),
                 { message: "At least one field must be provided" }
@@ -76,6 +78,7 @@ export const updateEvent = authorizedProcedure
                         color: input.color,
                         icon: input.icon,
                         description: input.description,
+                        estimated_amount: input.estimatedAmount,
                     })
                     .where("events.id", "=", input.eventId)
                     .returning([
@@ -87,6 +90,9 @@ export const updateEvent = authorizedProcedure
                         "color",
                         "icon",
                         "description",
+                        "estimated_amount",
+                        "status",
+                        "closed_at",
                         "created_at",
                     ])
                     .executeTakeFirstOrThrow();

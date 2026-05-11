@@ -199,6 +199,7 @@ function EditForm({
 
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
+    const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
     const eventsQuery = trpc.event.listBySpace.useQuery({ spaceId });
 
     const initialDatetime = toInputDateTime(new Date(transaction.transaction_datetime));
@@ -246,18 +247,46 @@ function EditForm({
         [accountsQuery.data, sourceAccountId]
     );
 
+    // For edit flows: hide categories whose envelope is archived from the
+    // dropdown to discourage NEW selections of them — but always preserve
+    // the currently selected category (and the fee one) so the user can
+    // save the transaction without rewriting an existing assignment.
+    const categoriesForEdit = useMemo(() => {
+        const cats = categoriesQuery.data ?? [];
+        const envs = envelopesQuery.data ?? [];
+        const archived = new Set(envs.filter((e) => e.archived).map((e) => e.id));
+        if (archived.size === 0) return cats;
+        const keep = new Set<string>();
+        if (categoryId) keep.add(categoryId);
+        if (feeCategoryId) keep.add(feeCategoryId);
+        return cats.filter(
+            (c) => !archived.has(c.envelop_id) || keep.has(c.id)
+        );
+    }, [categoriesQuery.data, envelopesQuery.data, categoryId, feeCategoryId]);
+
     const eventItems: OrbitSelectItem[] = useMemo(() => {
         const evs = eventsQuery.data ?? [];
+        /* Hide closed events from the picker, but keep the one currently
+           linked to this transaction (even if closed) so users editing
+           an old transaction can see what it's tied to. */
+        const active = evs.filter((ev) => ev.status === "active");
+        const linkedClosed = transaction.event_id
+            ? evs.find(
+                  (ev) =>
+                      ev.id === transaction.event_id && ev.status === "closed"
+              )
+            : null;
+        const visible = linkedClosed ? [...active, linkedClosed] : active;
         return [
             { value: "__none", label: "No event" },
-            ...evs.map((ev) => ({
+            ...visible.map((ev) => ({
                 value: ev.id,
-                label: ev.name,
+                label: ev.status === "closed" ? `${ev.name} (closed)` : ev.name,
                 leadIcon: <Calendar className="size-3.5" />,
                 leadColor: "var(--ent-5)",
             })),
         ];
-    }, [eventsQuery.data]);
+    }, [eventsQuery.data, transaction.event_id]);
 
     const mutate = trpc.transaction.update.useMutation({
         onSuccess: async () => {
@@ -387,7 +416,7 @@ function EditForm({
                         required
                     >
                         <CategoryTreeSelect
-                            categories={(categoriesQuery.data ?? []) as any}
+                            categories={categoriesForEdit as any}
                             value={categoryId}
                             onChange={setCategoryId}
                             placeholder="Choose category"
@@ -451,7 +480,7 @@ function EditForm({
                                 hint="Where the fee is logged"
                             >
                                 <CategoryTreeSelect
-                                    categories={(categoriesQuery.data ?? []) as any}
+                                    categories={categoriesForEdit as any}
                                     value={feeCategoryId}
                                     onChange={setFeeCategoryId}
                                     placeholder="Pick category"

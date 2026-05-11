@@ -1,0 +1,6 @@
+- [Envelope-as-intent redesign](redesign_envelope_as_intent.md) — On main: envelope_allocations.account_id always NULL for new flow; account-pinned filtering returns 0.
+- [Personal twin pitfall](pitfall_personal_account_filter.md) — Every `personal/*` analytics SQL filtering envelop_allocations by account_id silently zeros after redesign.
+- [Carry-policy invariant](invariant_carry_policy_three_mode.md) — `carry_policy` enum replaces `carry_over` boolean; reset/positive_only/both. Look for missing CASE branches.
+- [Consumption inconsistency](inconsistency_transfer_fee_consumption.md) — Some queries count transfer fees as envelope consumption, others don't. Pick one and check on each review.
+- [Idempotency wrapper](pattern_idempotency_wrapper.md) — `withIdempotency` uses `{v: result}` sentinel; ON CONFLICT DO NOTHING (not catch 23505).
+- [Borrow pair invariant](invariant_borrow_pair.md) — `borrowed_link_id` UUID groups two rows: +X current period, -X next period. Excluded from listBorrows when both halves are past.

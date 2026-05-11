@@ -28,10 +28,14 @@ const AccountDetailPage = lazy(() => import("@/pages/space/accounts/AccountDetai
 const TransactionsPage = lazy(() => import("@/pages/space/transactions/TransactionsPage"));
 const EnvelopesPage = lazy(() => import("@/pages/space/envelopes/EnvelopesPage"));
 const EnvelopeDetailPage = lazy(() => import("@/pages/space/envelopes/EnvelopeDetailPage"));
+const PlanMonthPage = lazy(() => import("@/pages/space/plan/PlanMonthPage"));
+const ReckoningPage = lazy(() => import("@/pages/space/reckoning/ReckoningPage"));
+const YearReportPage = lazy(() => import("@/pages/space/year/YearReportPage"));
 const PlansPage = lazy(() => import("@/pages/space/plans/PlansPage"));
 const PlanDetailPage = lazy(() => import("@/pages/space/plans/PlanDetailPage"));
 const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
 const EventsPage = lazy(() => import("@/pages/space/events/EventsPage"));
+const EventDetailPage = lazy(() => import("@/pages/space/events/EventDetailPage"));
 const AnalyticsPage = lazy(() => import("@/pages/space/analytics/AnalyticsPage"));
 const AnalyticsCashFlowView = lazy(
     () => import("@/pages/space/analytics/views/CashFlowView")
@@ -165,6 +169,18 @@ export const router = createBrowserRouter([
                                         element: withSuspense(<EnvelopeDetailPage />),
                                     },
                                     {
+                                        path: "plan/:month",
+                                        element: withSuspense(<PlanMonthPage />),
+                                    },
+                                    {
+                                        path: "reckoning",
+                                        element: withSuspense(<ReckoningPage />),
+                                    },
+                                    {
+                                        path: "year/:year",
+                                        element: withSuspense(<YearReportPage />),
+                                    },
+                                    {
                                         path: "plans",
                                         element: withSuspense(<PlansPage />),
                                     },
@@ -179,6 +195,10 @@ export const router = createBrowserRouter([
                                     {
                                         path: "events",
                                         element: withSuspense(<EventsPage />),
+                                    },
+                                    {
+                                        path: "events/:eventId",
+                                        element: withSuspense(<EventDetailPage />),
                                     },
                                     {
                                         path: "analytics",

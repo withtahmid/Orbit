@@ -55,6 +55,55 @@ const TYPE_OPTIONS: Array<{ value: TxType | null; label: string }> = [
     { value: "adjustment", label: "Adjustment" },
 ];
 
+/* Group a flat list of transactions into consecutive same-calendar-day
+   buckets in the app timezone. The list arrives ordered by
+   `transaction_datetime DESC`, so a single linear pass produces groups
+   in display order with no extra sorting. Labels: "Today" / "Yesterday"
+   for the recent two, day-name + date for older entries, with year
+   appended once we cross years. */
+type DayGroup<T> = { key: string; label: string; items: T[] };
+
+function groupByDay<T extends { transaction_datetime: string | Date }>(
+    items: T[],
+    todayKey: string,
+    yesterdayKey: string,
+    thisYear: string
+): DayGroup<T>[] {
+    if (items.length === 0) return [];
+    const groups: DayGroup<T>[] = [];
+    for (const item of items) {
+        const key = formatInAppTz(item.transaction_datetime, "yyyy-MM-dd");
+        let group = groups[groups.length - 1];
+        if (!group || group.key !== key) {
+            let label: string;
+            if (key === todayKey) label = "Today";
+            else if (key === yesterdayKey) label = "Yesterday";
+            else {
+                const year = formatInAppTz(item.transaction_datetime, "yyyy");
+                label =
+                    year === thisYear
+                        ? formatInAppTz(item.transaction_datetime, "EEEE, MMM d")
+                        : formatInAppTz(
+                              item.transaction_datetime,
+                              "EEEE, MMM d, yyyy"
+                          );
+            }
+            group = { key, label, items: [] };
+            groups.push(group);
+        }
+        group.items.push(item);
+    }
+    return groups;
+}
+
+function DayHeader({ label }: { label: string }) {
+    return (
+        <div className="tx-day-header" role="separator">
+            <span className="tx-day-label">{label}</span>
+        </div>
+    );
+}
+
 const PERIOD_PRESETS: Array<{ value: string; label: string }> = [
     { value: "this-month", label: "This month" },
     { value: "last-month", label: "Last month" },
@@ -211,6 +260,22 @@ export default function TransactionsPage() {
     ].filter(Boolean).length;
 
     const items = listQuery.data?.items ?? [];
+    /* Recompute the "Today" / "Yesterday" reference keys on every render
+       (cheap), then memoize the actual grouping on those keys. This way
+       a page left open across midnight relabels its rows the next time
+       anything triggers a re-render, instead of staying stuck on the
+       previous day's labels until the query data changes. */
+    const now = new Date();
+    const todayKey = formatInAppTz(now, "yyyy-MM-dd");
+    const yesterdayKey = formatInAppTz(
+        new Date(now.getTime() - 86_400_000),
+        "yyyy-MM-dd"
+    );
+    const thisYear = formatInAppTz(now, "yyyy");
+    const dayGroups = useMemo(
+        () => groupByDay(items, todayKey, yesterdayKey, thisYear),
+        [items, todayKey, yesterdayKey, thisYear]
+    );
 
     /* IN/OUT/NET/AVG-DAY summary for the entire filtered set (not just
        the current page). Same filter shape as listBySpace / personal.transactions.
@@ -354,13 +419,6 @@ export default function TransactionsPage() {
                     </p>
                 </div>
                 <div className="tx-topbar-actions">
-                    <PeriodChip
-                        preset={preset}
-                        period={period}
-                        label={periodChipLabel}
-                        onPresetChange={setPreset}
-                        onCustomChange={setCustom}
-                    />
                     <button type="button" className="od-btn">
                         <FileText className="size-3.5" /> Export
                     </button>
@@ -576,27 +634,25 @@ export default function TransactionsPage() {
                         <>
                             {/* Desktop rows */}
                             <div className="tx-rows tx-rows-desktop">
-                                {items.map((t, i) => {
-                                    const tt = (t.type as unknown as TxType) ?? "expense";
-                                    const cat = t.expense_category_id
-                                        ? categoriesById.get(t.expense_category_id)
-                                        : null;
-                                    const ev = t.event_id
-                                        ? eventsById.get(t.event_id)
-                                        : null;
-                                    const canDelete =
-                                        t.created_by === authStore.user?.id;
-                                    return (
+                                {dayGroups.map((g) => (
+                                    <div key={g.key} className="tx-day-block">
+                                        <DayHeader label={g.label} />
+                                        {g.items.map((t) => {
+                                            const tt =
+                                                (t.type as unknown as TxType) ?? "expense";
+                                            const cat = t.expense_category_id
+                                                ? categoriesById.get(t.expense_category_id)
+                                                : null;
+                                            const ev = t.event_id
+                                                ? eventsById.get(t.event_id)
+                                                : null;
+                                            const canDelete =
+                                                t.created_by === authStore.user?.id;
+                                            return (
                                         <div
                                             key={t.id}
                                             className="tx-row tx-row-grid"
                                             onClick={() => setSelectedTx(t)}
-                                            style={{
-                                                borderBottom:
-                                                    i < items.length - 1
-                                                        ? "1px solid var(--line-soft)"
-                                                        : "none",
-                                            }}
                                         >
                                             <span className="tx-cell-date">
                                                 <span className="tx-date">
@@ -734,12 +790,17 @@ export default function TransactionsPage() {
                                             </span>
                                         </div>
                                     );
-                                })}
+                                        })}
+                                    </div>
+                                ))}
                             </div>
 
                             {/* Mobile rows — compressed list */}
                             <div className="tx-rows-mobile">
-                                {items.map((t) => {
+                                {dayGroups.map((g) => (
+                                    <div key={g.key} className="tx-day-block">
+                                        <DayHeader label={g.label} />
+                                        {g.items.map((t) => {
                                     const tt = (t.type as unknown as TxType) ?? "expense";
                                     const cat = t.expense_category_id
                                         ? categoriesById.get(t.expense_category_id)
@@ -796,7 +857,9 @@ export default function TransactionsPage() {
                                             />
                                         </button>
                                     );
-                                })}
+                                        })}
+                                    </div>
+                                ))}
                             </div>
 
                             <div className="tx-table-foot">
@@ -1791,11 +1854,43 @@ const TX_STYLES = `
     flex-direction: column;
     line-height: 1.2;
 }
-.tx-date { color: var(--fg); }
+.tx-date { color: var(--fg); font-weight: 500; }
 .tx-time {
-    font-size: 10.5px;
-    color: var(--fg-4);
+    font-size: 12px;
+    color: var(--fg-3);
     font-family: "Geist Mono", monospace;
+    letter-spacing: 0.02em;
+}
+
+/* Day partition — quiet eyebrow above each consecutive same-day
+   group, with a hairline separating groups. No background, no chip. */
+.tx-day-block {
+    display: flex;
+    flex-direction: column;
+}
+.tx-day-header {
+    padding: 12px 18px 6px;
+}
+.tx-day-block + .tx-day-block .tx-day-header {
+    border-top: 1px solid var(--line-soft);
+    padding-top: 14px;
+}
+.tx-day-label {
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--fg-3);
+}
+.tx-day-block .tx-row {
+    border-bottom: 1px solid var(--line-soft);
+}
+.tx-day-block .tx-row:last-child {
+    border-bottom: 0;
+}
+@media (max-width: 720px) {
+    .tx-day-header { padding: 10px 12px 4px; }
+    .tx-day-block + .tx-day-block .tx-day-header { padding-top: 12px; }
 }
 .tx-cell-flow {
     display: inline-flex;
@@ -1904,7 +1999,11 @@ const TX_STYLES = `
     gap: 8px;
     margin-bottom: 4px;
 }
-.tx-mrow-date { font-size: 11px; color: var(--fg-4); }
+.tx-mrow-date {
+    font-size: 11.5px;
+    color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+}
 .tx-mrow-name {
     font-size: 13px;
     font-weight: 500;

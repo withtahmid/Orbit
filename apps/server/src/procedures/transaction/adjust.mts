@@ -7,6 +7,8 @@ import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpac
 import type { Transactions } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 import { attachFilesToTransaction } from "../file/attach.mjs";
+import { resolveStrictGate } from "../space/utils/resolveStrictGate.mjs";
+import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 export const adjustAccountBalance = authorizedProcedure
     .input(
@@ -18,97 +20,111 @@ export const adjustAccountBalance = authorizedProcedure
             description: z.string().optional(),
             location: z.string().optional(),
             attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
+            idempotencyKey: z.string().uuid().optional(),
         })
     )
 
     .mutation(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
-            ctx.services.qb.transaction().execute(async (trx) => {
-                await resolveTransactionPermission({
+            ctx.services.qb.transaction().execute(async (trx) =>
+                withIdempotency({
                     trx,
                     userId: ctx.auth.user.id,
-                    destinationAccountId: input.accountId,
-                    sourceAccountId: input.accountId,
-                    type: "adjustment" as unknown as Transactions["type"],
-                });
+                    operation: "transaction.adjust",
+                    key: input.idempotencyKey,
+                    fn: async () => {
+                        await resolveStrictGate({
+                            trx,
+                            spaceId: input.spaceId,
+                            userId: ctx.auth.user.id,
+                        });
+                        await resolveTransactionPermission({
+                            trx,
+                            userId: ctx.auth.user.id,
+                            destinationAccountId: input.accountId,
+                            sourceAccountId: input.accountId,
+                            type: "adjustment" as unknown as Transactions["type"],
+                        });
 
-                await resolveTransactionSpaceIntegrity({
-                    trx,
-                    spaceId: input.spaceId,
-                    sourceAccountId: input.accountId,
-                    destinationAccountId: input.accountId,
-                });
+                        await resolveTransactionSpaceIntegrity({
+                            trx,
+                            spaceId: input.spaceId,
+                            sourceAccountId: input.accountId,
+                            destinationAccountId: input.accountId,
+                        });
 
-                // Compute the delta in Postgres so we preserve the exact
-                // precision of `account_balances.balance` (numeric(20,2))
-                // and don't round-trip it through a JS float. Also does
-                // the sign split for source/destination in-query.
-                const row = await sql<{
-                    delta: string;
-                    abs_delta: string;
-                    source_account_id: string | null;
-                    destination_account_id: string | null;
-                }>`
-                    SELECT
-                        (${input.newBalance}::numeric - ab.balance)::text AS delta,
-                        ABS(${input.newBalance}::numeric - ab.balance)::text AS abs_delta,
-                        CASE
-                            WHEN ${input.newBalance}::numeric < ab.balance
-                                THEN ab.account_id::text
-                            ELSE NULL
-                        END AS source_account_id,
-                        CASE
-                            WHEN ${input.newBalance}::numeric > ab.balance
-                                THEN ab.account_id::text
-                            ELSE NULL
-                        END AS destination_account_id
-                    FROM account_balances ab
-                    WHERE ab.account_id = ${input.accountId}
-                `
-                    .execute(trx)
-                    .then((r) => r.rows[0]);
+                        // Compute the delta in Postgres so we preserve the
+                        // exact precision of account_balances.balance
+                        // (numeric(20,2)) and don't round-trip via JS float.
+                        const row = await sql<{
+                            delta: string;
+                            abs_delta: string;
+                            source_account_id: string | null;
+                            destination_account_id: string | null;
+                        }>`
+                            SELECT
+                                (${input.newBalance}::numeric - ab.balance)::text AS delta,
+                                ABS(${input.newBalance}::numeric - ab.balance)::text AS abs_delta,
+                                CASE
+                                    WHEN ${input.newBalance}::numeric < ab.balance
+                                        THEN ab.account_id::text
+                                    ELSE NULL
+                                END AS source_account_id,
+                                CASE
+                                    WHEN ${input.newBalance}::numeric > ab.balance
+                                        THEN ab.account_id::text
+                                    ELSE NULL
+                                END AS destination_account_id
+                            FROM account_balances ab
+                            WHERE ab.account_id = ${input.accountId}
+                        `
+                            .execute(trx)
+                            .then((r) => r.rows[0]);
 
-                if (!row) {
-                    throw new TRPCError({
-                        code: "NOT_FOUND",
-                        message: "Account has no balance row",
-                    });
-                }
+                        if (!row) {
+                            throw new TRPCError({
+                                code: "NOT_FOUND",
+                                message: "Account has no balance row",
+                            });
+                        }
 
-                if (Number(row.delta) === 0) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "New balance is equal to current balance",
-                    });
-                }
+                        if (Number(row.delta) === 0) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "New balance is equal to current balance",
+                            });
+                        }
 
-                const transaction = await trx
-                    .insertInto("transactions")
-                    .values({
-                        space_id: input.spaceId,
-                        created_by: ctx.auth.user.id,
-                        type: "adjustment" as unknown as Transactions["type"],
-                        // Pass as string to preserve precision end-to-end;
-                        // pg accepts numeric as string.
-                        amount: row.abs_delta as unknown as number,
-                        source_account_id: row.source_account_id,
-                        destination_account_id: row.destination_account_id,
-                        description: input.description || null,
-                        location: input.location || null,
-                        transaction_datetime: input.datetime || new Date(),
-                    })
-                    .returning(["id"])
-                    .executeTakeFirstOrThrow();
+                        const transaction = await trx
+                            .insertInto("transactions")
+                            .values({
+                                space_id: input.spaceId,
+                                created_by: ctx.auth.user.id,
+                                type: "adjustment" as unknown as Transactions["type"],
+                                amount: row.abs_delta as unknown as number,
+                                source_account_id: row.source_account_id,
+                                destination_account_id:
+                                    row.destination_account_id,
+                                description: input.description || null,
+                                location: input.location || null,
+                                transaction_datetime:
+                                    input.datetime || new Date(),
+                            })
+                            .returning(["id"])
+                            .executeTakeFirstOrThrow();
 
-                await attachFilesToTransaction({
-                    trx,
-                    transactionId: transaction.id,
-                    fileIds: input.attachmentFileIds ?? [],
-                    userId: ctx.auth.user.id,
-                });
+                        await attachFilesToTransaction({
+                            trx,
+                            transactionId: transaction.id,
+                            fileIds: input.attachmentFileIds ?? [],
+                            userId: ctx.auth.user.id,
+                        });
 
-                return transaction;
-            })
+                        return transaction;
+                    },
+                })
+            )
         );
 
         if (error) {

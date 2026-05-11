@@ -31,13 +31,11 @@ export default observer(function OverviewPage() {
     const cashFlowStart = addMonths(thisMonthStart, -2);
     const trendStart = addDays(now, -29);
 
-    /* Metric mode (URL-persisted via ?metric=cash|operational). The
-       Cash Flow card defaults to `cash` (matches bank balance) while
-       the Spending Trends card defaults to `operational` (true expense
-       only). Both read the same `?metric` URL param so the moment a
-       user toggles either, both cards converge. */
-    const { mode } = useMetricMode("cash");
-    const { mode: trendsMode } = useMetricMode("operational");
+    /* Metric mode (URL-persisted via ?metric=cash|operational).
+       Operational is the default everywhere — true income / expense
+       is more useful as a headline. Users can toggle to cash to see
+       the bank-balance view that includes cross-space transfers. */
+    const { mode } = useMetricMode();
 
     /* ---------- Queries: real-space + personal variants ---------- */
     const summarySpace = trpc.analytics.spaceSummary.useQuery(
@@ -153,32 +151,6 @@ export default observer(function OverviewPage() {
     );
     const heatmap = isPersonal ? heatmapPersonal : heatmapSpace;
 
-    const accountsSpace = trpc.account.listBySpace.useQuery(
-        { spaceId: space.id },
-        { enabled: !isPersonal }
-    );
-    const accountsPersonal = trpc.personal.ownedAccounts.useQuery(undefined, {
-        enabled: isPersonal,
-    });
-    const accountsQuery = isPersonal
-        ? {
-              ...accountsPersonal,
-              data: accountsPersonal.data?.map((a) => ({
-                  id: a.id,
-                  name: a.name,
-                  color: a.color,
-                  icon: a.icon,
-              })),
-          }
-        : accountsSpace;
-
-    const accountsById = useMemo(() => {
-        const m = new Map<string, { name: string; color: string; icon: string }>();
-        for (const a of accountsQuery.data ?? [])
-            m.set(a.id, { name: a.name, color: a.color, icon: a.icon });
-        return m;
-    }, [accountsQuery.data]);
-
     /* ---------- New procedures wired for v2 cards ---------- */
     const todaySpaceQ = trpc.analytics.todaySummary.useQuery(
         { spaceId: space.id, day: now },
@@ -212,12 +184,12 @@ export default observer(function OverviewPage() {
             spaceId: space.id,
             anchor: now,
             granularity: "month",
-            mode: trendsMode,
+            mode,
         },
         { enabled: !isPersonal }
     );
     const trendsPersonalQ = trpc.personal.trends.dailyComparison.useQuery(
-        { anchor: now, granularity: "month", mode: trendsMode },
+        { anchor: now, granularity: "month", mode },
         { enabled: isPersonal }
     );
     const trendsData =
@@ -359,36 +331,34 @@ export default observer(function OverviewPage() {
         return [...env, ...pln, ...unSlice];
     }, [utilization.data, plans.data, summary.data]);
 
-    const driftAlerts = useMemo(() => {
+    /* Borrow obligations banner — sums envelope.borrowedOut across the
+       current month so the overview surfaces "future periods owe X" the
+       same way the Envelopes view does. Replaces the legacy per-account
+       drift banner that the new envelope-as-intent model retired. */
+    const borrowAlerts = useMemo(() => {
         const rows: Array<{
             envelopId: string;
             envelopName: string;
             envelopColor: string;
             envelopIcon: string;
-            accountId: string | null;
-            accountName: string;
-            overBy: number;
+            owed: number;
         }> = [];
         for (const e of utilization.data ?? []) {
-            for (const b of e.breakdown) {
-                if (b.isDrift && b.remaining < 0) {
-                    const account = b.accountId ? accountsById.get(b.accountId) : null;
-                    rows.push({
-                        envelopId: e.envelopId,
-                        envelopName: e.name,
-                        envelopColor: e.color,
-                        envelopIcon: e.icon,
-                        accountId: b.accountId,
-                        accountName: account?.name ?? "Unassigned pool",
-                        overBy: Math.abs(b.remaining),
-                    });
-                }
+            const out = (e as { borrowedOut?: number }).borrowedOut ?? 0;
+            if (out > 0) {
+                rows.push({
+                    envelopId: e.envelopId,
+                    envelopName: e.name,
+                    envelopColor: e.color,
+                    envelopIcon: e.icon,
+                    owed: out,
+                });
             }
         }
-        rows.sort((a, b) => b.overBy - a.overBy);
-        const total = rows.reduce((s, r) => s + r.overBy, 0);
+        rows.sort((a, b) => b.owed - a.owed);
+        const total = rows.reduce((s, r) => s + r.owed, 0);
         return { rows, total };
-    }, [utilization.data, accountsById]);
+    }, [utilization.data]);
 
     const overAllocated = summary.data?.isOverAllocated ?? false;
 
@@ -488,8 +458,18 @@ export default observer(function OverviewPage() {
                     <PersonalSpaceBand data={spaceBreakdown.data} />
                 )}
 
-                {/* Drift / attention banner — real space only */}
-                {!isPersonal && driftAlerts.rows.length > 0 && (
+                {/* Reckoning banner — past-month overspends still
+                    awaiting resolution. Surfaces the same info the
+                    Envelopes page does so the Overview is complete on
+                    its own. Wired for both real spaces and personal. */}
+                <ReckoningOverviewBanner
+                    spaceId={space.id}
+                    isPersonal={isPersonal}
+                />
+
+                {/* Borrow obligations banner — envelopes that owe future
+                    periods. Replaces the retired per-account drift card. */}
+                {borrowAlerts.rows.length > 0 && (
                     <div className="od-card ov-drift">
                         <div className="ov-drift-head">
                             <div className="ov-drift-headline">
@@ -498,34 +478,30 @@ export default observer(function OverviewPage() {
                                 </span>
                                 <div>
                                     <div className="ov-drift-title">
-                                        Account drift in {driftAlerts.rows.length} envelope partition
-                                        {driftAlerts.rows.length === 1 ? "" : "s"}
+                                        {borrowAlerts.rows.length} envelope
+                                        {borrowAlerts.rows.length === 1 ? "" : "s"} owe future periods
                                     </div>
                                     <div className="ov-drift-sub">
-                                        Spending exceeded allocation by{" "}
-                                        <Money amount={driftAlerts.total} variant="warn" /> across
-                                        accounts. Rebalance to keep partitions honest.
+                                        <Money amount={borrowAlerts.total} variant="warn" /> borrowed
+                                        from upcoming months. Future income covers it before it
+                                        spends.
                                     </div>
                                 </div>
                             </div>
-                            <button className="od-btn">
-                                Review · {driftAlerts.rows.length}
-                            </button>
                         </div>
                         <div className="ov-drift-rows">
-                            {driftAlerts.rows.slice(0, 4).map((r, i) => (
+                            {borrowAlerts.rows.slice(0, 4).map((r) => (
                                 <Link
-                                    key={`${r.envelopId}-${r.accountId ?? "un"}-${i}`}
+                                    key={r.envelopId}
                                     to={ROUTES.spaceEnvelopeDetail(space.id, r.envelopId)}
                                     className="ov-drift-row"
                                 >
                                     <span className="ov-drift-row-left">
                                         <EntityAvatar icon={r.envelopIcon} colorVar={r.envelopColor} size={26} />
                                         <span className="ov-drift-row-name">{r.envelopName}</span>
-                                        <span className="ov-drift-row-acct">· {r.accountName}</span>
                                     </span>
                                     <span className="ov-drift-row-right">
-                                        <Money amount={-r.overBy} variant="expense" />
+                                        <Money amount={-r.owed} variant="expense" />
                                         <ChevronRightIcon />
                                     </span>
                                 </Link>
@@ -893,7 +869,7 @@ export default observer(function OverviewPage() {
                                   ? <EmptyHint compact>No envelopes yet</EmptyHint>
                                   : utilization.data.slice(0, 5).map((e) => {
                                         const rawPct = e.allocated > 0 ? e.consumed / e.allocated : 0;
-                                        const drift = rawPct > 1;
+                                        const over = rawPct > 1;
                                         return (
                                             <Link
                                                 key={e.envelopId}
@@ -908,15 +884,15 @@ export default observer(function OverviewPage() {
                                                             size={22}
                                                         />
                                                         {e.name}
-                                                        {drift && (
-                                                            <span className="ov-chip ov-chip-drift">drift</span>
+                                                        {over && (
+                                                            <span className="ov-chip ov-chip-drift">over</span>
                                                         )}
                                                     </span>
                                                     <span className="ov-list-row-amt">
                                                         <Money
                                                             amount={e.consumed}
                                                             size={11.5}
-                                                            variant={drift ? "expense" : "neutral"}
+                                                            variant={over ? "expense" : "neutral"}
                                                         />{" "}
                                                         <span style={{ color: "var(--fg-4)" }}>
                                                             /{" "}
@@ -1049,6 +1025,55 @@ export default observer(function OverviewPage() {
 /* =============================================================
    Helper components
    ============================================================= */
+
+function ReckoningOverviewBanner({
+    spaceId,
+    isPersonal,
+}: {
+    spaceId: string;
+    isPersonal: boolean;
+}) {
+    const spaceQuery = trpc.reckoning.listPending.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const personalQuery = trpc.personal.reckoning.listPending.useQuery(
+        {},
+        { enabled: isPersonal }
+    );
+    const items = (isPersonal ? personalQuery.data : spaceQuery.data) ?? [];
+    if (items.length === 0) return null;
+    const total = items.reduce((s, i) => s + i.overBy, 0);
+    const envelopeCount = new Set(items.map((i) => i.envelopId)).size;
+    return (
+        <Link
+            to={ROUTES.spaceReckoning(isPersonal ? "me" : spaceId)}
+            className="od-card ov-drift"
+            style={{ textDecoration: "none" }}
+        >
+            <div className="ov-drift-head">
+                <div className="ov-drift-headline">
+                    <span className="ov-drift-icon">
+                        <BoltIcon />
+                    </span>
+                    <div>
+                        <div className="ov-drift-title">
+                            {items.length} past-month overspend
+                            {items.length === 1 ? "" : "s"} need
+                            {items.length === 1 ? "s" : ""} attention
+                        </div>
+                        <div className="ov-drift-sub">
+                            <Money amount={total} variant="warn" /> across {envelopeCount}
+                            {" "}envelope{envelopeCount === 1 ? "" : "s"}. Decide how to
+                            settle.
+                        </div>
+                    </div>
+                </div>
+                <span className="od-btn">Settle →</span>
+            </div>
+        </Link>
+    );
+}
 
 function Money({
     amount,

@@ -1,41 +1,27 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     AlertTriangle,
+    ArchiveRestore,
     ArrowRightLeft,
     ChevronRight,
+    Coins,
     Pencil,
     Trash2,
 } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
 import { addMonths, startOfMonth, endOfMonth } from "@/lib/dates";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateDialog";
+import { EnvelopeMoveDialog } from "@/features/allocations/EnvelopeMoveDialog";
+import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
-import { formatMoney } from "@/lib/money";
 
 export default function EnvelopeDetailPage() {
     const { space } = useCurrentSpace();
@@ -104,6 +90,33 @@ export default function EnvelopeDetailPage() {
         onError: (e) => toast.error(e.message),
     });
 
+    // Active borrow obligations attached to this envelope. Drives the
+    // "Active borrows" card with its per-link Cancel buttons.
+    const borrowsQuery = trpc.envelop.listBorrows.useQuery(
+        { envelopId: envelopeId ?? "" },
+        { enabled: !!envelopeId }
+    );
+    const undoBorrowIdem = useIdempotencyKey();
+    const undoBorrow = trpc.envelop.undoBorrow.useMutation({
+        onSuccess: async () => {
+            toast.success("Borrow cancelled");
+            undoBorrowIdem.rotate();
+            await Promise.all([
+                utils.envelop.allocationListBySpace.invalidate({
+                    spaceId: space.id,
+                }),
+                utils.envelop.listBorrows.invalidate({
+                    envelopId: envelopeId ?? "",
+                }),
+                utils.analytics.envelopeUtilization.invalidate({
+                    spaceId: space.id,
+                }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
     /* Per-envelope 6-month allocation/consumption history. App-tz
        boundaries so each bucket lands on Dhaka midnight, matching
        the server's `date_trunc('month', ...)` output. */
@@ -163,6 +176,11 @@ export default function EnvelopeDetailPage() {
                                     size={36}
                                 />
                                 {envelope.name}
+                                {envelope.archived && (
+                                    <span className="ed-archived-badge">
+                                        Archived
+                                    </span>
+                                )}
                             </>
                         ) : (
                             "Envelope"
@@ -181,7 +199,7 @@ export default function EnvelopeDetailPage() {
                     </p>
                 </div>
                 <div className="ed-topbar-actions">
-                    {envelope && (
+                    {envelope && !envelope.archived && (
                         <PermissionGate roles={["owner", "editor"]}>
                             <EnvelopeAllocateDialog
                                 envelopId={envelope.envelopId}
@@ -196,24 +214,81 @@ export default function EnvelopeDetailPage() {
                                     </button>
                                 }
                             />
-                            <button
-                                type="button"
-                                className="od-btn"
-                                onClick={() =>
-                                    document
-                                        .getElementById("ed-breakdown")
-                                        ?.scrollIntoView({ behavior: "smooth" })
+                            <EnvelopeAllocateDialog
+                                envelopId={envelope.envelopId}
+                                envelopCadence={envelope.cadence}
+                                direction="deallocate"
+                                trigger={
+                                    <button
+                                        type="button"
+                                        className="od-btn"
+                                    >
+                                        Deallocate
+                                    </button>
                                 }
-                            >
-                                Rebalance
+                            />
+                            <EnvelopeTopUpDialog
+                                envelopId={envelope.envelopId}
+                                envelopeName={envelope.name}
+                                envelopeCadence={envelope.cadence}
+                                envelopeColor={envelope.color}
+                                trigger={
+                                    <button
+                                        type="button"
+                                        className="od-btn"
+                                    >
+                                        <Coins className="size-3.5" /> Top up…
+                                    </button>
+                                }
+                            />
+                            <EnvelopeMoveDialog
+                                sourceEnvelopId={envelope.envelopId}
+                                sourceEnvelopeName={envelope.name}
+                                sourceEnvelopeColor={envelope.color}
+                                trigger={
+                                    <button
+                                        type="button"
+                                        className="od-btn"
+                                    >
+                                        <ArrowRightLeft className="size-3.5" />{" "}
+                                        Move to…
+                                    </button>
+                                }
+                            />
+                        </PermissionGate>
+                    )}
+                    {envelope?.archived && envelope.remaining > 0 && (
+                        <PermissionGate roles={["owner", "editor"]}>
+                            <EnvelopeAllocateDialog
+                                envelopId={envelope.envelopId}
+                                envelopCadence={envelope.cadence}
+                                direction="deallocate"
+                                trigger={
+                                    <button
+                                        type="button"
+                                        className="od-btn"
+                                    >
+                                        Free trapped cash
+                                    </button>
+                                }
+                            />
+                        </PermissionGate>
+                    )}
+                    {envelope?.archived && (
+                        <PermissionGate roles={["owner"]}>
+                            <UnarchiveButton
+                                envelopId={envelope.envelopId}
+                                spaceId={space.id}
+                            />
+                        </PermissionGate>
+                    )}
+                    {envelope && !envelope.archived && (
+                        <PermissionGate roles={["owner"]}>
+                            <button type="button" className="od-btn od-btn-primary">
+                                <Pencil className="size-3.5" /> Edit
                             </button>
                         </PermissionGate>
                     )}
-                    <PermissionGate roles={["owner"]}>
-                        <button type="button" className="od-btn od-btn-primary">
-                            <Pencil className="size-3.5" /> Edit
-                        </button>
-                    </PermissionGate>
                 </div>
             </header>
 
@@ -263,173 +338,116 @@ export default function EnvelopeDetailPage() {
                     <Skeleton height={140} />
                 )}
 
-                {/* Per-account breakdown + Trend */}
-                {envelope && (
-                    <div className="ed-grid-2">
-                        <div
-                            id="ed-breakdown"
-                            className="od-card ed-section"
-                        >
-                            <div className="ed-sect-head">
-                                <div className="ed-sect-text">
-                                    <h2 className="display ed-sect-title">
-                                        Per-account breakdown
-                                    </h2>
-                                    <span className="ed-sect-sub">
-                                        The 2D allocation matrix
-                                    </span>
-                                </div>
-                                <a className="ed-rebalance-link" href="#ed-breakdown">
-                                    Rebalance →
-                                </a>
+                {/* Active borrow obligations — appears only when there
+                    are open links. Each row offers a Cancel button that
+                    deletes both sides of the borrow atomically. */}
+                {envelope && (borrowsQuery.data ?? []).length > 0 && (
+                    <div className="od-card ed-section">
+                        <div className="ed-sect-head">
+                            <div className="ed-sect-text">
+                                <h2 className="display ed-sect-title">
+                                    Active borrows
+                                </h2>
+                                <span className="ed-sect-sub">
+                                    Future-period reductions tied to past
+                                    borrows from this envelope.
+                                </span>
                             </div>
-                            {envelope.breakdown.length === 0 ? (
-                                <div className="ed-empty">
-                                    No account-scoped activity yet. Allocate or
-                                    spend to see the partition here.
-                                </div>
-                            ) : (
-                                <table className="ed-table">
-                                    <thead>
-                                        <tr>
-                                            <th className="ed-th ed-th-l">Account</th>
-                                            <th className="ed-th">Allocated</th>
-                                            <th className="ed-th">Spent</th>
-                                            <th className="ed-th">Remaining</th>
-                                            <th className="ed-th"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {envelope.breakdown.map((b) => {
-                                            const account = b.accountId
-                                                ? accountsById.get(b.accountId)
-                                                : null;
-                                            const label = account
-                                                ? account.name
-                                                : "Unassigned";
-                                            return (
-                                                <tr
-                                                    key={b.accountId ?? "unassigned"}
-                                                    className="ed-tr"
-                                                >
-                                                    <td className="ed-td">
-                                                        <span className="ed-td-name">
-                                                            <span
-                                                                className="ed-td-dot"
-                                                                style={{
-                                                                    background:
-                                                                        account?.color ??
-                                                                        "var(--fg-4)",
-                                                                }}
-                                                            />
-                                                            <span
-                                                                style={{
-                                                                    color: "var(--fg)",
-                                                                }}
-                                                            >
-                                                                {label}
-                                                            </span>
-                                                            {b.isDrift && (
-                                                                <span className="ed-drift-chip">
-                                                                    drift
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                    </td>
-                                                    <td className="ed-td ed-td-r">
-                                                        <Money
-                                                            amount={b.allocated}
-                                                            variant="muted"
-                                                        />
-                                                    </td>
-                                                    <td className="ed-td ed-td-r">
-                                                        <Money amount={b.consumed} />
-                                                    </td>
-                                                    <td className="ed-td ed-td-r">
-                                                        <Money
-                                                            amount={b.remaining}
-                                                            variant={
-                                                                b.isDrift
-                                                                    ? "expense"
-                                                                    : "neutral"
-                                                            }
-                                                            signed
-                                                        />
-                                                    </td>
-                                                    <td className="ed-td ed-td-r">
-                                                        {b.isDrift && (
-                                                            <PermissionGate
-                                                                roles={[
-                                                                    "owner",
-                                                                    "editor",
-                                                                ]}
-                                                            >
-                                                                <RebalanceDialog
-                                                                    envelopeId={envelope.envelopId}
-                                                                    envelopCadence={
-                                                                        envelope.cadence
-                                                                    }
-                                                                    targetAccountId={
-                                                                        b.accountId ??
-                                                                        null
-                                                                    }
-                                                                    breakdown={
-                                                                        envelope.breakdown
-                                                                    }
-                                                                    accountsById={
-                                                                        accountsById
-                                                                    }
-                                                                    neededAmount={Math.abs(
-                                                                        b.remaining
-                                                                    )}
-                                                                />
-                                                            </PermissionGate>
-                                                        )}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
-                            )}
                         </div>
+                        <div className="ed-borrow-list">
+                            {(borrowsQuery.data ?? []).map((b) => {
+                                // Wire format serializes Date as ISO string;
+                                // accept either to satisfy TS without losing
+                                // formatting at runtime.
+                                const fmtMonth = (d: Date | string | null) =>
+                                    d
+                                        ? new Date(d).toLocaleString("en-US", {
+                                              month: "short",
+                                              year: "numeric",
+                                          })
+                                        : "—";
+                                return (
+                                    <div
+                                        key={b.linkId}
+                                        className="ed-borrow-row"
+                                    >
+                                        <div className="ed-borrow-text">
+                                            <div className="ed-borrow-amount">
+                                                ${b.amount.toFixed(2)}
+                                            </div>
+                                            <div className="ed-borrow-meta">
+                                                Borrowed in{" "}
+                                                {fmtMonth(b.currentPeriodStart)}{" "}
+                                                from{" "}
+                                                {fmtMonth(b.nextPeriodStart)}
+                                            </div>
+                                        </div>
+                                        <PermissionGate
+                                            roles={["owner", "editor"]}
+                                        >
+                                            <button
+                                                type="button"
+                                                className="od-btn"
+                                                disabled={undoBorrow.isPending}
+                                                onClick={() =>
+                                                    undoBorrow.mutate({
+                                                        envelopId:
+                                                            envelope.envelopId,
+                                                        linkId: b.linkId,
+                                                        idempotencyKey:
+                                                            undoBorrowIdem.key,
+                                                    })
+                                                }
+                                            >
+                                                {undoBorrow.isPending
+                                                    ? "Cancelling…"
+                                                    : "Cancel borrow"}
+                                            </button>
+                                        </PermissionGate>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
 
-                        <div className="od-card ed-section">
-                            <div className="ed-sect-head">
-                                <div className="ed-sect-text">
-                                    <h2 className="display ed-sect-title">Trend</h2>
-                                    <span className="ed-sect-sub">Last 6 months</span>
-                                </div>
+                {/* Trend */}
+                {envelope && (
+                    <div className="od-card ed-section">
+                        <div className="ed-sect-head">
+                            <div className="ed-sect-text">
+                                <h2 className="display ed-sect-title">Trend</h2>
+                                <span className="ed-sect-sub">Last 6 months</span>
                             </div>
-                            <TrendChart bars={trendBars} />
-                            <div className="ed-trend-foot">
-                                <span>
-                                    Avg allocated{" "}
-                                    <Money
-                                        amount={
-                                            trendBars.reduce(
-                                                (s, x) => s + x.allocated,
-                                                0
-                                            ) / trendBars.length
-                                        }
-                                        size={11.5}
-                                        variant="muted"
-                                    />
-                                </span>
-                                <span>
-                                    Avg consumed{" "}
-                                    <Money
-                                        amount={
-                                            trendBars.reduce(
-                                                (s, x) => s + x.consumed,
-                                                0
-                                            ) / trendBars.length
-                                        }
-                                        size={11.5}
-                                        variant="muted"
-                                    />
-                                </span>
-                            </div>
+                        </div>
+                        <TrendChart bars={trendBars} />
+                        <div className="ed-trend-foot">
+                            <span>
+                                Avg allocated{" "}
+                                <Money
+                                    amount={
+                                        trendBars.reduce(
+                                            (s, x) => s + x.allocated,
+                                            0
+                                        ) / trendBars.length
+                                    }
+                                    size={11.5}
+                                    variant="muted"
+                                />
+                            </span>
+                            <span>
+                                Avg consumed{" "}
+                                <Money
+                                    amount={
+                                        trendBars.reduce(
+                                            (s, x) => s + x.consumed,
+                                            0
+                                        ) / trendBars.length
+                                    }
+                                    size={11.5}
+                                    variant="muted"
+                                />
+                            </span>
                         </div>
                     </div>
                 )}
@@ -551,6 +569,38 @@ export default function EnvelopeDetailPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+function UnarchiveButton({
+    envelopId,
+    spaceId,
+}: {
+    envelopId: string;
+    spaceId: string;
+}) {
+    const utils = trpc.useUtils();
+    const mutation = trpc.envelop.archive.useMutation({
+        onSuccess: async () => {
+            toast.success("Unarchived");
+            await Promise.all([
+                utils.envelop.listBySpace.invalidate({ spaceId }),
+                utils.analytics.envelopeUtilization.invalidate({ spaceId }),
+                utils.analytics.spaceSummary.invalidate(),
+            ]);
+        },
+        onError: (e) => toast.error(e.message),
+    });
+    return (
+        <button
+            type="button"
+            className="od-btn od-btn-primary"
+            disabled={mutation.isPending}
+            onClick={() => mutation.mutate({ envelopId, archived: false })}
+        >
+            <ArchiveRestore className="size-3.5" />
+            {mutation.isPending ? "Unarchiving…" : "Unarchive"}
+        </button>
     );
 }
 
@@ -801,168 +851,6 @@ function Skeleton({ height = 16 }: { height?: number }) {
     );
 }
 
-/* ============================================================
-   Rebalance dialog (preserved)
-   ============================================================ */
-
-function RebalanceDialog({
-    envelopeId,
-    targetAccountId,
-    breakdown,
-    accountsById,
-    neededAmount,
-}: {
-    envelopeId: string;
-    envelopCadence: "none" | "monthly";
-    targetAccountId: string | null;
-    breakdown: Array<{
-        accountId: string | null;
-        allocated: number;
-        consumed: number;
-        remaining: number;
-        isDrift: boolean;
-    }>;
-    accountsById: Map<
-        string,
-        { id: string; name: string; color: string; icon: string }
-    >;
-    neededAmount: number;
-}) {
-    const { space } = useCurrentSpace();
-    const [open, setOpen] = useState(false);
-    const availableSources = breakdown.filter(
-        (b) =>
-            b.remaining > 0 &&
-            (b.accountId ?? "unassigned") !== (targetAccountId ?? "unassigned")
-    );
-    const [sourceKey, setSourceKey] = useState<string>(
-        availableSources[0]?.accountId ?? "unassigned"
-    );
-    const [amount, setAmount] = useState(neededAmount.toFixed(2));
-    const utils = trpc.useUtils();
-
-    const mutation = trpc.allocation.transfer.useMutation({
-        onSuccess: async () => {
-            toast.success("Rebalanced");
-            await Promise.all([
-                utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id }),
-                utils.envelop.allocationListBySpace.invalidate({
-                    spaceId: space.id,
-                }),
-                utils.analytics.spaceSummary.invalidate(),
-                utils.analytics.accountAllocation.invalidate(),
-            ]);
-            setOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
-    });
-
-    const sourceAccountId = sourceKey === "unassigned" ? null : sourceKey;
-
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                <button type="button" className="od-btn od-btn-sm">
-                    <ArrowRightLeft className="size-3" /> Rebalance
-                </button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Rebalance drift</DialogTitle>
-                    <DialogDescription>
-                        Move allocation from another account partition in this
-                        envelope to clear the drift.
-                    </DialogDescription>
-                </DialogHeader>
-                {availableSources.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                        No other account partitions have positive remaining.
-                        Allocate more from unallocated cash instead.
-                    </p>
-                ) : (
-                    <form
-                        className="grid gap-3"
-                        onSubmit={(e) => {
-                            e.preventDefault();
-                            const n = Number(amount);
-                            if (!(n > 0)) {
-                                toast.error("Enter a positive amount");
-                                return;
-                            }
-                            mutation.mutate({
-                                amount: n,
-                                from: {
-                                    kind: "envelop",
-                                    envelopId: envelopeId,
-                                    accountId: sourceAccountId,
-                                },
-                                to: {
-                                    kind: "envelop",
-                                    envelopId: envelopeId,
-                                    accountId: targetAccountId,
-                                },
-                            });
-                        }}
-                    >
-                        <div className="grid gap-1.5">
-                            <Label>From partition</Label>
-                            <Select value={sourceKey} onValueChange={setSourceKey}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {availableSources.map((s) => {
-                                        const account = s.accountId
-                                            ? accountsById.get(s.accountId)
-                                            : null;
-                                        const key = s.accountId ?? "unassigned";
-                                        return (
-                                            <SelectItem key={key} value={key}>
-                                                {account?.name ?? "Unassigned pool"}{" "}
-                                                — {formatMoney(s.remaining)}{" "}
-                                                available
-                                            </SelectItem>
-                                        );
-                                    })}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="grid gap-1.5">
-                            <Label htmlFor="rebal-amount">Amount</Label>
-                            <Input
-                                id="rebal-amount"
-                                type="number"
-                                inputMode="decimal"
-                                step="0.01"
-                                min="0"
-                                value={amount}
-                                onChange={(e) => setAmount(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <DialogFooter className="gap-2">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setOpen(false)}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                type="submit"
-                                variant="gradient"
-                                disabled={mutation.isPending}
-                            >
-                                {mutation.isPending ? "Transferring…" : "Rebalance"}
-                            </Button>
-                        </DialogFooter>
-                    </form>
-                )}
-            </DialogContent>
-        </Dialog>
-    );
-}
-
 void AlertTriangle;
 
 void function HeroStatNode(node: ReactNode) { return node; };
@@ -1013,6 +901,21 @@ const ED_STYLES = `
     gap: 14px;
 }
 .ed-sub { font-size: 13px; color: var(--fg-3); margin: 0; }
+.ed-archived-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    margin-left: 10px;
+    border-radius: 999px;
+    background: var(--bg-elev-3);
+    color: var(--fg-3);
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
+}
 .ed-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 720px) {
     .ed-topbar { padding: 18px 18px 14px; }
@@ -1064,6 +967,37 @@ const ED_STYLES = `
 }
 
 .ed-section { padding: 22px; }
+.ed-borrow-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.ed-borrow-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+}
+.ed-borrow-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.ed-borrow-amount {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg);
+    font-variant-numeric: tabular-nums;
+}
+.ed-borrow-meta {
+    font-size: 11.5px;
+    color: var(--fg-3);
+}
 .ed-sect-head {
     display: flex;
     align-items: flex-end;
@@ -1158,5 +1092,19 @@ const ED_STYLES = `
     text-align: center;
     color: var(--fg-3);
     font-size: 13px;
+}
+
+/* Phone (<640px) — tighten everything. */
+@media (max-width: 640px) {
+    .ed-topbar { padding: 14px 14px 10px; }
+    .ed-title { font-size: 20px; gap: 10px; }
+    .ed-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .orbit-design .od-card.ed-hero { padding: 16px; gap: 14px; }
+    .ed-section { padding: 14px; }
+    .ed-sect-head { margin-bottom: 10px; }
+    .ed-borrow-row { padding: 10px 12px; gap: 8px; }
+    .ed-table { font-size: 12px; }
+    .ed-td { padding: 10px 0; }
+    .ed-th { padding: 6px 0; }
 }
 `;

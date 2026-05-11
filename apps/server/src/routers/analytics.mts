@@ -13,7 +13,9 @@ import { categoryBreakdown } from "../procedures/analytics/categoryBreakdown.mjs
 import { categoryWoW } from "../procedures/analytics/categoryWoW.mjs";
 import { cumulativeSpend } from "../procedures/analytics/cumulativeSpend.mjs";
 import { envelopeHistory } from "../procedures/analytics/envelopeHistory.mjs";
+import { envelopeRecentAverages } from "../procedures/analytics/envelopeRecentAverages.mjs";
 import { envelopeUtilization } from "../procedures/analytics/envelopeUtilization.mjs";
+import { eventCategoryBreakdown } from "../procedures/analytics/eventCategoryBreakdown.mjs";
 import { eventTotals } from "../procedures/analytics/eventTotals.mjs";
 import { incomeBreakdown } from "../procedures/analytics/incomeBreakdown.mjs";
 import { netWorthHistory } from "../procedures/analytics/netWorthHistory.mjs";
@@ -22,6 +24,8 @@ import { priorityBreakdown } from "../procedures/analytics/priorityBreakdown.mjs
 import { recurring } from "../procedures/analytics/recurring.mjs";
 import { spaceSummary } from "../procedures/analytics/spaceSummary.mjs";
 import { spendingHeatmap } from "../procedures/analytics/spendingHeatmap.mjs";
+import { unbudgetedTrend } from "../procedures/analytics/unbudgetedTrend.mjs";
+import { yearReport } from "../procedures/analytics/yearReport.mjs";
 import { todaySummary } from "../procedures/analytics/todaySummary.mjs";
 import { topCategories } from "../procedures/analytics/topCategories.mjs";
 import { topCategoriesByBucket } from "../procedures/analytics/topCategoriesByBucket.mjs";
@@ -33,10 +37,14 @@ import { router } from "../trpc/index.mjs";
 
 export const analyticsRouter = router({
     spaceSummary,
+    unbudgetedTrend,
+    envelopeRecentAverages,
+    yearReport,
     cashFlow,
     categoryBreakdown,
     envelopeUtilization,
     eventTotals,
+    eventCategoryBreakdown,
     planProgress,
     priorityBreakdown,
     topCategories,

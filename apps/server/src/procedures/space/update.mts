@@ -10,20 +10,27 @@ export const updateSpace = authorizedProcedure
         z.object({
             spaceId: z.string().uuid(),
             name: z.string().min(1).max(255).optional(),
+            budgetMode: z.enum(["flexible", "strict"]).optional(),
         })
     )
     .output(
         z.object({
             id: z.string().uuid(),
             name: z.string(),
+            budgetMode: z.enum(["flexible", "strict"]),
         })
     )
     .mutation(async ({ ctx, input }) => {
+        // Mode change is structural — owner-only, not editor.
+        const requiredRoles =
+            input.budgetMode !== undefined
+                ? (["owner"] as unknown as SpaceMembers["role"][])
+                : (["owner", "editor"] as unknown as SpaceMembers["role"][]);
         await resolveSpaceMembership({
             trx: ctx.services.qb,
             spaceId: input.spaceId,
             userId: ctx.auth.user.id,
-            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
+            roles: requiredRoles,
         });
 
         const [error, result] = await safeAwait(
@@ -31,9 +38,10 @@ export const updateSpace = authorizedProcedure
                 .updateTable("spaces")
                 .set({
                     name: input.name,
+                    budget_mode: input.budgetMode,
                     updated_by: ctx.auth.user.id,
                 })
-                .returning(["id", "name"])
+                .returning(["id", "name", "budget_mode"])
                 .where("id", "=", input.spaceId)
                 .executeTakeFirstOrThrow()
         );
@@ -48,5 +56,9 @@ export const updateSpace = authorizedProcedure
             });
         }
 
-        return result;
+        return {
+            id: result.id,
+            name: result.name,
+            budgetMode: result.budget_mode as "flexible" | "strict",
+        };
     });

@@ -1,59 +1,41 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
     CalendarDays,
     Plus,
-    Trash2,
-    Pencil,
     Eye,
     ChevronDown,
     Check,
 } from "lucide-react";
-import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PermissionGate } from "@/components/shared/PermissionGate";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog";
-import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
-import { EntityStyleFields } from "@/components/shared/EntityStyleFields";
-import { FileUploadField } from "@/components/file-upload-field";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import { DEFAULT_COLOR } from "@/lib/entityStyle";
-import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 import { formatInAppTz } from "@/lib/formatDate";
-import type { RouterOutput } from "@/trpc";
+import { ROUTES } from "@/router/routes";
+import { CreateOrEditEventDialog } from "./CreateOrEditEventDialog";
+import { DeleteEventDialog } from "./DeleteEventDialog";
+import { EventStatusButton } from "./EventStatusButton";
+import {
+    DesignIcon,
+    EntityAvatar,
+    EstimateProgressBar,
+    Metric,
+    Money,
+    Skeleton,
+} from "./eventUI";
+import {
+    eventCalendarState,
+    type EventStatus,
+    type EventTotal,
+} from "./types";
 
-type RawEventTotal = RouterOutput["analytics"]["eventTotals"][number];
-type EventTotal = Omit<RawEventTotal, "startTime" | "endTime"> & {
-    startTime: Date;
-    endTime: Date;
-};
-
-type EventState = "Past" | "Recent" | "Active" | "Upcoming";
-
-function eventState(start: Date, end: Date, now: Date): EventState {
-    if (now < start) return "Upcoming";
-    if (now > end) {
-        const days = Math.round((now.getTime() - end.getTime()) / 86_400_000);
-        return days <= 14 ? "Recent" : "Past";
-    }
-    return "Active";
-}
+type StatusFilter = "all" | "active" | "closed";
 
 export default function EventsPage() {
     const { space } = useCurrentSpace();
     const [year, setYear] = useState(() => new Date().getFullYear());
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
     const eventsQuery = trpc.analytics.eventTotals.useQuery({ spaceId: space.id });
 
     const events = useMemo<EventTotal[]>(() => {
@@ -61,6 +43,8 @@ export default function EventsPage() {
             ...ev,
             startTime: new Date(ev.startTime),
             endTime: new Date(ev.endTime),
+            closedAt: ev.closedAt ? new Date(ev.closedAt) : null,
+            status: ev.status as EventStatus,
         }));
     }, [eventsQuery.data]);
 
@@ -74,9 +58,27 @@ export default function EventsPage() {
         [events, year]
     );
 
+    const counts = useMemo(() => {
+        let active = 0;
+        let closed = 0;
+        for (const e of yearEvents) {
+            if (e.status === "closed") closed += 1;
+            else active += 1;
+        }
+        return { all: yearEvents.length, active, closed };
+    }, [yearEvents]);
+
+    const visibleEvents = useMemo(
+        () =>
+            yearEvents.filter((e) =>
+                statusFilter === "all" ? true : e.status === statusFilter
+            ),
+        [yearEvents, statusFilter]
+    );
+
     const sorted = useMemo(
-        () => [...yearEvents].sort((a, b) => a.startTime.getTime() - b.startTime.getTime()),
-        [yearEvents]
+        () => [...visibleEvents].sort((a, b) => a.startTime.getTime() - b.startTime.getTime()),
+        [visibleEvents]
     );
 
     const now = new Date();
@@ -105,6 +107,11 @@ export default function EventsPage() {
                     </p>
                 </div>
                 <div className="ev-topbar-actions">
+                    <StatusFilterSegmented
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        counts={counts}
+                    />
                     <YearPicker year={year} setYear={setYear} options={yearOptions} />
                     <PermissionGate roles={["owner", "editor"]}>
                         <CreateOrEditEventDialog
@@ -164,6 +171,7 @@ export default function EventsPage() {
                                 1.4,
                                 ((end - start) / yearLen) * 100
                             );
+                            const dim = e.status === "closed";
                             return (
                                 <div
                                     key={e.eventId}
@@ -171,9 +179,10 @@ export default function EventsPage() {
                                     style={{
                                         left: `${left}%`,
                                         width: `${width}%`,
-                                        background: `color-mix(in oklab, ${e.color} 22%, transparent)`,
+                                        background: `color-mix(in oklab, ${e.color} ${dim ? 12 : 22}%, transparent)`,
                                         border: `1px solid ${e.color}`,
                                         color: e.color,
+                                        opacity: dim ? 0.65 : 1,
                                     }}
                                     title={e.name}
                                 >
@@ -209,7 +218,11 @@ export default function EventsPage() {
                                 fontWeight: 500,
                             }}
                         >
-                            No events in {year}
+                            {statusFilter === "closed"
+                                ? `No closed events in ${year}`
+                                : statusFilter === "active"
+                                  ? `No active events in ${year}`
+                                  : `No events in ${year}`}
                         </div>
                         <div style={{ fontSize: 12.5, color: "var(--fg-4)" }}>
                             Events help group related transactions (weddings, trips,
@@ -227,133 +240,230 @@ export default function EventsPage() {
                     </div>
                 ) : (
                     <div className="ev-grid">
-                        {sorted.map((e) => {
-                            const state = eventState(e.startTime, e.endTime, now);
-                            const stateTone =
-                                state === "Active"
-                                    ? "var(--brand)"
-                                    : state === "Upcoming"
-                                      ? "var(--gold)"
-                                      : "var(--fg-3)";
-                            const net = e.incomeTotal - e.expenseTotal;
-                            return (
-                                <div key={e.eventId} className="od-card ev-card">
-                                    <div className="ev-card-head">
-                                        <span className="ev-card-name">
-                                            <EntityAvatar
-                                                icon={e.icon}
-                                                colorVar={e.color}
-                                                size={36}
-                                            />
-                                            <span className="ev-card-text">
-                                                <span className="ev-card-title">
-                                                    {e.name}
-                                                </span>
-                                                <span className="ev-card-range">
-                                                    {formatInAppTz(e.startTime, "MMM d")}{" "}
-                                                    →{" "}
-                                                    {formatInAppTz(e.endTime, "MMM d")}
-                                                </span>
-                                            </span>
-                                        </span>
-                                        <span
-                                            className="ev-card-state"
-                                            style={{
-                                                color: stateTone,
-                                                borderColor:
-                                                    state === "Active"
-                                                        ? "color-mix(in oklab, var(--brand) 30%, transparent)"
-                                                        : state === "Upcoming"
-                                                          ? "color-mix(in oklab, var(--gold) 30%, transparent)"
-                                                          : "var(--line)",
-                                            }}
-                                        >
-                                            {state}
-                                        </span>
-                                    </div>
-                                    <div className="ev-card-stats">
-                                        <Metric
-                                            label="Spent"
-                                            value={
-                                                <Money
-                                                    amount={e.expenseTotal}
-                                                    size={16}
-                                                    weight={500}
-                                                    variant={
-                                                        e.expenseTotal
-                                                            ? "expense"
-                                                            : "muted"
-                                                    }
-                                                />
-                                            }
-                                        />
-                                        <Metric
-                                            label="Received"
-                                            value={
-                                                <Money
-                                                    amount={e.incomeTotal}
-                                                    size={16}
-                                                    weight={500}
-                                                    variant={
-                                                        e.incomeTotal
-                                                            ? "income"
-                                                            : "muted"
-                                                    }
-                                                />
-                                            }
-                                        />
-                                        <Metric
-                                            label="Transactions"
-                                            value={
-                                                <span
-                                                    className="tabular"
-                                                    style={{
-                                                        fontSize: 16,
-                                                        color: "var(--fg)",
-                                                        fontWeight: 500,
-                                                    }}
-                                                >
-                                                    {e.txCount}
-                                                </span>
-                                            }
-                                        />
-                                    </div>
-                                    <div className="ev-card-foot">
-                                        <span style={{ fontSize: 11.5, color: "var(--fg-4)" }}>
-                                            Net{" "}
-                                            <Money
-                                                amount={net}
-                                                size={11.5}
-                                                variant={
-                                                    net < 0
-                                                        ? "expense"
-                                                        : net > 0
-                                                          ? "income"
-                                                          : "muted"
-                                                }
-                                                signed={net !== 0}
-                                            />
-                                        </span>
-                                        <span style={{ display: "flex", gap: 6 }}>
-                                            <button
-                                                type="button"
-                                                className="od-btn od-btn-sm"
-                                            >
-                                                <Eye className="size-3" />
-                                                View
-                                            </button>
-                                            <PermissionGate roles={["owner", "editor"]}>
-                                                <CreateOrEditEventDialog event={e} />
-                                                <DeleteEvent id={e.eventId} />
-                                            </PermissionGate>
-                                        </span>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                        {sorted.map((e) => (
+                            <EventCard key={e.eventId} e={e} now={now} spaceId={space.id} />
+                        ))}
                     </div>
                 )}
             </div>
+        </div>
+    );
+}
+
+function EventCard({
+    e,
+    now,
+    spaceId,
+}: {
+    e: EventTotal;
+    now: Date;
+    spaceId: string;
+}) {
+    const calendarState = eventCalendarState(e.startTime, e.endTime, now);
+    const closed = e.status === "closed";
+    const net = e.incomeTotal - e.expenseTotal;
+    const lifecycleTone = closed ? "var(--fg-3)" : "var(--brand)";
+    const hasEstimate = e.estimatedAmount !== null && e.estimatedAmount > 0;
+    const pct = hasEstimate
+        ? (e.expenseTotal / (e.estimatedAmount as number)) * 100
+        : 0;
+    const overByOrLeft = hasEstimate
+        ? e.expenseTotal - (e.estimatedAmount as number)
+        : 0;
+
+    return (
+        <div
+            className="od-card ev-card"
+            style={{ opacity: closed ? 0.85 : 1 }}
+        >
+            <div className="ev-card-head">
+                <span className="ev-card-name">
+                    <EntityAvatar icon={e.icon} colorVar={e.color} size={36} />
+                    <span className="ev-card-text">
+                        <span className="ev-card-title">{e.name}</span>
+                        <span className="ev-card-range">
+                            {formatInAppTz(e.startTime, "MMM d")} →{" "}
+                            {formatInAppTz(e.endTime, "MMM d")}
+                            <span className="ev-card-calstate">
+                                {" · "}
+                                {calendarState.toLowerCase()}
+                            </span>
+                        </span>
+                    </span>
+                </span>
+                <span
+                    className="ev-card-state"
+                    style={{
+                        color: lifecycleTone,
+                        borderColor: closed
+                            ? "var(--line)"
+                            : "color-mix(in oklab, var(--brand) 30%, transparent)",
+                    }}
+                >
+                    {closed ? "Closed" : "Active"}
+                </span>
+            </div>
+            <div className="ev-card-stats">
+                <Metric
+                    label={closed ? "Final spend" : "Spent"}
+                    value={
+                        <Money
+                            amount={e.expenseTotal}
+                            size={16}
+                            weight={500}
+                            variant={e.expenseTotal ? "expense" : "muted"}
+                        />
+                    }
+                />
+                <Metric
+                    label={closed ? "Final received" : "Received"}
+                    value={
+                        <Money
+                            amount={e.incomeTotal}
+                            size={16}
+                            weight={500}
+                            variant={e.incomeTotal ? "income" : "muted"}
+                        />
+                    }
+                />
+                <Metric
+                    label="Transactions"
+                    value={
+                        <span
+                            className="tabular"
+                            style={{
+                                fontSize: 16,
+                                color: "var(--fg)",
+                                fontWeight: 500,
+                            }}
+                        >
+                            {e.txCount}
+                        </span>
+                    }
+                />
+            </div>
+            {hasEstimate ? (
+                <div className="ev-card-progress">
+                    <EstimateProgressBar
+                        spent={e.expenseTotal}
+                        estimate={e.estimatedAmount as number}
+                    />
+                    <div className="ev-card-progress-row">
+                        <span style={{ fontSize: 11.5, color: "var(--fg-3)" }}>
+                            <Money amount={e.expenseTotal} size={11.5} /> of{" "}
+                            <Money amount={e.estimatedAmount as number} size={11.5} />
+                            <span style={{ color: "var(--fg-4)" }}>
+                                {" · "}
+                                {pct.toFixed(0)}%
+                            </span>
+                        </span>
+                        <span
+                            style={{
+                                fontSize: 11.5,
+                                color:
+                                    overByOrLeft > 0
+                                        ? "var(--expense)"
+                                        : "var(--fg-4)",
+                            }}
+                        >
+                            {overByOrLeft > 0 ? (
+                                <>
+                                    +<Money amount={overByOrLeft} size={11.5} variant="expense" />{" "}
+                                    over
+                                </>
+                            ) : (
+                                <>
+                                    <Money amount={-overByOrLeft} size={11.5} /> left
+                                </>
+                            )}
+                        </span>
+                    </div>
+                </div>
+            ) : (
+                <div className="ev-card-no-estimate">
+                    <PermissionGate roles={["owner", "editor"]}>
+                        <CreateOrEditEventDialog
+                            event={e}
+                            trigger={
+                                <button
+                                    type="button"
+                                    className="ev-card-est-link"
+                                >
+                                    Set an estimate
+                                </button>
+                            }
+                        />
+                    </PermissionGate>
+                </div>
+            )}
+            <div className="ev-card-foot">
+                <span style={{ fontSize: 11.5, color: "var(--fg-4)" }}>
+                    Net{" "}
+                    <Money
+                        amount={net}
+                        size={11.5}
+                        variant={
+                            net < 0
+                                ? "expense"
+                                : net > 0
+                                  ? "income"
+                                  : "muted"
+                        }
+                        signed={net !== 0}
+                    />
+                </span>
+                <span style={{ display: "flex", gap: 6 }}>
+                    <Link
+                        to={ROUTES.spaceEventDetail(spaceId, e.eventId)}
+                        className="od-btn od-btn-sm"
+                    >
+                        <Eye className="size-3" />
+                        View
+                    </Link>
+                    <PermissionGate roles={["owner", "editor"]}>
+                        <CreateOrEditEventDialog event={e} />
+                        <EventStatusButton
+                            eventId={e.eventId}
+                            status={e.status}
+                        />
+                        <DeleteEventDialog
+                            eventId={e.eventId}
+                            linkedTransactionCount={e.txCount}
+                        />
+                    </PermissionGate>
+                </span>
+            </div>
+        </div>
+    );
+}
+
+function StatusFilterSegmented({
+    value,
+    onChange,
+    counts,
+}: {
+    value: StatusFilter;
+    onChange: (v: StatusFilter) => void;
+    counts: { all: number; active: number; closed: number };
+}) {
+    const items: Array<{ key: StatusFilter; label: string; count: number }> = [
+        { key: "all", label: "All", count: counts.all },
+        { key: "active", label: "Active", count: counts.active },
+        { key: "closed", label: "Closed", count: counts.closed },
+    ];
+    return (
+        <div className="ev-seg">
+            {items.map((it) => (
+                <button
+                    key={it.key}
+                    type="button"
+                    className={`ev-seg-btn${value === it.key ? " is-active" : ""}`}
+                    onClick={() => onChange(it.key)}
+                >
+                    {it.label}
+                    <span className="ev-seg-count">{it.count}</span>
+                </button>
+            ))}
         </div>
     );
 }
@@ -400,338 +510,6 @@ function YearPicker({
                 ))}
             </PopoverContent>
         </Popover>
-    );
-}
-
-function Metric({ label, value }: { label: string; value: ReactNode }) {
-    return (
-        <div className="ev-metric">
-            <span className="eyebrow">{label}</span>
-            <div style={{ marginTop: 4 }}>{value}</div>
-        </div>
-    );
-}
-
-function Money({
-    amount,
-    variant = "neutral",
-    signed = false,
-    size = 13,
-    weight = 500,
-    decimals = 2,
-}: {
-    amount: number;
-    variant?: "neutral" | "income" | "expense" | "muted";
-    signed?: boolean;
-    size?: number;
-    weight?: number;
-    decimals?: number;
-}) {
-    const colorMap: Record<string, string> = {
-        income: "var(--income)",
-        expense: "var(--expense)",
-        muted: "var(--fg-3)",
-        neutral: "var(--fg)",
-    };
-    const abs = Math.abs(amount).toLocaleString("en-US", {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-    });
-    let text = abs;
-    if (amount < 0) text = "−" + abs;
-    else if (signed && amount > 0) text = "+" + abs;
-    return (
-        <span
-            className="tabular"
-            style={{ color: colorMap[variant], fontSize: size, fontWeight: weight }}
-        >
-            {text}
-        </span>
-    );
-}
-
-function EntityAvatar({
-    icon,
-    colorVar,
-    size = 32,
-}: {
-    icon: string;
-    colorVar: string;
-    size?: number;
-}) {
-    return (
-        <span
-            style={{
-                width: size,
-                height: size,
-                borderRadius: 8,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: `color-mix(in oklab, ${colorVar} 18%, transparent)`,
-                border: `1px solid color-mix(in oklab, ${colorVar} 30%, transparent)`,
-                color: colorVar,
-                flexShrink: 0,
-            }}
-        >
-            <DesignIcon name={icon} size={size * 0.5} color={colorVar} />
-        </span>
-    );
-}
-
-const ICON_PATHS: Record<string, string> = {
-    home: "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
-    plane: "m3 13 7-1 4-7 2 1-2 7 7 4-1 2-7-3-3 4-2 1 1-3z",
-    gift: "M4 11h16v9H4zM3 7h18v4H3zm9-3a2 2 0 0 0-2 2v1h4V6a2 2 0 0 0-2-2zm0 0v16",
-    heart: "M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z",
-    star: "m12 3 2.7 5.6 6 .7-4.4 4.3 1.2 6.1L12 16.8 6.5 19.7l1.2-6.1L3.3 9.3l6-.7z",
-    "calendar-days":
-        "M5 5h14v14H5zM5 9h14M9 3v4M15 3v4",
-    calendar: "M5 5h14v14H5zM5 9h14M9 3v4M15 3v4",
-    dot: "M12 12h.01",
-};
-
-function DesignIcon({
-    name,
-    size,
-    color,
-}: {
-    name: string;
-    size: number;
-    color: string;
-}) {
-    const d = ICON_PATHS[name] ?? ICON_PATHS.calendar;
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke={color}
-            strokeWidth={1.7}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d={d} />
-        </svg>
-    );
-}
-
-function Skeleton({ height = 16 }: { height?: number }) {
-    return (
-        <div
-            style={{
-                width: "100%",
-                height,
-                borderRadius: 12,
-                background:
-                    "linear-gradient(90deg, var(--bg-elev-1), var(--bg-elev-2), var(--bg-elev-1))",
-                backgroundSize: "200% 100%",
-                animation: "ov-shimmer 1.6s ease-in-out infinite",
-            }}
-        />
-    );
-}
-
-/* ============================================================
-   Dialogs (preserved from previous impl + trigger prop)
-   ============================================================ */
-
-function CreateOrEditEventDialog({
-    event,
-    trigger,
-}: {
-    event?: EventTotal;
-    trigger?: ReactNode;
-}) {
-    const { space } = useCurrentSpace();
-    const editing = !!event;
-    const [open, setOpen] = useState(false);
-    const [name, setName] = useState(event?.name ?? "");
-    const [start, setStart] = useState(toInputDateTime(event?.startTime ?? null));
-    const [end, setEnd] = useState(toInputDateTime(event?.endTime ?? null));
-    const [color, setColor] = useState(event?.color ?? DEFAULT_COLOR);
-    const [icon, setIcon] = useState(event?.icon ?? "calendar-days");
-    const [description, setDescription] = useState(event?.description ?? "");
-    const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
-    const utils = trpc.useUtils();
-
-    const invalidate = async () => {
-        await utils.event.listBySpace.invalidate({ spaceId: space.id });
-        await utils.analytics.eventTotals.invalidate({ spaceId: space.id });
-    };
-
-    const create = trpc.event.create.useMutation({
-        onSuccess: async () => {
-            toast.success("Event created");
-            await invalidate();
-            setOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
-    });
-    const update = trpc.event.update.useMutation({
-        onSuccess: async () => {
-            toast.success("Event updated");
-            await invalidate();
-            setOpen(false);
-        },
-        onError: (e) => toast.error(e.message),
-    });
-    const pending = create.isPending || update.isPending;
-
-    return (
-        <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-                {trigger ??
-                    (editing ? (
-                        <Button size="icon" variant="ghost" className="size-7">
-                            <Pencil className="size-3.5" />
-                        </Button>
-                    ) : (
-                        <Button variant="gradient">
-                            <Plus />
-                            New event
-                        </Button>
-                    ))}
-            </DialogTrigger>
-            <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-lg">
-                <DialogHeader>
-                    <DialogTitle>{editing ? "Edit event" : "Create event"}</DialogTitle>
-                    <DialogDescription>
-                        Events group related transactions (weddings, trips, etc).
-                    </DialogDescription>
-                </DialogHeader>
-                <form
-                    className="grid gap-3"
-                    onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!name.trim() || !start || !end) return;
-                        if (editing) {
-                            update.mutate({
-                                eventId: event!.eventId,
-                                name: name.trim(),
-                                startTime: fromInputDateTime(start),
-                                endTime: fromInputDateTime(end),
-                                color,
-                                icon,
-                                description: description.trim() || null,
-                                addAttachmentFileIds:
-                                    attachmentFileIds.length > 0
-                                        ? attachmentFileIds
-                                        : undefined,
-                            });
-                        } else {
-                            create.mutate({
-                                spaceId: space.id,
-                                name: name.trim(),
-                                startTime: fromInputDateTime(start),
-                                endTime: fromInputDateTime(end),
-                                color,
-                                icon,
-                                description: description.trim() || undefined,
-                                attachmentFileIds:
-                                    attachmentFileIds.length > 0
-                                        ? attachmentFileIds
-                                        : undefined,
-                            });
-                        }
-                    }}
-                >
-                    <div className="grid gap-1.5">
-                        <Label htmlFor="ev-name">Name</Label>
-                        <Input
-                            id="ev-name"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            required
-                            autoFocus
-                        />
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="grid gap-1.5">
-                            <Label htmlFor="ev-start">Starts</Label>
-                            <Input
-                                id="ev-start"
-                                type="datetime-local"
-                                value={start}
-                                onChange={(e) => setStart(e.target.value)}
-                                required
-                            />
-                        </div>
-                        <div className="grid gap-1.5">
-                            <Label htmlFor="ev-end">Ends</Label>
-                            <Input
-                                id="ev-end"
-                                type="datetime-local"
-                                value={end}
-                                onChange={(e) => setEnd(e.target.value)}
-                                required
-                            />
-                        </div>
-                    </div>
-                    <div className="grid gap-1.5">
-                        <Label htmlFor="ev-desc">Description (optional)</Label>
-                        <Textarea
-                            id="ev-desc"
-                            rows={2}
-                            maxLength={2000}
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                        />
-                    </div>
-                    <EntityStyleFields
-                        name={name}
-                        color={color}
-                        setColor={setColor}
-                        icon={icon}
-                        setIcon={setIcon}
-                    />
-                    <FileUploadField
-                        purpose="event_attachment"
-                        fileIds={attachmentFileIds}
-                        onChange={setAttachmentFileIds}
-                    />
-                    <DialogFooter className="gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => setOpen(false)}
-                        >
-                            Cancel
-                        </Button>
-                        <Button type="submit" variant="gradient" disabled={pending}>
-                            {pending ? "Saving…" : editing ? "Save" : "Create"}
-                        </Button>
-                    </DialogFooter>
-                </form>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-function DeleteEvent({ id }: { id: string }) {
-    const { space } = useCurrentSpace();
-    const utils = trpc.useUtils();
-    const del = trpc.event.delete.useMutation({
-        onSuccess: async () => {
-            toast.success("Event deleted");
-            await utils.event.listBySpace.invalidate({ spaceId: space.id });
-            await utils.analytics.eventTotals.invalidate({ spaceId: space.id });
-        },
-        onError: (e) => toast.error(e.message),
-    });
-    return (
-        <ConfirmDialog
-            trigger={
-                <Button size="icon" variant="ghost" className="size-7">
-                    <Trash2 className="size-3.5 text-destructive" />
-                </Button>
-            }
-            title="Delete event?"
-            confirmLabel="Delete"
-            destructive
-            onConfirm={() => del.mutate({ eventId: id })}
-        />
     );
 }
 
@@ -805,6 +583,46 @@ const EV_STYLES = `
     margin: 0;
 }
 .ev-sect-sub { font-size: 12px; color: var(--fg-3); }
+
+/* Segmented status filter */
+.ev-seg {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+    gap: 2px;
+}
+.ev-seg-btn {
+    border: 0;
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--fg-3);
+    cursor: pointer;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 120ms ease, color 120ms ease;
+}
+.ev-seg-btn:hover:not(.is-active) { color: var(--fg-2); }
+.ev-seg-btn.is-active {
+    background: var(--bg);
+    color: var(--fg);
+    box-shadow: 0 0 0 1px var(--line) inset;
+}
+.ev-seg-count {
+    font-size: 10.5px;
+    color: var(--fg-4);
+    background: var(--bg-elev-3);
+    border-radius: 999px;
+    padding: 0 6px;
+    line-height: 16px;
+}
+.ev-seg-btn.is-active .ev-seg-count { color: var(--fg-2); }
 
 /* Timeline */
 .ev-timeline {
@@ -903,6 +721,9 @@ const EV_STYLES = `
     font-size: 11.5px;
     color: var(--fg-4);
 }
+.ev-card-calstate {
+    color: var(--fg-4);
+}
 .ev-card-state {
     display: inline-flex;
     align-items: center;
@@ -926,6 +747,32 @@ const EV_STYLES = `
     display: flex;
     flex-direction: column;
 }
+.ev-card-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.ev-card-progress-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.ev-card-no-estimate {
+    display: flex;
+    justify-content: flex-start;
+}
+.ev-card-est-link {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font-size: 11.5px;
+    color: var(--brand);
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    text-decoration: none;
+}
+.ev-card-est-link:hover { text-decoration: underline; }
 .ev-card-foot {
     display: flex;
     justify-content: space-between;
@@ -962,7 +809,24 @@ const EV_STYLES = `
 
 /* Phone (<640px) — tighten event cards. */
 @media (max-width: 640px) {
+    .ev-topbar { padding: 14px 14px 10px; }
+    .ev-title { font-size: 22px; }
+    .ev-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .ev-section { padding: 14px; }
+    .ev-sect-head { margin-bottom: 10px; }
     .ev-card-stats { gap: 10px; padding: 10px 0; }
+    .orbit-design .od-card.ev-card { padding: 14px; gap: 12px; }
     .orbit-design .od-card.ev-empty { padding: 24px; }
+    .ev-seg {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-wrap: nowrap;
+    }
+    .ev-seg-btn { flex: 0 0 auto; }
+}
+@media (max-width: 380px) {
+    .ev-card-stats { grid-template-columns: 1fr 1fr; }
+    .ev-card-stats > :nth-child(3) { grid-column: span 2; }
 }
 `;

@@ -32,6 +32,9 @@ export const listEventsBySpace = authorizedProcedure
                         "color",
                         "icon",
                         "description",
+                        "estimated_amount",
+                        "status",
+                        "closed_at",
                         "created_at",
                     ])
                     .where("events.space_id", "=", input.spaceId)

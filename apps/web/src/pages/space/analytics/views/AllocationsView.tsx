@@ -613,7 +613,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
             sub: "Free-floating",
         },
         {
-            label: "Drift",
+            label: "Drift (legacy)",
             value: t.drift,
             money: true,
             tone: t.drift < 0 ? "expense" : "neutral",
@@ -623,6 +623,21 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
 
     return (
         <div className="grid gap-4">
+            <div
+                className="rounded-lg border px-4 py-3 text-[12.5px]"
+                style={{
+                    borderColor: "color-mix(in oklab, var(--brand) 28%, var(--border))",
+                    background: "color-mix(in oklab, var(--brand) 5%, var(--card))",
+                    color: "var(--fg-2)",
+                }}
+            >
+                <strong style={{ color: "var(--fg)" }}>Reporting view.</strong>{" "}
+                Envelopes are now space-wide intent — accounts are the ledger. The
+                per-account partition figures below are kept for reconciliation; you
+                no longer need to rebalance them. The legacy <em>Drift</em> KPI just
+                compares total assets to total envelope allocations.
+            </div>
+
             <KpiStrip items={kpiItems} isLoading={q.isLoading} />
 
             <Card>

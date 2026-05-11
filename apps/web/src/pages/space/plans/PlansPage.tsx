@@ -36,6 +36,7 @@ import { getIcon } from "@/lib/entityIcons";
 import { PlanAllocateDialog } from "@/features/allocations/PlanAllocateDialog";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
+import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { ROUTES } from "@/router/routes";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import { toInputDate } from "@/lib/dates";
@@ -586,9 +587,11 @@ function CreateOrEditPlanDialog({
         await utils.analytics.planProgress.invalidate({ spaceId: space.id });
     };
 
+    const idem = useIdempotencyKey();
     const create = trpc.plan.create.useMutation({
         onSuccess: async () => {
             toast.success("Plan created");
+            idem.rotate();
             await invalidate();
             setOpen(false);
             setStep("basics");
@@ -610,6 +613,7 @@ function CreateOrEditPlanDialog({
     const IconCmp = getIcon(icon);
 
     const submit = () => {
+        if (pending) return;
         if (!name.trim()) return;
         const target = targetAmount ? Number(targetAmount) : null;
         const date = targetDate ? new Date(targetDate) : null;
@@ -632,6 +636,7 @@ function CreateOrEditPlanDialog({
                 description: description.trim() || undefined,
                 targetAmount: target ?? undefined,
                 targetDate: date ?? undefined,
+                idempotencyKey: idem.key,
             });
         }
     };
@@ -1228,6 +1233,10 @@ const PLANS_STYLES = `
 
 /* Phone (<640px) — tighter cards and hero. */
 @media (max-width: 640px) {
+    .plans-topbar { padding: 14px 14px 10px; }
+    .plans-title { font-size: 22px; }
+    .plans-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .orbit-design .od-card.plans-hero { padding: 16px; gap: 14px; }
     .plans-card { padding: 16px; gap: 12px; }
     .plans-card-actions { gap: 6px; }
     .plans-card-icon-actions { opacity: 1; }

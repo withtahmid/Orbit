@@ -19,6 +19,9 @@ export const updateEnvelop = authorizedProcedure
                 description: z.string().max(2000).nullable().optional(),
                 cadence: z.enum(["none", "monthly"]).optional(),
                 carryOver: z.boolean().optional(),
+                carryPolicy: z
+                    .enum(["reset", "positive_only", "both"])
+                    .optional(),
             })
             .refine(
                 (d) =>
@@ -27,7 +30,8 @@ export const updateEnvelop = authorizedProcedure
                     d.icon !== undefined ||
                     d.description !== undefined ||
                     d.cadence !== undefined ||
-                    d.carryOver !== undefined,
+                    d.carryOver !== undefined ||
+                    d.carryPolicy !== undefined,
                 { message: "At least one field must be provided" }
             )
     )
@@ -54,6 +58,23 @@ export const updateEnvelop = authorizedProcedure
                     roles: ["owner"] as unknown as SpaceMembers["role"][],
                 });
 
+                // carryPolicy is the source of truth in the new model;
+                // we keep carry_over in sync so legacy callers / queries
+                // that still read the boolean don't break.
+                const carryUpdates: {
+                    carry_policy?: "reset" | "positive_only" | "both";
+                    carry_over?: boolean;
+                } = {};
+                if (input.carryPolicy !== undefined) {
+                    carryUpdates.carry_policy = input.carryPolicy;
+                    carryUpdates.carry_over = input.carryPolicy !== "reset";
+                } else if (input.carryOver !== undefined) {
+                    carryUpdates.carry_over = input.carryOver;
+                    carryUpdates.carry_policy = input.carryOver
+                        ? "positive_only"
+                        : "reset";
+                }
+
                 return trx
                     .updateTable("envelops")
                     .set({
@@ -62,7 +83,7 @@ export const updateEnvelop = authorizedProcedure
                         icon: input.icon,
                         description: input.description,
                         cadence: input.cadence,
-                        carry_over: input.carryOver,
+                        ...carryUpdates,
                         updated_at: sql`now()`,
                     })
                     .where("envelops.id", "=", input.envelopId)
@@ -75,6 +96,7 @@ export const updateEnvelop = authorizedProcedure
                         "description",
                         "cadence",
                         "carry_over",
+                        "carry_policy",
                         "created_at",
                         "updated_at",
                     ])

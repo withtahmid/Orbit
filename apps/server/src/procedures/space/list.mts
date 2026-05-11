@@ -9,6 +9,7 @@ export const listSpaces = authorizedProcedure
             z.object({
                 id: z.string().uuid(),
                 name: z.string().max(255),
+                budgetMode: z.enum(["flexible", "strict"]),
                 myRole: z.enum(["owner", "editor", "viewer"]),
             })
         )
@@ -18,7 +19,12 @@ export const listSpaces = authorizedProcedure
             ctx.services.qb
                 .selectFrom("spaces")
                 .innerJoin("space_members", "space_members.space_id", "spaces.id")
-                .select(["spaces.id", "spaces.name", "space_members.role as myRole"])
+                .select([
+                    "spaces.id",
+                    "spaces.name",
+                    "spaces.budget_mode",
+                    "space_members.role as myRole",
+                ])
                 .where("space_members.user_id", "=", ctx.auth.user.id)
                 .execute()
         );
@@ -31,7 +37,11 @@ export const listSpaces = authorizedProcedure
         }
 
         return result.map((space) => ({
-            ...space,
+            id: space.id,
+            name: space.name,
+            budgetMode: z
+                .enum(["flexible", "strict"])
+                .parse(space.budget_mode),
             myRole: z.enum(["owner", "editor", "viewer"]).parse(space.myRole),
         }));
     });

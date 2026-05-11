@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ChevronRight, Info } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowRight, ChevronRight } from "lucide-react";
+import { Card, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
@@ -24,14 +24,8 @@ type Envelope = {
     allocated: number;
     consumed: number;
     remaining: number;
-    isDrift: boolean;
-    breakdown: Array<{
-        accountId: string | null;
-        allocated: number;
-        consumed: number;
-        remaining: number;
-        isDrift: boolean;
-    }>;
+    borrowedIn?: number;
+    borrowedOut?: number;
     /** Present in the personal-space variant of the query. */
     spaceId?: string;
 };
@@ -65,16 +59,25 @@ export default function EnvelopesView() {
         let allocated = 0;
         let consumed = 0;
         let overCount = 0;
-        let driftCount = 0;
+        let borrowedInTotal = 0;
+        let borrowedOutCount = 0;
         for (const e of envelopes) {
             allocated += e.allocated;
             consumed += e.consumed;
             if (e.allocated > 0 && e.consumed > e.allocated) overCount++;
-            if (e.breakdown.some((b) => b.isDrift)) driftCount++;
+            if ((e.borrowedIn ?? 0) > 0) borrowedInTotal += e.borrowedIn ?? 0;
+            if ((e.borrowedOut ?? 0) > 0) borrowedOutCount++;
         }
         const utilization =
             allocated > 0 ? Math.round((consumed / allocated) * 100) : 0;
-        return { allocated, consumed, overCount, driftCount, utilization };
+        return {
+            allocated,
+            consumed,
+            overCount,
+            borrowedInTotal,
+            borrowedOutCount,
+            utilization,
+        };
     }, [envelopes]);
 
     const sorted = useMemo(() => {
@@ -84,17 +87,6 @@ export default function EnvelopesView() {
             return pb - pa;
         });
     }, [envelopes]);
-
-    const driftEnvelopes = useMemo(
-        () =>
-            envelopes
-                .filter((e) => e.breakdown.some((b) => b.isDrift))
-                .map((e) => ({
-                    envelope: e,
-                    drift: e.remaining,
-                })),
-        [envelopes]
-    );
 
     const kpiItems: KpiItem[] = [
         {
@@ -120,11 +112,14 @@ export default function EnvelopesView() {
             sub: `of ${envelopes.length} envelopes`,
         },
         {
-            label: "Account drift",
-            value: summary.driftCount,
-            valueFormat: "integer",
-            tone: summary.driftCount > 0 ? "expense" : "neutral",
-            sub: summary.driftCount === 0 ? "all balanced" : "envelopes need rebalance",
+            label: "Borrowed in",
+            value: summary.borrowedInTotal,
+            money: true,
+            tone: summary.borrowedInTotal > 0 ? "expense" : "neutral",
+            sub:
+                summary.borrowedOutCount > 0
+                    ? `${summary.borrowedOutCount} envelope${summary.borrowedOutCount === 1 ? "" : "s"} owe future periods`
+                    : "no borrow obligations",
         },
     ];
 
@@ -169,66 +164,6 @@ export default function EnvelopesView() {
                 )}
             </Card>
 
-            {driftEnvelopes.length > 0 && (
-                <Card
-                    className="overflow-hidden p-0"
-                    style={{
-                        borderColor:
-                            "color-mix(in oklab, var(--warning) 20%, var(--border))",
-                        background:
-                            "color-mix(in oklab, var(--warning) 4%, var(--card))",
-                    }}
-                >
-                    <CardHeader className="flex flex-row items-start justify-between gap-3">
-                        <div>
-                            <CardTitle className="flex items-center gap-2">
-                                <Info className="size-4 text-[color:var(--warning)]" />
-                                Account drift
-                            </CardTitle>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                                Envelopes whose per-account remainder is negative —
-                                these need a rebalance.
-                            </p>
-                        </div>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                            {driftEnvelopes.map(({ envelope, drift }) => (
-                                <Link
-                                    key={envelope.envelopId}
-                                    to={ROUTES.spaceEnvelopeDetail(
-                                        space.isPersonal && envelope.spaceId
-                                            ? envelope.spaceId
-                                            : space.id,
-                                        envelope.envelopId
-                                    )}
-                                    className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-background/40 p-3.5 transition-colors hover:border-foreground/20 hover:bg-background/70"
-                                >
-                                    <span className="flex items-center gap-2">
-                                        <span
-                                            className="size-2 rounded-full"
-                                            style={{ backgroundColor: envelope.color }}
-                                        />
-                                        <span className="truncate text-sm font-medium">
-                                            {envelope.name}
-                                        </span>
-                                    </span>
-                                    <MoneyDisplay
-                                        amount={drift}
-                                        variant={drift < 0 ? "expense" : "income"}
-                                        signed
-                                        className="text-base font-semibold"
-                                    />
-                                    <span className="text-[11px] text-muted-foreground">
-                                        {drift < 0 ? "Funded short" : "Over-funded"} ·
-                                        click to fix
-                                    </span>
-                                </Link>
-                            ))}
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
         </AnalyticsDetailLayout>
     );
 }
@@ -246,7 +181,8 @@ function EnvelopeRow({
     const consumed = envelope.consumed;
     const rawPct = allocated > 0 ? consumed / allocated : consumed > 0 ? Infinity : 0;
     const isOver = rawPct > 1;
-    const driftCount = envelope.breakdown.filter((b) => b.isDrift).length;
+    const borrowedIn = envelope.borrowedIn ?? 0;
+    const borrowedOut = envelope.borrowedOut ?? 0;
     const isUntouched = consumed === 0;
     const finitePct = Number.isFinite(rawPct);
 
@@ -282,10 +218,14 @@ function EnvelopeRow({
                                 monthly
                             </span>
                         )}
-                        {driftCount > 0 && (
+                        {borrowedIn > 0 && (
                             <span className="inline-flex items-center gap-0.5 text-[color:var(--warning)]">
-                                <Info className="size-2.5" />
-                                {driftCount} drift
+                                +{formatMoney(borrowedIn)} borrowed
+                            </span>
+                        )}
+                        {borrowedOut > 0 && (
+                            <span className="inline-flex items-center gap-0.5 text-[color:var(--expense)]">
+                                −{formatMoney(borrowedOut)} owed
                             </span>
                         )}
                     </span>

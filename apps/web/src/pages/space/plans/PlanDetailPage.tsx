@@ -552,4 +552,17 @@ const PD_STYLES = `
     color: var(--fg-3);
     font-size: 13px;
 }
+
+/* Phone (<640px) */
+@media (max-width: 640px) {
+    .pd-topbar { padding: 14px 14px 10px; }
+    .pd-title { font-size: 20px; gap: 10px; }
+    .pd-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .orbit-design .od-card.pd-hero { padding: 16px; gap: 14px; }
+    .pd-section { padding: 14px; }
+    .pd-sect-head { margin-bottom: 10px; }
+    .pd-table { font-size: 12px; }
+    .pd-td { padding: 10px 0; }
+    .pd-th { padding: 6px 0; }
+}
 `;
