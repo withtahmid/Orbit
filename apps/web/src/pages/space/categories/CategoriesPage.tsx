@@ -1910,8 +1910,21 @@ const CA_STYLES = `
 
 /* Phone (<640px) — section padding tightening. */
 @media (max-width: 640px) {
+    .ca-topbar { padding: 14px 14px 10px; }
+    .ca-title { font-size: 22px; }
+    .ca-scroll { padding: 12px 14px 22px; gap: 12px; }
     .ca-section { padding: 16px; }
     .ca-priority-amt { font-size: 18px; }
     .ca-priority-cell { padding: 8px 10px; }
+    .orbit-design .od-card.ca-priorities {
+        padding: 12px 14px;
+        gap: 12px;
+    }
+    .ca-priorities-inh { margin-left: 0; }
+    .ca-priorities-divider { display: none; }
+    .ca-th-row { padding: 10px 12px; }
+}
+@media (max-width: 380px) {
+    .ca-priority-grid { grid-template-columns: 1fr; }
 }
 `;

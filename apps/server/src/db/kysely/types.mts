@@ -96,15 +96,18 @@ export interface EventAttachments {
 }
 
 export interface Events {
+  closed_at: Timestamp | null;
   color: Generated<string>;
   created_at: Generated<Timestamp>;
   description: string | null;
   end_time: Timestamp;
+  estimated_amount: Numeric | null;
   icon: Generated<string>;
   id: Generated<string>;
   name: string;
   space_id: string;
   start_time: Timestamp;
+  status: Generated<string>;
 }
 
 export interface ExpenseCategories {
@@ -142,15 +145,6 @@ export interface Files {
   uploaded_by: string | null;
 }
 
-export interface ReckoningAcknowledgments {
-  acknowledged_at: Generated<Timestamp>;
-  envelop_id: string;
-  period_start: Timestamp;
-  resolution: string;
-  space_id: string;
-  user_id: string;
-}
-
 export interface IdempotencyKeys {
   created_at: Generated<Timestamp>;
   expires_at: Generated<Timestamp>;
@@ -180,6 +174,15 @@ export interface Plans {
   target_amount: Numeric | null;
   target_date: Timestamp | null;
   updated_at: Generated<Timestamp | null>;
+}
+
+export interface ReckoningAcknowledgments {
+  acknowledged_at: Generated<Timestamp>;
+  envelop_id: string;
+  period_start: Timestamp;
+  resolution: string;
+  space_id: string;
+  user_id: string;
 }
 
 export interface SpaceAccounts {

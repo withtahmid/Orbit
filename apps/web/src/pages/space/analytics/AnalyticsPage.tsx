@@ -306,4 +306,13 @@ const AN_STYLES = `
     margin: 6px 0 0;
     line-height: 1.5;
 }
+
+/* Phone (<640px) */
+@media (max-width: 640px) {
+    .an-topbar { padding: 14px 14px 10px; }
+    .an-title { font-size: 22px; }
+    .an-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .orbit-design .od-card.an-card { padding: 14px; gap: 10px; }
+    .an-card-title { font-size: 14.5px; }
+}
 `;

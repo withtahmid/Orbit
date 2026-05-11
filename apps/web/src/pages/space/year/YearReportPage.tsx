@@ -387,4 +387,18 @@ const YR_STYLES = `
     font-size: 10.5px;
     margin-top: 2px;
 }
+
+/* Phone (<640px) */
+@media (max-width: 640px) {
+    .yr-topbar { padding: 14px 14px 10px; }
+    .yr-title { font-size: 20px; }
+    .yr-scroll { padding: 12px 14px 22px; }
+    .yr-table { font-size: 11.5px; }
+    .yr-td-name { padding: 8px 14px; font-size: 12.5px; }
+    .yr-th-name { padding-left: 14px !important; }
+    .yr-th-total { padding-right: 14px !important; min-width: 80px; }
+    .yr-td-total { padding: 8px 14px; }
+    .yr-cell { padding: 6px; }
+    .orbit-design .od-card.yr-empty { padding: 24px; }
+}
 `;

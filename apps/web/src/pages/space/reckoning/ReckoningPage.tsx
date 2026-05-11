@@ -642,6 +642,20 @@ const RK_STYLES = `
     color: var(--fg-3);
     font-variant-numeric: tabular-nums;
 }
+
+/* Phone (<640px) */
+@media (max-width: 640px) {
+    .rk-topbar { padding: 14px 14px 10px; gap: 10px; }
+    .rk-topbar-text { min-width: 0; }
+    .rk-title { font-size: 20px; }
+    .rk-scroll { padding: 12px 14px 22px; }
+    .rk-row { padding: 14px; gap: 12px; }
+    .rk-row-title { font-size: 14px; gap: 8px; }
+    .rk-option-card { padding: 10px 12px; }
+    .orbit-design .od-card.rk-empty { padding: 24px; }
+    .rk-personal-group-list { padding: 6px; }
+    .rk-personal-row { padding: 10px; gap: 10px; }
+}
 `;
 
 /**

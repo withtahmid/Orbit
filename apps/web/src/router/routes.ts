@@ -22,6 +22,7 @@ export const ROUTES = {
     spacePlanDetail: (id: string, planId: string) => `/s/${id}/plans/${planId}`,
     spaceCategories: (id: string) => `/s/${id}/categories`,
     spaceEvents: (id: string) => `/s/${id}/events`,
+    spaceEventDetail: (id: string, eventId: string) => `/s/${id}/events/${eventId}`,
     spaceAnalytics: (id: string) => `/s/${id}/analytics`,
     spaceAnalyticsDetail: (id: string, view: string) => `/s/${id}/analytics/${view}`,
     spaceSettings: (id: string) => `/s/${id}/settings`,

@@ -14,10 +14,11 @@ export const deleteEvent = authorizedProcedure
     .output(
         z.object({
             message: z.string(),
+            unlinkedTransactionCount: z.number(),
         })
     )
     .mutation(async ({ ctx, input }) => {
-        const [error] = await safeAwait(
+        const [error, result] = await safeAwait(
             ctx.services.qb.transaction().execute(async (trx) => {
                 const event = await trx
                     .selectFrom("events")
@@ -39,7 +40,20 @@ export const deleteEvent = authorizedProcedure
                     roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
                 });
 
+                /* Count linked transactions before delete so the client
+                   toast can say "N transactions unlinked". The FK is
+                   ON DELETE SET NULL, so transactions survive — but
+                   their event_id becomes null. */
+                const countRow = await trx
+                    .selectFrom("transactions")
+                    .select((eb) => eb.fn.count<string>("id").as("count"))
+                    .where("event_id", "=", input.eventId)
+                    .executeTakeFirst();
+                const unlinkedTransactionCount = Number(countRow?.count ?? 0);
+
                 await trx.deleteFrom("events").where("events.id", "=", input.eventId).execute();
+
+                return { unlinkedTransactionCount };
             })
         );
 
@@ -55,5 +69,6 @@ export const deleteEvent = authorizedProcedure
 
         return {
             message: "Event deleted successfully",
+            unlinkedTransactionCount: result?.unlinkedTransactionCount ?? 0,
         };
     });

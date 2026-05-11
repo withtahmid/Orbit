@@ -891,10 +891,12 @@ function EventSelect({
     onChange: (v: string) => void;
 }) {
     const eventsQuery = trpc.event.listBySpace.useQuery({ spaceId });
-    if (!eventsQuery.data || eventsQuery.data.length === 0) return null;
+    if (!eventsQuery.data) return null;
+    const activeEvents = eventsQuery.data.filter((ev) => ev.status === "active");
+    if (activeEvents.length === 0) return null;
     const items: OrbitSelectItem[] = [
         { value: "__none", label: "No event" },
-        ...eventsQuery.data.map((ev) => ({
+        ...activeEvents.map((ev) => ({
             value: ev.id,
             label: ev.name,
             leadIcon: <Calendar className="size-3.5" />,

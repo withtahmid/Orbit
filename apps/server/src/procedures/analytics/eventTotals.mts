@@ -7,7 +7,15 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 
 export const eventTotals = authorizedProcedure
-    .input(z.object({ spaceId: z.string().uuid() }))
+    .input(
+        z.object({
+            spaceId: z.string().uuid(),
+            /* Narrow to a single event so the detail page can use the
+               same procedure as the list — guarantees the "Spent"
+               number is identical in both views. */
+            eventId: z.string().uuid().nullish(),
+        })
+    )
     .query(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
             ctx.services.qb.transaction().execute(async (trx) => {
@@ -26,6 +34,9 @@ export const eventTotals = authorizedProcedure
                     start_time: Date;
                     end_time: Date;
                     description: string | null;
+                    estimated_amount: string | null;
+                    status: string;
+                    closed_at: Date | null;
                     expense_total: string;
                     income_total: string;
                     tx_count: string;
@@ -33,12 +44,16 @@ export const eventTotals = authorizedProcedure
                     SELECT
                         ev.id::text AS event_id,
                         ev.name, ev.color, ev.icon, ev.start_time, ev.end_time, ev.description,
+                        ev.estimated_amount::text AS estimated_amount,
+                        ev.status,
+                        ev.closed_at,
                         COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0)::text AS expense_total,
                         COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0)::text AS income_total,
                         COUNT(t.id)::text AS tx_count
                     FROM events ev
                     LEFT JOIN transactions t ON t.event_id = ev.id
                     WHERE ev.space_id = ${input.spaceId}
+                      ${input.eventId ? sql`AND ev.id = ${input.eventId}` : sql``}
                     GROUP BY ev.id
                     ORDER BY ev.start_time DESC
                 `.execute(trx);
@@ -51,6 +66,10 @@ export const eventTotals = authorizedProcedure
                     startTime: new Date(r.start_time),
                     endTime: new Date(r.end_time),
                     description: r.description,
+                    estimatedAmount:
+                        r.estimated_amount === null ? null : Number(r.estimated_amount),
+                    status: r.status as "active" | "closed",
+                    closedAt: r.closed_at ? new Date(r.closed_at) : null,
                     expenseTotal: Number(r.expense_total),
                     incomeTotal: Number(r.income_total),
                     txCount: Number(r.tx_count),

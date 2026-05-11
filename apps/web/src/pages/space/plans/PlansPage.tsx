@@ -1233,6 +1233,10 @@ const PLANS_STYLES = `
 
 /* Phone (<640px) — tighter cards and hero. */
 @media (max-width: 640px) {
+    .plans-topbar { padding: 14px 14px 10px; }
+    .plans-title { font-size: 22px; }
+    .plans-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .orbit-design .od-card.plans-hero { padding: 16px; gap: 14px; }
     .plans-card { padding: 16px; gap: 12px; }
     .plans-card-actions { gap: 6px; }
     .plans-card-icon-actions { opacity: 1; }

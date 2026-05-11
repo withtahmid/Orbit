@@ -266,16 +266,27 @@ function EditForm({
 
     const eventItems: OrbitSelectItem[] = useMemo(() => {
         const evs = eventsQuery.data ?? [];
+        /* Hide closed events from the picker, but keep the one currently
+           linked to this transaction (even if closed) so users editing
+           an old transaction can see what it's tied to. */
+        const active = evs.filter((ev) => ev.status === "active");
+        const linkedClosed = transaction.event_id
+            ? evs.find(
+                  (ev) =>
+                      ev.id === transaction.event_id && ev.status === "closed"
+              )
+            : null;
+        const visible = linkedClosed ? [...active, linkedClosed] : active;
         return [
             { value: "__none", label: "No event" },
-            ...evs.map((ev) => ({
+            ...visible.map((ev) => ({
                 value: ev.id,
-                label: ev.name,
+                label: ev.status === "closed" ? `${ev.name} (closed)` : ev.name,
                 leadIcon: <Calendar className="size-3.5" />,
                 leadColor: "var(--ent-5)",
             })),
         ];
-    }, [eventsQuery.data]);
+    }, [eventsQuery.data, transaction.event_id]);
 
     const mutate = trpc.transaction.update.useMutation({
         onSuccess: async () => {

@@ -1093,4 +1093,18 @@ const ED_STYLES = `
     color: var(--fg-3);
     font-size: 13px;
 }
+
+/* Phone (<640px) — tighten everything. */
+@media (max-width: 640px) {
+    .ed-topbar { padding: 14px 14px 10px; }
+    .ed-title { font-size: 20px; gap: 10px; }
+    .ed-scroll { padding: 12px 14px 22px; gap: 12px; }
+    .orbit-design .od-card.ed-hero { padding: 16px; gap: 14px; }
+    .ed-section { padding: 14px; }
+    .ed-sect-head { margin-bottom: 10px; }
+    .ed-borrow-row { padding: 10px 12px; gap: 8px; }
+    .ed-table { font-size: 12px; }
+    .ed-td { padding: 10px 0; }
+    .ed-th { padding: 6px 0; }
+}
 `;

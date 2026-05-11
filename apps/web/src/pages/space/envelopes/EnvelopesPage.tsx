@@ -2394,7 +2394,31 @@ const ENV_STYLES = `
 
 /* Phone (<640px) — tighter spacing on the envelope page. */
 @media (max-width: 640px) {
+    .env-topbar { padding: 14px 14px 10px; }
+    .env-title { font-size: 22px; }
+    .env-scroll { padding: 12px 14px 22px; gap: 12px; }
     .env-grid { grid-template-columns: 1fr; }
     .env-empty { padding: 24px; }
+    .orbit-design .od-card.env-hero { padding: 16px; }
+    .env-unbudgeted {
+        padding: 10px 12px;
+        gap: 10px;
+    }
+    .env-unbudgeted-cta {
+        padding: 8px 12px;
+        min-height: 36px;
+        display: inline-flex;
+        align-items: center;
+    }
+    .env-reckoning-banner { padding: 10px 12px; gap: 10px; }
+    .env-hero-stats { gap: 14px; margin-top: 12px; }
+    .env-hero-priority { margin-top: 16px; }
+    .orbit-design .od-card.env-card { padding: 14px; gap: 12px; }
+    .env-card-menu {
+        width: 32px;
+        height: 32px;
+    }
+    .env-list-row { padding: 12px 14px; gap: 10px; }
+    .env-archived-section { margin-top: 16px; padding-top: 14px; }
 }
 `;

@@ -19,6 +19,7 @@ export const createEvent = authorizedProcedure
                 color: z.string().regex(HEX).optional(),
                 icon: z.string().min(1).max(48).optional(),
                 description: z.string().max(2000).optional(),
+                estimatedAmount: z.number().nonnegative().max(1e10).nullish(),
                 attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
             })
             .refine((data) => data.endTime > data.startTime, {
@@ -46,6 +47,7 @@ export const createEvent = authorizedProcedure
                         color: input.color,
                         icon: input.icon,
                         description: input.description ?? null,
+                        estimated_amount: input.estimatedAmount ?? null,
                     })
                     .returning([
                         "id",
@@ -56,6 +58,9 @@ export const createEvent = authorizedProcedure
                         "color",
                         "icon",
                         "description",
+                        "estimated_amount",
+                        "status",
+                        "closed_at",
                         "created_at",
                     ])
                     .executeTakeFirstOrThrow();

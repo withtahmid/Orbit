@@ -35,6 +35,7 @@ const PlansPage = lazy(() => import("@/pages/space/plans/PlansPage"));
 const PlanDetailPage = lazy(() => import("@/pages/space/plans/PlanDetailPage"));
 const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
 const EventsPage = lazy(() => import("@/pages/space/events/EventsPage"));
+const EventDetailPage = lazy(() => import("@/pages/space/events/EventDetailPage"));
 const AnalyticsPage = lazy(() => import("@/pages/space/analytics/AnalyticsPage"));
 const AnalyticsCashFlowView = lazy(
     () => import("@/pages/space/analytics/views/CashFlowView")
@@ -194,6 +195,10 @@ export const router = createBrowserRouter([
                                     {
                                         path: "events",
                                         element: withSuspense(<EventsPage />),
+                                    },
+                                    {
+                                        path: "events/:eventId",
+                                        element: withSuspense(<EventDetailPage />),
                                     },
                                     {
                                         path: "analytics",
