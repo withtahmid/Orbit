@@ -1,0 +1,7 @@
+- [Money storage convention](money_storage.md) — Orbit stores money as Postgres `numeric` cast to text in transit, then `Number()` on the client. No minor-unit ints.
+- [Envelope total denominator](envelope_total.md) — "% used" everywhere should use `consumed / (allocated + carryIn)`. EnvelopesPage urgency sort currently uses `consumed / allocated` — drift to watch for.
+- [Filtered-totals OUT formula](filtered_totals_out.md) — Per-space and personal procedures disagree on what counts in OUT (adjustments, account-flow scoping). Treat as ambiguous until product decides.
+- [Transfer fee category rollup](transfer_fee_rollup.md) — Transfer fees land in the envelope/category referenced by `fee_expense_category_id`, NOT `expense_category_id`. Aggregations filtering by category id miss fees unless they UNION fees in.
+- [Trend cur/prev rule for category trees](trend_subtree.md) — Parent rows display `subtree_spent` but the leaf `spent_total` is what flows into trend math. Anywhere both exist, choose one consistently for cur AND prev.
+- [Currency display correctness](currency_display.md) — Watch for accidental `$$` in JSX (literal `$` next to template `${...}`). Found twice in ReckoningPage.
+- [Period preset boundaries](period_presets.md) — "Last month" relative to "this month" should be calendar-month-aligned, not span-subtracted. CategoriesPage does span subtraction.
