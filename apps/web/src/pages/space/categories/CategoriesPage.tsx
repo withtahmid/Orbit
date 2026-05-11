@@ -61,7 +61,7 @@ import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
-import { resolvePeriod } from "@/lib/dates";
+import { resolvePeriod, addMonths } from "@/lib/dates";
 
 type Priority = "essential" | "important" | "discretionary" | "luxury";
 
@@ -183,27 +183,40 @@ export default function CategoriesPage() {
         periodEnd: period.end,
     });
 
-    /* Last-month spend for trend deltas. Using a parallel query keeps us
-       from chasing a backend change just to get a YoY/MoM number. */
+    /* Last-period spend for trend deltas. For named month-aligned presets
+       we shift both ends back by whole calendar months so "this month vs
+       last month" actually compares Feb-as-a-calendar-month, not a
+       same-millisecond-span window that straddles month boundaries. For
+       custom ranges we fall back to span subtraction since there's no
+       canonical "previous custom range." */
     const lastPeriod = useMemo(() => {
-        const start = new Date(period.start);
-        const end = new Date(period.end);
-        const span = end.getTime() - start.getTime();
+        if (preset === "custom" || preset === "all-time") {
+            const start = new Date(period.start);
+            const end = new Date(period.end);
+            const span = end.getTime() - start.getTime();
+            return {
+                start: new Date(start.getTime() - span),
+                end: new Date(start.getTime()),
+            };
+        }
+        const monthsBack =
+            preset === "last-3-months"
+                ? 3
+                : preset === "last-6-months"
+                  ? 6
+                  : preset === "last-12-months" || preset === "this-year"
+                    ? 12
+                    : 1;
         return {
-            start: new Date(start.getTime() - span),
-            end: new Date(start.getTime()),
+            start: addMonths(period.start, -monthsBack),
+            end: addMonths(period.end, -monthsBack),
         };
-    }, [period.start, period.end]);
+    }, [period.start, period.end, preset]);
     const prevQuery = trpc.expenseCategory.listBySpaceWithUsage.useQuery({
         spaceId: space.id,
         periodStart: lastPeriod.start,
         periodEnd: lastPeriod.end,
     });
-    const prevById = useMemo(() => {
-        const m = new Map<string, number>();
-        for (const c of prevQuery.data ?? []) m.set(c.id, c.spent_total);
-        return m;
-    }, [prevQuery.data]);
 
     const categories = useMemo(
         () => (categoriesQuery.data ?? []) as CategoryUsage[],
@@ -211,6 +224,24 @@ export default function CategoriesPage() {
     );
 
     const tree = useMemo(() => buildTree(categories), [categories]);
+
+    /* Build a parallel tree for the previous period and index every node
+       by id. Trend math in CategoryRow looks up the matching prev node
+       and uses subtree_spent or spent_total to MATCH the cell's display
+       rule (depth=0 shows subtree, deeper shows leaf) — otherwise a
+       parent row with $0 direct spend always reads as 0%/new. */
+    const prevNodeById = useMemo(() => {
+        const prevTree = buildTree(
+            (prevQuery.data ?? []) as CategoryUsage[]
+        );
+        const m = new Map<string, CategoryNode>();
+        const walk = (n: CategoryNode) => {
+            m.set(n.id, n);
+            n.children.forEach(walk);
+        };
+        prevTree.forEach(walk);
+        return m;
+    }, [prevQuery.data]);
 
     const totals = useMemo(() => {
         const byPriority: Record<Priority, number> = {
@@ -341,7 +372,7 @@ export default function CategoriesPage() {
                                 isLast={i === tree.length - 1}
                                 envelopes={envelopesQuery.data ?? []}
                                 allCategories={categories}
-                                prevById={prevById}
+                                prevNodeById={prevNodeById}
                             />
                         ))
                     )}
@@ -462,7 +493,7 @@ function CategoryRow({
     isLast,
     envelopes,
     allCategories,
-    prevById,
+    prevNodeById,
 }: {
     node: CategoryNode;
     depth: number;
@@ -472,7 +503,7 @@ function CategoryRow({
     isLast: boolean;
     envelopes: EnvelopeLite[];
     allCategories: CategoryUsage[];
-    prevById: Map<string, number>;
+    prevNodeById: Map<string, CategoryNode>;
 }) {
     const [open, setOpen] = useState(depth < 2);
     const hasKids = node.children.length > 0;
@@ -481,8 +512,17 @@ function CategoryRow({
     const c = node.color || parentColor;
     const i = node.icon || parentIcon;
     const indent = 18 + depth * 24;
-    const prev = prevById.get(node.id) ?? 0;
-    const cur = node.spent_total;
+    // Match the cell's display rule (line below): depth=0 shows subtree
+    // total, deeper rows show leaf-only. Trend must compare the same
+    // level on both sides — otherwise a $0-direct parent always reads 0%.
+    const useSubtree = depth === 0;
+    const cur = useSubtree ? node.subtree_spent : node.spent_total;
+    const prevNode = prevNodeById.get(node.id);
+    const prev = prevNode
+        ? useSubtree
+            ? prevNode.subtree_spent
+            : prevNode.spent_total
+        : 0;
     const trend =
         prev > 0 ? ((cur - prev) / prev) * 100 : cur > 0 ? Infinity : 0;
     const trendUp = trend > 0;
@@ -625,7 +665,7 @@ function CategoryRow({
                         isLast={idx === node.children.length - 1 && isLast}
                         envelopes={envelopes}
                         allCategories={allCategories}
-                        prevById={prevById}
+                        prevNodeById={prevNodeById}
                     />
                 ))}
         </>

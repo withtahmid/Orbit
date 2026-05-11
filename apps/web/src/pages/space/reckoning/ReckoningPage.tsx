@@ -378,7 +378,7 @@ function ReckoningRow({
                         Borrow from next month
                     </div>
                     <div className="rk-option-hint">
-                        Adds $${item.overBy.toFixed(2)} to{" "}
+                        Adds ${item.overBy.toFixed(2)} to{" "}
                         {item.name} retroactively, removes the same from
                         next month's plan.
                     </div>
@@ -401,7 +401,7 @@ function ReckoningRow({
                         Just acknowledge it
                     </div>
                     <div className="rk-option-hint">
-                        Accept that $${item.overBy.toFixed(2)} came out of
+                        Accept that ${item.overBy.toFixed(2)} came out of
                         your unbudgeted buffer this period. Move on.
                     </div>
                     <div className="rk-option-row rk-option-row--end">

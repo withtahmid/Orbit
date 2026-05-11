@@ -90,7 +90,8 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
     else if (mode === "urgency")
         arr.sort(
             (a, b) =>
-                pctOf(b.consumed, b.allocated) - pctOf(a.consumed, a.allocated)
+                pctOf(b.consumed, b.allocated + b.carryIn) -
+                pctOf(a.consumed, a.allocated + a.carryIn)
         );
     else
         arr.sort((a, b) => {
@@ -1351,7 +1352,7 @@ function SortPicker({
 
 type CarryPolicy = "reset" | "positive_only" | "both";
 
-interface EditableEnvelope {
+export interface EditableEnvelope {
     envelopId: string;
     name: string;
     color: string;
@@ -1362,7 +1363,7 @@ interface EditableEnvelope {
     carryPolicy?: CarryPolicy;
 }
 
-function CreateOrEditEnvelopeDialog({
+export function CreateOrEditEnvelopeDialog({
     envelope,
     open: controlledOpen,
     onOpenChange,

@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     AlertTriangle,
@@ -22,11 +22,13 @@ import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog"
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
+import { CreateOrEditEnvelopeDialog } from "./EnvelopesPage";
 
 export default function EnvelopeDetailPage() {
     const { space } = useCurrentSpace();
     const { envelopeId } = useParams<{ envelopeId: string }>();
     const utils = trpc.useUtils();
+    const [editOpen, setEditOpen] = useState(false);
 
     const periodStart = useMemo(() => startOfMonth(new Date()), []);
     const periodEnd = useMemo(() => endOfMonth(new Date()), []);
@@ -284,9 +286,28 @@ export default function EnvelopeDetailPage() {
                     )}
                     {envelope && !envelope.archived && (
                         <PermissionGate roles={["owner"]}>
-                            <button type="button" className="od-btn od-btn-primary">
+                            <button
+                                type="button"
+                                className="od-btn od-btn-primary"
+                                onClick={() => setEditOpen(true)}
+                            >
                                 <Pencil className="size-3.5" /> Edit
                             </button>
+                            <CreateOrEditEnvelopeDialog
+                                envelope={{
+                                    envelopId: envelope.envelopId,
+                                    name: envelope.name,
+                                    color: envelope.color,
+                                    icon: envelope.icon,
+                                    description: envelope.description,
+                                    cadence: envelope.cadence,
+                                    carryOver: envelope.carryOver,
+                                    carryPolicy: envelope.carryPolicy,
+                                }}
+                                open={editOpen}
+                                onOpenChange={setEditOpen}
+                                hideDefaultTrigger
+                            />
                         </PermissionGate>
                     )}
                 </div>
