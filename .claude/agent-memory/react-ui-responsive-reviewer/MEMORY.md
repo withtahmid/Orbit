@@ -1,2 +1,3 @@
 - [Orbit design token scoping](orbit-design-scoping.md) — `--bg/--fg/--brand/...` only resolve inside `.orbit-design`; new pages using these tokens must wrap their root.
 - [Tap target sizes in Orbit](tap-target-sizes.md) — default button heights (shadcn `h-9` 36px, `.od-btn` 36px, `.od-btn-sm` 30px, `.ai-btn` 40px) are below 44px. Flag only in sticky bars, destructive controls, or dense rows.
+- [Transaction sheet architecture](transaction-sheet-architecture.md) — How New/Edit tx sheets, OrbitDrawerShell, NT_STYLES sharing, TransactionDatePicker popover styles, and FieldPin compose.

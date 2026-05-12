@@ -69,9 +69,7 @@ export function OrbitModalShell({
                     </span>
                 )}
                 <div className="oms-head-text">
-                    {eyebrow && (
-                        <span className="eyebrow oms-eyebrow">{eyebrow}</span>
-                    )}
+                    {eyebrow && <span className="eyebrow oms-eyebrow">{eyebrow}</span>}
                     <h2 className="display oms-title">{title}</h2>
                     {subtitle && <p className="oms-sub">{subtitle}</p>}
                 </div>
@@ -136,9 +134,7 @@ export function OrbitDrawerShell({
                     </span>
                 )}
                 <div className="oms-head-text">
-                    {eyebrow && (
-                        <span className="eyebrow oms-eyebrow">{eyebrow}</span>
-                    )}
+                    {eyebrow && <span className="eyebrow oms-eyebrow">{eyebrow}</span>}
                     <h2 className="display oms-title">{title}</h2>
                     {subtitle && <p className="oms-sub">{subtitle}</p>}
                 </div>
@@ -167,14 +163,23 @@ export function OrbitField({
     hint,
     required,
     children,
+    /** Force the wrapper to render as a non-label element. Use this when
+     *  the hint slot contains its own focusable control (e.g. a Pin
+     *  toggle button) — a single <label> should not wrap two separate
+     *  interactive elements, and clicking the hint button would
+     *  otherwise also fire the label's implicit "focus first input"
+     *  behavior. */
+    interactiveHint = false,
 }: {
     label: ReactNode;
     hint?: ReactNode;
     required?: boolean;
     children: ReactNode;
+    interactiveHint?: boolean;
 }) {
+    const Tag = (interactiveHint ? "div" : "label") as "div" | "label";
     return (
-        <label className="oms-field">
+        <Tag className="oms-field">
             <span className="oms-field-row">
                 <span className="oms-field-label">
                     {label}
@@ -183,7 +188,7 @@ export function OrbitField({
                 {hint && <span className="oms-field-hint">{hint}</span>}
             </span>
             {children}
-        </label>
+        </Tag>
     );
 }
 

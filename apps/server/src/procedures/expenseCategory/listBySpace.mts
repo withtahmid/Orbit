@@ -27,7 +27,7 @@ export const listExpenseCategoriesBySpace = authorizedProcedure
                         "id",
                         "space_id",
                         "parent_id",
-                        "envelop_id",
+                        "default_envelop_id",
                         "name",
                         "color",
                         "icon",

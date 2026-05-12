@@ -1,4 +1,8 @@
-import { useRef, useState, useMemo, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, useMemo, useEffect, type FormEvent, type ReactNode } from "react";
+import { useCanEdit } from "@/hooks/useCurrentSpace";
+import { usePins, type PinField } from "./usePins";
+import { PinControl, PIN_CONTROL_STYLES } from "./PinControl";
+import { TransactionDatePicker, TDP_POPOVER_STYLES } from "./TransactionDatePicker";
 import {
     Plus,
     ArrowDown,
@@ -8,16 +12,12 @@ import {
     Check,
     Calendar,
     Wallet,
-    Briefcase,
-    Tag,
+    Layers,
+    ChevronDown,
+    ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-    Sheet,
-    SheetContent,
-    SheetTitle,
-    SheetTrigger,
-} from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { OrbitDrawerShell, OrbitField } from "@/components/orbit/OrbitModalShell";
@@ -50,7 +50,6 @@ import { getIcon } from "@/lib/entityIcons";
 
 type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
 type Envelop = RouterOutput["envelop"]["listBySpace"][number];
-type Category = RouterOutput["expenseCategory"]["listBySpace"][number];
 
 const ownedByMe = (a: SpaceAccount) => a.myRole === "owner";
 
@@ -175,6 +174,11 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
     const [open, setOpen] = useState(false);
     const [activeType, setActiveType] = useState<TxTab>("expense");
     const [formKey, setFormKey] = useState(0);
+    /* Lifted from each tab's form. The Save buttons live in the footer
+       (outside the form), so the mutation's isPending state has to be
+       surfaced upward — otherwise the click is silent until the server
+       responds. */
+    const [isSaving, setIsSaving] = useState(false);
     const strict = useSheetStrictGate(open);
     // Save is only disabled when strict-blocked AND the user is on a
     // spending tab. Income always records (server allows it) so the
@@ -191,6 +195,13 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
     const handleDone = () => {
         if (addAnotherRef.current) {
             addAnotherRef.current = false;
+            /* Clear isSaving BEFORE bumping formKey. The new form mounts
+               next render with mutate.isPending=false and would fire its
+               onPendingChange effect to clear, but between unmount and
+               remount the parent renders once with the old form's last
+               true value — leaving Save disabled for a frame. Explicit
+               reset closes that gap. */
+            setIsSaving(false);
             setFormKey((k) => k + 1);
         } else {
             setOpen(false);
@@ -220,10 +231,7 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                     </Button>
                 )}
             </SheetTrigger>
-            <SheetContent
-                side="right"
-                className="orbit-shell-host !p-0 sm:max-w-[520px]"
-            >
+            <SheetContent side="right" className="orbit-shell-host !p-0 sm:max-w-[520px]">
                 <SheetTitle className="sr-only">{meta.title}</SheetTitle>
                 <OrbitDrawerShell
                     eyebrow={meta.eyebrow}
@@ -239,39 +247,45 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                                     type="button"
                                     className="nt-btn"
                                     onClick={submitAddAnother}
-                                    disabled={saveBlocked}
+                                    disabled={saveBlocked || isSaving}
                                     title={
                                         saveBlocked
                                             ? "Settle past-month overspends first"
                                             : undefined
                                     }
                                 >
-                                    Save & add another
+                                    {isSaving ? "Saving…" : "Save & add another"}
                                 </button>
                             )}
                             <button
                                 type="submit"
                                 form="nt-form"
                                 className="nt-btn nt-btn-primary"
-                                disabled={saveBlocked}
+                                disabled={saveBlocked || isSaving}
                                 title={
-                                    saveBlocked
-                                        ? "Settle past-month overspends first"
-                                        : undefined
+                                    saveBlocked ? "Settle past-month overspends first" : undefined
                                 }
                             >
-                                <Check className="size-3.5" />
-                                {activeType === "adjustment"
-                                    ? "Post adjustment"
-                                    : activeType === "transfer"
-                                      ? "Transfer"
-                                      : "Save transaction"}
+                                {isSaving ? (
+                                    <span className="nt-spinner" aria-hidden />
+                                ) : (
+                                    <Check className="size-3.5" />
+                                )}
+                                {isSaving
+                                    ? "Saving…"
+                                    : activeType === "adjustment"
+                                      ? "Post adjustment"
+                                      : activeType === "transfer"
+                                        ? "Transfer"
+                                        : "Save transaction"}
                             </button>
                         </>
                     }
                 >
                     <OrbitFormStyles />
                     <style>{NT_STYLES}</style>
+                    <style>{PIN_CONTROL_STYLES}</style>
+                    <style>{TDP_POPOVER_STYLES}</style>
                     {/* 4-tab type bar */}
                     <div className="nt-tabs" role="tablist">
                         {TAB_ORDER.map((id) => {
@@ -302,21 +316,34 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                         />
                     )}
 
-                    <Tabs
-                        value={activeType}
-                        onValueChange={(v) => setActiveType(v as TxTab)}
-                    >
+                    <Tabs value={activeType} onValueChange={(v) => setActiveType(v as TxTab)}>
                         <TabsContent value="income">
-                            <IncomeForm key={`income-${formKey}`} onDone={handleDone} />
+                            <IncomeForm
+                                key={`income-${formKey}`}
+                                onDone={handleDone}
+                                onPendingChange={setIsSaving}
+                            />
                         </TabsContent>
                         <TabsContent value="expense">
-                            <ExpenseForm key={`expense-${formKey}`} onDone={handleDone} />
+                            <ExpenseForm
+                                key={`expense-${formKey}`}
+                                onDone={handleDone}
+                                onPendingChange={setIsSaving}
+                            />
                         </TabsContent>
                         <TabsContent value="transfer">
-                            <TransferForm key={`transfer-${formKey}`} onDone={handleDone} />
+                            <TransferForm
+                                key={`transfer-${formKey}`}
+                                onDone={handleDone}
+                                onPendingChange={setIsSaving}
+                            />
                         </TabsContent>
                         <TabsContent value="adjustment">
-                            <AdjustmentForm key={`adjustment-${formKey}`} onDone={handleDone} />
+                            <AdjustmentForm
+                                key={`adjustment-${formKey}`}
+                                onDone={handleDone}
+                                onPendingChange={setIsSaving}
+                            />
                         </TabsContent>
                     </Tabs>
                 </OrbitDrawerShell>
@@ -364,17 +391,16 @@ function StrictModeBanner({
                         : "Expense / transfer / adjust are blocked until you settle. Income still records."}
                 </div>
             </div>
-            <Link
-                to={ROUTES.spaceReckoning(spaceId)}
-                className="nt-strict-banner-cta"
-            >
+            <Link to={ROUTES.spaceReckoning(spaceId)} className="nt-strict-banner-cta">
                 Settle now →
             </Link>
         </div>
     );
 }
 
-const NT_STYLES = `
+/* Exported so EditTransactionSheet — which shares the .nt-form / .nt-btn /
+   .nt-swap layout — can mount the same rules without duplicating them. */
+export const NT_STYLES = `
 .nt-strict-banner {
     display: flex;
     align-items: flex-start;
@@ -465,38 +491,88 @@ const NT_STYLES = `
     margin-top: 16px;
 }
 
-.of-acc-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
-.of-acc-name { color: var(--fg); }
-.of-acc-meta {
+/* Inline hint row that mixes text with a small action button (PinControl).
+   OrbitField gives us a single hint span; this wraps multi-piece hints
+   so the gap reads as a row rather than tight-packed inline content. */
+.nt-hint-row {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--fg-3);
+    gap: 8px;
 }
-.of-acc-meta::before { content: "·"; margin: 0 2px; color: var(--fg-4); }
 
-/* Native datetime-local — make it editorial-dark and force dark UI */
-.nt-form input[type="datetime-local"],
-.nt-form input[type="date"] {
-    color-scheme: dark;
-    color: var(--fg);
-    background: transparent;
-    /* The native widget needs a hard min-width or iOS Safari clips
-       "MM/DD/YYYY, HH:MM AM" to "MM/DD/YYYY, HH:M" inside a flex parent. */
+/* Stale-event row inside EventSelect — used when the form was hydrated
+   from a pin that points at a now-closed event. The Closed badge is
+   flex-shrink: 0 so it survives the trigger's ellipsis behavior on
+   narrow viewports. */
+.nt-stale-row {
+    /* Plain flex (not inline-flex) + min-width:0 lets the child name
+       shrink inside the trigger's nowrap+overflow:hidden container.
+       Otherwise the inline parent has no constrained width and the name
+       hard-clips without ever showing the ellipsis glyph the badge is
+       supposed to sit next to. */
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
     min-width: 0;
-    /* Make the entire visible area tappable rather than just the value text. */
-    width: 100%;
 }
-.nt-form input[type="datetime-local"]::-webkit-calendar-picker-indicator,
-.nt-form input[type="date"]::-webkit-calendar-picker-indicator {
-    filter: invert(0.65) sepia(0.1) saturate(0.4);
-    cursor: pointer;
-    /* On mobile let the native indicator span the full input so the
-       tap area covers the whole field, not just a 14×14 corner icon. */
-    padding: 0;
-    margin: 0;
+.nt-stale-badge {
+    flex-shrink: 0;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--fg-3) 14%, transparent);
+    color: var(--fg-3);
+    border: 1px solid var(--line);
 }
+.nt-stale-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+/* Action cluster on the right side of the envelope chip row — keeps
+   the Pin and Change buttons side-by-side with breathing room. */
+.of-chip-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* On narrow phones, the envelope chip's content row (eyebrow + name +
+   meta) competes with the actions cluster (Pin + Change). Forcing the
+   row to wrap drops the actions below the content so the "pinned" /
+   "overridden" meta — the whole signal of this row — never truncates. */
+@media (max-width: 480px) {
+    .of-chip-row { flex-wrap: wrap; row-gap: 8px; }
+    .of-chip-row-content { flex-basis: 100%; }
+    .of-chip-actions { margin-left: auto; }
+}
+
+/* Inline spinner that replaces the check glyph on the Save button while
+   the mutation is pending. Sized to match the Check icon (size-3.5 ≈
+   14px) so layout doesn't shift between idle and saving. */
+.nt-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 999px;
+    animation: nt-spin 600ms linear infinite;
+}
+@keyframes nt-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* AccountLabel styles moved to OrbitFormStyles (shared) so both
+   NewTransactionSheet and EditTransactionSheet render the account
+   select trigger as a single line. */
 
 
 /* Override CategoryTreeSelect's shadcn outline-button trigger so it matches
@@ -877,21 +953,92 @@ function defaultDateTime(): string {
     return toInputDateTime(d);
 }
 
+/**
+ * Decides which pin state to render for a field and dispatches to
+ * `pinState`. Hidden when there's nothing to pin (no current value AND
+ * no existing pin). Disabled — but still rendered — when the caller
+ * doesn't have permission to mutate the pin (e.g. viewer setting a
+ * space-wide pin). When the current form value matches the existing
+ * pin, the control reads as "Pinned" and clicking unpins.
+ */
+function FieldPin({
+    field,
+    currentValue,
+    pinValue,
+    canPin,
+    available,
+    onPin,
+    onClear,
+}: {
+    field: PinField;
+    currentValue: string;
+    pinValue: string | null;
+    canPin: boolean;
+    /** False on /s/me where pins don't apply — hides the control entirely. */
+    available?: boolean;
+    onPin: () => void;
+    onClear: () => void;
+}) {
+    void field;
+    if (available === false) return null;
+    const hasValue = currentValue.length > 0;
+    /* Three observable states. Label ↔ action MUST match:
+     *   pinned  → label "Pinned",  click unpins.
+     *   pinnable→ label "Pin",     click pins the current value.
+     *   hidden  → nothing rendered.
+     *
+     * Important edge: if a pin exists but the user has explicitly
+     * cleared the field for this entry (e.g. picked "No event" with
+     * an event pinned), we *hide* the control. The previous shape
+     * showed "Pinned" while the field read "No event" — visually
+     * confusing, and clicking would have silently destroyed the team
+     * pin from a form state that doesn't even use it. Users can still
+     * unpin from any transaction where they pick the pinned value.
+     */
+    if (pinValue != null && !hasValue) return null;
+    const isPinned = pinValue != null && pinValue === currentValue;
+    const state: "pinned" | "pinnable" | "hidden" = isPinned
+        ? "pinned"
+        : hasValue
+          ? "pinnable"
+          : "hidden";
+    return (
+        <PinControl
+            state={state}
+            disabled={!canPin}
+            onClick={() => {
+                if (isPinned) onClear();
+                else if (hasValue) onPin();
+            }}
+        />
+    );
+}
+
 /** Render an OrbitSelect of events for the current space, including a
- *  "None" item. Returns null until events are loaded. */
+ *  "None" item. Returns null until events are loaded. `pinSlot` is
+ *  rendered in the field's hint row when provided. */
 function EventSelect({
     spaceId,
     value,
     onChange,
+    pinSlot,
 }: {
     spaceId: string;
     value: string;
     onChange: (v: string) => void;
+    pinSlot?: ReactNode;
 }) {
     const eventsQuery = trpc.event.listBySpace.useQuery({ spaceId });
     if (!eventsQuery.data) return null;
     const activeEvents = eventsQuery.data.filter((ev) => ev.status === "active");
-    if (activeEvents.length === 0) return null;
+    /* If `value` is already set (typically hydrated from an event pin)
+       but the event is no longer active, surface it as a stale row so
+       the user can clear it. Without this branch the dropdown would
+       unmount and the form would submit a closed event id with no UI
+       to fix it. */
+    const valueEvent = value ? eventsQuery.data.find((ev) => ev.id === value) : null;
+    const isStaleValue = !!valueEvent && valueEvent.status !== "active";
+    if (activeEvents.length === 0 && !value) return null;
     const items: OrbitSelectItem[] = [
         { value: "__none", label: "No event" },
         ...activeEvents.map((ev) => ({
@@ -901,10 +1048,48 @@ function EventSelect({
             leadColor: "var(--ent-5)",
         })),
     ];
+    if (isStaleValue) {
+        /* Inject the stale value's id at the top so the OrbitSelect can
+           render its label. The Closed badge sits inside the label as a
+           non-truncatable element so the staleness signal survives even
+           when the event name itself ellipses on narrow mobile. Keep
+           the calendar lead pill in `--ent-5` so it still reads as an
+           event row rather than a placeholder. */
+        items.splice(1, 0, {
+            value: valueEvent.id,
+            label: (
+                <span className="nt-stale-row">
+                    {/* Screen-reader prefix — the visual badge below
+                        only reads as "Closed" in isolation, which is
+                        ambiguous in flat dropdown enumeration. */}
+                    <span className="sr-only">Closed event: </span>
+                    <span className="nt-stale-badge" aria-hidden>
+                        Closed
+                    </span>
+                    <span className="nt-stale-name">{valueEvent.name}</span>
+                </span>
+            ),
+            leadIcon: <Calendar className="size-3.5" />,
+            leadColor: "var(--ent-5)",
+        });
+    }
     return (
         <OrbitField
             label="Link to event"
-            hint="Optional · groups related transactions"
+            /* The pin button inside the hint is its own interactive
+               element — switch the wrapper to a non-label so semantics
+               match the Account/Source fields above. */
+            interactiveHint={!!pinSlot}
+            hint={
+                pinSlot ? (
+                    <span className="nt-hint-row">
+                        <span>Optional · groups related transactions</span>
+                        {pinSlot}
+                    </span>
+                ) : (
+                    "Optional · groups related transactions"
+                )
+            }
         >
             <OrbitSelect
                 value={value || "__none"}
@@ -923,22 +1108,16 @@ function EventSelect({
  *  as overspend (the warning is informational, not a block). */
 function EnvelopeStatusCard({
     spaceId,
-    categoryId,
-    categories,
+    envelopeId,
     envelopes,
     pendingAmount,
 }: {
     spaceId: string;
-    categoryId: string | null;
-    categories: Category[];
+    envelopeId: string | null;
     envelopes: Envelop[];
     pendingAmount: number;
 }) {
-    const cat = categoryId ? categories.find((c) => c.id === categoryId) : null;
-    const envelopeId = cat?.envelop_id ?? null;
-    const env = envelopeId
-        ? envelopes.find((e) => e.id === envelopeId)
-        : null;
+    const env = envelopeId ? envelopes.find((e) => e.id === envelopeId) : null;
 
     const periodStart = useMemo(() => {
         const d = new Date();
@@ -988,16 +1167,13 @@ function EnvelopeStatusCard({
     const color = env.color || "var(--ent-2)";
     const Icon = getIcon(env.icon ?? null);
 
-    const utilRow = utilizationQuery.data?.find(
-        (u) => u.envelopId === env.id
-    );
+    const utilRow = utilizationQuery.data?.find((u) => u.envelopId === env.id);
     const allocated = utilRow ? utilRow.allocated + utilRow.carryIn : 0;
     const consumed = utilRow?.consumed ?? 0;
     const remaining = utilRow?.remaining ?? 0;
     const isMonthly = env.cadence === "monthly";
 
-    const overBy =
-        pendingAmount > remaining ? pendingAmount - remaining : 0;
+    const overBy = pendingAmount > remaining ? pendingAmount - remaining : 0;
     const willOverspend = overBy > 0 && pendingAmount > 0;
 
     // Other envelopes with positive remaining — sources for the "Pull"
@@ -1026,10 +1202,7 @@ function EnvelopeStatusCard({
                     {" · "}
                     <strong
                         style={{
-                            color:
-                                remaining < 0
-                                    ? "var(--expense)"
-                                    : "var(--fg)",
+                            color: remaining < 0 ? "var(--expense)" : "var(--fg)",
                         }}
                     >
                         {remaining.toFixed(2)} left
@@ -1044,9 +1217,7 @@ function EnvelopeStatusCard({
                         <div className="nt-env-warn-head-text">
                             <span className="nt-env-warn-title">
                                 Will overspend {env.name} by{" "}
-                                <span className="tabular">
-                                    {overBy.toFixed(2)}
-                                </span>
+                                <span className="tabular">{overBy.toFixed(2)}</span>
                             </span>
                             <span className="nt-env-warn-sub">
                                 Save as-is, or recover with one of these:
@@ -1061,38 +1232,27 @@ function EnvelopeStatusCard({
                                     Pull from another envelope
                                 </span>
                                 <span className="nt-recover-card-hint">
-                                    Move {overBy.toFixed(2)} of plan from
-                                    another bucket into {env.name}.
+                                    Move {overBy.toFixed(2)} of plan from another bucket into{" "}
+                                    {env.name}.
                                 </span>
                             </div>
                             <div className="nt-recover-card-row">
                                 <select
                                     className="nt-recover-select"
                                     value={pullSourceId}
-                                    onChange={(e) =>
-                                        setPullSourceId(e.target.value)
-                                    }
+                                    onChange={(e) => setPullSourceId(e.target.value)}
                                 >
-                                    <option value="">
-                                        Choose source envelope…
-                                    </option>
+                                    <option value="">Choose source envelope…</option>
                                     {pullCandidates.map((c) => (
-                                        <option
-                                            key={c.envelopId}
-                                            value={c.envelopId}
-                                        >
-                                            {c.name} ·{" "}
-                                            {c.remaining.toFixed(2)} left
+                                        <option key={c.envelopId} value={c.envelopId}>
+                                            {c.name} · {c.remaining.toFixed(2)} left
                                         </option>
                                     ))}
                                 </select>
                                 <button
                                     type="button"
                                     className="nt-recover-btn"
-                                    disabled={
-                                        !pullSourceId ||
-                                        transferMutation.isPending
-                                    }
+                                    disabled={!pullSourceId || transferMutation.isPending}
                                     onClick={() =>
                                         transferMutation.mutate({
                                             amount: overBy,
@@ -1123,9 +1283,8 @@ function EnvelopeStatusCard({
                                     Borrow from next month
                                 </span>
                                 <span className="nt-recover-card-hint">
-                                    Adds {overBy.toFixed(2)} to{" "}
-                                    {env.name} now and removes the same from
-                                    next month's plan.
+                                    Adds {overBy.toFixed(2)} to {env.name} now and removes the same
+                                    from next month's plan.
                                 </span>
                             </div>
                             <div className="nt-recover-card-row nt-recover-card-row--end">
@@ -1157,34 +1316,88 @@ function EnvelopeStatusCard({
 /* ============================================================
    INCOME FORM
    ============================================================ */
-function IncomeForm({ onDone }: { onDone: () => void }) {
+function IncomeForm({
+    onDone,
+    onPendingChange,
+}: {
+    onDone: () => void;
+    onPendingChange: (pending: boolean) => void;
+}) {
     const spaceId = useCurrentSpaceId();
+    const canEdit = useCanEdit();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
+    const pinState = usePins(spaceId);
 
+    const lastAccountKey = `orbit:last-account:${spaceId}:income`;
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
     const [location, setLocation] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
-    const [accountId, setAccountId] = useState("");
+    const [accountId, setAccountId] = useState<string>(() => {
+        if (typeof window === "undefined") return "";
+        return window.localStorage.getItem(lastAccountKey) ?? "";
+    });
     const [eventId, setEventId] = useState("");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
+
+    /* Hydrate from pins once after they load. Pin supersedes the
+       lastAccountKey fallback; if there is no pin, the previously-loaded
+       localStorage value stays. Guarded by a ref so user-initiated
+       pin/unpin clicks inside the form don't trigger re-hydration. */
+    const hydratedRef = useRef(false);
+    useEffect(() => {
+        if (hydratedRef.current) return;
+        if (!pinState.pins) return;
+        hydratedRef.current = true;
+        if (pinState.pins.account) setAccountId(pinState.pins.account.id);
+        if (pinState.pins.event) setEventId(pinState.pins.event.id);
+    }, [pinState.pins]);
 
     const accountItems = useMemo(
         () => (accountsQuery.data ?? []).map(toAccountItem),
         [accountsQuery.data]
     );
 
+    useEffect(() => {
+        if (!accountId) return;
+        if (accountItems.length === 0) return;
+        if (!accountItems.some((i) => i.value === accountId)) {
+            setAccountId("");
+        }
+    }, [accountId, accountItems]);
+
+    const showMoreKey = `orbit:nt-income-show-more:${spaceId}`;
+    const [showMore, setShowMore] = useState<boolean>(() => {
+        if (typeof window === "undefined") return false;
+        return window.localStorage.getItem(showMoreKey) === "1";
+    });
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(showMoreKey, showMore ? "1" : "0");
+    }, [showMore, showMoreKey]);
+    const optionalFieldsHaveContent =
+        location.trim().length > 0 || eventId.length > 0 || attachmentFileIds.length > 0;
+    useEffect(() => {
+        if (optionalFieldsHaveContent && !showMore) setShowMore(true);
+    }, [optionalFieldsHaveContent, showMore]);
+
     const idem = useIdempotencyKey();
     const mutate = trpc.transaction.income.useMutation({
         onSuccess: async () => {
             toast.success("Income recorded");
+            if (typeof window !== "undefined" && accountId) {
+                window.localStorage.setItem(lastAccountKey, accountId);
+            }
             idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
     });
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
 
     return (
         <form
@@ -1205,29 +1418,33 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                     description: description || undefined,
                     location: location || undefined,
                     eventId: eventId || undefined,
-                    attachmentFileIds:
-                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
                 });
             }}
         >
-            <OrbitAmountCard
-                value={amount}
-                onChange={setAmount}
-                tone="income"
-                autoFocus
-            />
+            <OrbitAmountCard value={amount} onChange={setAmount} tone="income" autoFocus />
 
             <OrbitFieldRow>
                 <OrbitField label="Date">
-                    <OrbitInput
-                        type="datetime-local"
-                        value={datetime}
-                        onChange={(e) => setDatetime(e.target.value)}
-                        leadIcon={<Calendar className="size-3.5" />}
-                    />
+                    <TransactionDatePicker value={datetime} onChange={setDatetime} />
                 </OrbitField>
-                <OrbitField label="Account" required>
+                <OrbitField
+                    label="Account"
+                    required
+                    interactiveHint
+                    hint={
+                        <FieldPin
+                            field="account"
+                            currentValue={accountId}
+                            pinValue={pinState.pins?.account?.id ?? null}
+                            available={!pinState.isPersonal}
+                            canPin={true}
+                            onPin={() => pinState.pinAccount(accountId)}
+                            onClear={() => pinState.clearPin("account")}
+                        />
+                    }
+                >
                     <OrbitSelect
                         value={accountId}
                         onValueChange={setAccountId}
@@ -1247,28 +1464,58 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
                 />
             </OrbitField>
 
-            <OrbitField label="Location" hint="Optional">
-                <OrbitInput
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Where did this happen?"
-                />
-            </OrbitField>
+            <button
+                type="button"
+                onClick={() => setShowMore((v) => !v)}
+                className="of-disclosure-toggle"
+            >
+                <span>
+                    {showMore ? "Hide location, event, receipt" : "Add location, event, or receipt"}
+                </span>
+                {showMore ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            </button>
 
-            <EventSelect spaceId={spaceId} value={eventId} onChange={setEventId} />
+            {showMore && (
+                <>
+                    <OrbitField label="Location" hint="Optional">
+                        <OrbitInput
+                            value={location}
+                            onChange={(e) => setLocation(e.target.value)}
+                            placeholder="Where did this happen?"
+                        />
+                    </OrbitField>
 
-            <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
-                <FileUploadField
-                    purpose="transaction_receipt"
-                    fileIds={attachmentFileIds}
-                    onChange={setAttachmentFileIds}
-                    label=""
-                />
-            </OrbitField>
+                    <EventSelect
+                        spaceId={spaceId}
+                        value={eventId}
+                        onChange={setEventId}
+                        pinSlot={
+                            <FieldPin
+                                field="event"
+                                currentValue={eventId}
+                                pinValue={pinState.pins?.event?.id ?? null}
+                                available={!pinState.isPersonal}
+                                canPin={canEdit}
+                                onPin={() => pinState.pinEvent(eventId)}
+                                onClear={() => pinState.clearPin("event")}
+                            />
+                        }
+                    />
+
+                    <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
+                        <FileUploadField
+                            purpose="transaction_receipt"
+                            fileIds={attachmentFileIds}
+                            onChange={setAttachmentFileIds}
+                            label=""
+                        />
+                    </OrbitField>
+                </>
+            )}
 
             <OrbitInfoPill tone="brand">
-                Income lands in the chosen account immediately and appears in the
-                ledger and analytics.
+                Income lands in the chosen account immediately and appears in the ledger and
+                analytics.
             </OrbitInfoPill>
         </form>
     );
@@ -1277,21 +1524,60 @@ function IncomeForm({ onDone }: { onDone: () => void }) {
 /* ============================================================
    EXPENSE FORM
    ============================================================ */
-function ExpenseForm({ onDone }: { onDone: () => void }) {
+function ExpenseForm({
+    onDone,
+    onPendingChange,
+}: {
+    onDone: () => void;
+    onPendingChange: (pending: boolean) => void;
+}) {
     const spaceId = useCurrentSpaceId();
+    const canEdit = useCanEdit();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
     const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
+    const pinState = usePins(spaceId);
 
+    // Remember the user's last-used source account per space so the
+    // form doesn't make them re-pick the same account every time. The
+    // value is validated against the available accountItems below;
+    // stale IDs (deleted/archived) silently fall back to empty.
+    const lastAccountKey = `orbit:last-account:${spaceId}:expense`;
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
     const [location, setLocation] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
-    const [sourceAccountId, setSource] = useState("");
+    const [sourceAccountId, setSource] = useState<string>(() => {
+        if (typeof window === "undefined") return "";
+        return window.localStorage.getItem(lastAccountKey) ?? "";
+    });
     const [categoryId, setCategoryId] = useState<string | null>(null);
+    const [envelopeId, setEnvelopeId] = useState<string>("");
+    const [envelopePickerOpen, setEnvelopePickerOpen] = useState(false);
     const [eventId, setEventId] = useState("");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
+
+    // Optional fields (location/event/receipts) collapse behind one
+    // disclosure so the default form weight matches the user's real
+    // decisions. Persist open/closed per space so a user who always
+    // attaches receipts doesn't pay the expand-cost each time.
+    const showMoreKey = `orbit:nt-expense-show-more:${spaceId}`;
+    const [showMore, setShowMore] = useState<boolean>(() => {
+        if (typeof window === "undefined") return false;
+        return window.localStorage.getItem(showMoreKey) === "1";
+    });
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(showMoreKey, showMore ? "1" : "0");
+    }, [showMore, showMoreKey]);
+    // Auto-open if any optional field has content so users never lose
+    // visibility into data they've entered.
+    const optionalFieldsHaveContent =
+        location.trim().length > 0 || eventId.length > 0 || attachmentFileIds.length > 0;
+    useEffect(() => {
+        if (optionalFieldsHaveContent && !showMore) setShowMore(true);
+    }, [optionalFieldsHaveContent, showMore]);
 
     const accountItems = useMemo(
         () =>
@@ -1302,29 +1588,109 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
         [accountsQuery.data]
     );
 
+    // Validate the pre-filled last-account against currently available
+    // items once the accounts query resolves. If the saved ID is stale,
+    // reset to empty so the placeholder shows.
+    useEffect(() => {
+        if (!sourceAccountId) return;
+        if (accountItems.length === 0) return;
+        if (!accountItems.some((i) => i.value === sourceAccountId)) {
+            setSource("");
+        }
+    }, [sourceAccountId, accountItems]);
+
     // Filter categories whose envelope is archived. Server blocks new
     // transactions against them anyway; filtering here means the user
     // never sees them as a selectable option to begin with.
     const activeCategories = useMemo(() => {
         const cats = categoriesQuery.data ?? [];
         const envs = envelopesQuery.data ?? [];
-        const archivedEnvIds = new Set(
-            envs.filter((e) => e.archived).map((e) => e.id)
-        );
+        const archivedEnvIds = new Set(envs.filter((e) => e.archived).map((e) => e.id));
         if (archivedEnvIds.size === 0) return cats;
-        return cats.filter((c) => !archivedEnvIds.has(c.envelop_id));
+        return cats.filter((c) => !archivedEnvIds.has(c.default_envelop_id));
     }, [categoriesQuery.data, envelopesQuery.data]);
+
+    const envelopeItems: OrbitSelectItem[] = useMemo(
+        () =>
+            (envelopesQuery.data ?? [])
+                .filter((e) => !e.archived)
+                .map((e) => ({
+                    value: e.id,
+                    label: e.name,
+                    leadIcon: <Layers className="size-3.5" />,
+                    leadColor: e.color || "var(--ent-2)",
+                })),
+        [envelopesQuery.data]
+    );
+
+    // When the user picks a category, default the envelope to that
+    // category's default and collapse the picker back to chip view.
+    // Stays editable — opening the chip and picking a different
+    // envelope sticks until the user changes category again.
+    //
+    // Exception: if the currently-selected envelope IS the user's
+    // pinned envelope, treat the pin as overriding the category
+    // default. Without this, the spec's "envelope pin" feature would
+    // be silently clobbered every time the user picks a category.
+    const envelopePinnedAndActive =
+        pinState.pins?.envelop?.id != null && pinState.pins.envelop.id === envelopeId;
+    useEffect(() => {
+        if (!categoryId) return;
+        if (envelopePinnedAndActive) return;
+        const cat = activeCategories.find((c) => c.id === categoryId);
+        if (cat) {
+            setEnvelopeId(cat.default_envelop_id);
+            setEnvelopePickerOpen(false);
+        }
+    }, [categoryId, activeCategories, envelopePinnedAndActive]);
+
+    /* Hydrate pinned values once, after the first pins payload arrives.
+       Order matters slightly: setEnvelopeId before setCategoryId would
+       be wiped by the category-default effect above; we set envelope
+       AFTER the category effect's invariant (envelopePinnedAndActive)
+       is true, which happens naturally because we set envelopeId here
+       and the next render computes envelopePinnedAndActive correctly. */
+    const hydratedRef = useRef(false);
+    useEffect(() => {
+        if (hydratedRef.current) return;
+        if (!pinState.pins) return;
+        hydratedRef.current = true;
+        if (pinState.pins.account) setSource(pinState.pins.account.id);
+        if (pinState.pins.envelop) setEnvelopeId(pinState.pins.envelop.id);
+        if (pinState.pins.event) setEventId(pinState.pins.event.id);
+    }, [pinState.pins]);
+
+    const selectedEnvelope = useMemo(
+        () => (envelopeId ? (envelopesQuery.data ?? []).find((e) => e.id === envelopeId) : null),
+        [envelopeId, envelopesQuery.data]
+    );
+    const categoryDefaultEnvelopId = useMemo(() => {
+        const cat = activeCategories.find((c) => c.id === categoryId);
+        return cat?.default_envelop_id ?? null;
+    }, [activeCategories, categoryId]);
+    const envelopeOverridden =
+        categoryDefaultEnvelopId !== null &&
+        envelopeId !== "" &&
+        envelopeId !== categoryDefaultEnvelopId;
 
     const idem = useIdempotencyKey();
     const mutate = trpc.transaction.expense.useMutation({
         onSuccess: async () => {
             toast.success("Expense recorded");
+            // Remember this source account so the next expense entry
+            // pre-fills with the same choice.
+            if (typeof window !== "undefined" && sourceAccountId) {
+                window.localStorage.setItem(lastAccountKey, sourceAccountId);
+            }
             idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
     });
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
 
     return (
         <form
@@ -1337,33 +1703,28 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                     toast.error("Pick an account and category");
                     return;
                 }
+                if (!envelopeId) {
+                    toast.error("Pick an envelope");
+                    return;
+                }
                 mutate.mutate({
                     spaceId,
                     sourceAccountId,
                     expense_category_id: categoryId,
+                    envelopId: envelopeId,
                     amount: Number(amount),
                     datetime: fromInputDateTime(datetime),
                     description: description || undefined,
                     location: location || undefined,
                     eventId: eventId || undefined,
-                    attachmentFileIds:
-                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
                 });
             }}
         >
-            <OrbitAmountCard
-                value={amount}
-                onChange={setAmount}
-                tone="fg"
-                autoFocus
-            />
+            <OrbitAmountCard value={amount} onChange={setAmount} tone="fg" autoFocus />
 
-            <OrbitField
-                label="Category"
-                hint="Envelope is inferred from the category"
-                required
-            >
+            <OrbitField label="Category" required>
                 <CategoryTreeSelect
                     categories={activeCategories as any}
                     value={categoryId}
@@ -1373,24 +1734,98 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 />
             </OrbitField>
 
+            {(categoryId || envelopeId) &&
+                (envelopePickerOpen ? (
+                    <div className="of-inline-picker-row">
+                        <OrbitSelect
+                            value={envelopeId}
+                            onValueChange={(v) => {
+                                setEnvelopeId(v);
+                                setEnvelopePickerOpen(false);
+                            }}
+                            items={envelopeItems}
+                            placeholder="Choose envelope"
+                            leadIcon={<Layers className="size-3.5" />}
+                            leadColor="var(--ent-2)"
+                        />
+                        <button
+                            type="button"
+                            className="of-chip-btn"
+                            onClick={() => setEnvelopePickerOpen(false)}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                ) : (
+                    <div className="of-chip-row">
+                        <div className="of-chip-row-content">
+                            <span className="of-chip-eyebrow">Envelope</span>
+                            <span
+                                className="of-chip-dot"
+                                style={{
+                                    backgroundColor: selectedEnvelope?.color || "var(--ent-2)",
+                                }}
+                            />
+                            <span className="of-chip-name">{selectedEnvelope?.name ?? "—"}</span>
+                            <span className="of-chip-meta">
+                                ·{" "}
+                                {envelopePinnedAndActive
+                                    ? "pinned"
+                                    : categoryId
+                                      ? envelopeOverridden
+                                          ? "overridden"
+                                          : "category default"
+                                      : "selected"}
+                            </span>
+                        </div>
+                        <div className="of-chip-actions">
+                            <FieldPin
+                                field="envelop"
+                                currentValue={envelopeId}
+                                pinValue={pinState.pins?.envelop?.id ?? null}
+                                available={!pinState.isPersonal}
+                                canPin={canEdit}
+                                onPin={() => pinState.pinEnvelop(envelopeId)}
+                                onClear={() => pinState.clearPin("envelop")}
+                            />
+                            <button
+                                type="button"
+                                className="of-chip-btn"
+                                onClick={() => setEnvelopePickerOpen(true)}
+                            >
+                                Change
+                            </button>
+                        </div>
+                    </div>
+                ))}
+
             <EnvelopeStatusCard
                 spaceId={spaceId}
-                categoryId={categoryId}
-                categories={(categoriesQuery.data ?? []) as Category[]}
+                envelopeId={envelopeId || null}
                 envelopes={(envelopesQuery.data ?? []) as Envelop[]}
                 pendingAmount={Number(amount) || 0}
             />
 
             <OrbitFieldRow>
                 <OrbitField label="Date">
-                    <OrbitInput
-                        type="datetime-local"
-                        value={datetime}
-                        onChange={(e) => setDatetime(e.target.value)}
-                        leadIcon={<Calendar className="size-3.5" />}
-                    />
+                    <TransactionDatePicker value={datetime} onChange={setDatetime} />
                 </OrbitField>
-                <OrbitField label="Account" required>
+                <OrbitField
+                    label="Account"
+                    required
+                    interactiveHint
+                    hint={
+                        <FieldPin
+                            field="account"
+                            currentValue={sourceAccountId}
+                            pinValue={pinState.pins?.account?.id ?? null}
+                            available={!pinState.isPersonal}
+                            canPin={true}
+                            onPin={() => pinState.pinAccount(sourceAccountId)}
+                            onClear={() => pinState.clearPin("account")}
+                        />
+                    }
+                >
                     <OrbitSelect
                         value={sourceAccountId}
                         onValueChange={setSource}
@@ -1410,24 +1845,54 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
                 />
             </OrbitField>
 
-            <OrbitField label="Location" hint="Optional">
-                <OrbitInput
-                    value={location}
-                    onChange={(e) => setLocation(e.target.value)}
-                    placeholder="Where did this happen?"
-                />
-            </OrbitField>
+            <button
+                type="button"
+                onClick={() => setShowMore((v) => !v)}
+                className="of-disclosure-toggle"
+            >
+                <span>
+                    {showMore ? "Hide location, event, receipt" : "Add location, event, or receipt"}
+                </span>
+                {showMore ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            </button>
 
-            <EventSelect spaceId={spaceId} value={eventId} onChange={setEventId} />
+            {showMore && (
+                <>
+                    <OrbitField label="Location" hint="Optional">
+                        <OrbitInput
+                            value={location}
+                            onChange={(e) => setLocation(e.target.value)}
+                            placeholder="Where did this happen?"
+                        />
+                    </OrbitField>
 
-            <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
-                <FileUploadField
-                    purpose="transaction_receipt"
-                    fileIds={attachmentFileIds}
-                    onChange={setAttachmentFileIds}
-                    label=""
-                />
-            </OrbitField>
+                    <EventSelect
+                        spaceId={spaceId}
+                        value={eventId}
+                        onChange={setEventId}
+                        pinSlot={
+                            <FieldPin
+                                field="event"
+                                currentValue={eventId}
+                                pinValue={pinState.pins?.event?.id ?? null}
+                                available={!pinState.isPersonal}
+                                canPin={canEdit}
+                                onPin={() => pinState.pinEvent(eventId)}
+                                onClear={() => pinState.clearPin("event")}
+                            />
+                        }
+                    />
+
+                    <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
+                        <FileUploadField
+                            purpose="transaction_receipt"
+                            fileIds={attachmentFileIds}
+                            onChange={setAttachmentFileIds}
+                            label=""
+                        />
+                    </OrbitField>
+                </>
+            )}
         </form>
     );
 }
@@ -1435,25 +1900,37 @@ function ExpenseForm({ onDone }: { onDone: () => void }) {
 /* ============================================================
    TRANSFER FORM
    ============================================================ */
-function TransferForm({ onDone }: { onDone: () => void }) {
+function TransferForm({
+    onDone,
+    onPendingChange,
+}: {
+    onDone: () => void;
+    onPendingChange: (pending: boolean) => void;
+}) {
     const spaceId = useCurrentSpaceId();
+    const canEdit = useCanEdit();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
     const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
+    const pinState = usePins(spaceId);
 
     const activeFeeCategories = useMemo(() => {
         const cats = categoriesQuery.data ?? [];
         const envs = envelopesQuery.data ?? [];
         const archived = new Set(envs.filter((e) => e.archived).map((e) => e.id));
         if (archived.size === 0) return cats;
-        return cats.filter((c) => !archived.has(c.envelop_id));
+        return cats.filter((c) => !archived.has(c.default_envelop_id));
     }, [categoriesQuery.data, envelopesQuery.data]);
 
+    const lastSourceKey = `orbit:last-account:${spaceId}:transfer-source`;
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
-    const [sourceAccountId, setSource] = useState("");
+    const [sourceAccountId, setSource] = useState<string>(() => {
+        if (typeof window === "undefined") return "";
+        return window.localStorage.getItem(lastSourceKey) ?? "";
+    });
     const [destinationAccountId, setDest] = useState("");
     const [eventId, setEventId] = useState("");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
@@ -1475,23 +1952,61 @@ function TransferForm({ onDone }: { onDone: () => void }) {
     );
 
     const destItems = useMemo(
-        () =>
-            (accountsQuery.data ?? [])
-                .filter((a) => a.id !== sourceAccountId)
-                .map(toAccountItem),
+        () => (accountsQuery.data ?? []).filter((a) => a.id !== sourceAccountId).map(toAccountItem),
         [accountsQuery.data, sourceAccountId]
     );
+
+    useEffect(() => {
+        if (!sourceAccountId) return;
+        if (sourceItems.length === 0) return;
+        if (!sourceItems.some((i) => i.value === sourceAccountId)) {
+            setSource("");
+        }
+    }, [sourceAccountId, sourceItems]);
+
+    /* Pin the SOURCE account for transfers — the destination is
+       intentionally not pin-hydrated. Pinning a destination would be
+       weird (the user is usually transferring TO different accounts),
+       and pinning both could conflict (source==dest is invalid). */
+    const hydratedRef = useRef(false);
+    useEffect(() => {
+        if (hydratedRef.current) return;
+        if (!pinState.pins) return;
+        hydratedRef.current = true;
+        if (pinState.pins.account) setSource(pinState.pins.account.id);
+        if (pinState.pins.event) setEventId(pinState.pins.event.id);
+    }, [pinState.pins]);
+
+    const showMoreKey = `orbit:nt-transfer-show-more:${spaceId}`;
+    const [showMore, setShowMore] = useState<boolean>(() => {
+        if (typeof window === "undefined") return false;
+        return window.localStorage.getItem(showMoreKey) === "1";
+    });
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        window.localStorage.setItem(showMoreKey, showMore ? "1" : "0");
+    }, [showMore, showMoreKey]);
+    const optionalFieldsHaveContent = eventId.length > 0 || attachmentFileIds.length > 0;
+    useEffect(() => {
+        if (optionalFieldsHaveContent && !showMore) setShowMore(true);
+    }, [optionalFieldsHaveContent, showMore]);
 
     const idem = useIdempotencyKey();
     const mutate = trpc.transaction.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Transfer recorded");
+            if (typeof window !== "undefined" && sourceAccountId) {
+                window.localStorage.setItem(lastSourceKey, sourceAccountId);
+            }
             idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
     });
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
 
     const feeNum = feeEnabled ? Number(feeAmount) : 0;
     const amountNum = Number(amount);
@@ -1522,6 +2037,14 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                         return;
                     }
                 }
+                const feeCat =
+                    feeEnabled && feeCategoryId
+                        ? activeFeeCategories.find((c) => c.id === feeCategoryId)
+                        : null;
+                if (feeEnabled && !feeCat) {
+                    toast.error("Pick a valid fee category");
+                    return;
+                }
                 mutate.mutate({
                     spaceId,
                     sourceAccountId,
@@ -1530,16 +2053,30 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                     datetime: fromInputDateTime(datetime),
                     description: description || undefined,
                     eventId: eventId || undefined,
-                    attachmentFileIds:
-                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     feeAmount: feeEnabled ? feeNum : undefined,
-                    feeExpenseCategoryId:
-                        feeEnabled && feeCategoryId ? feeCategoryId : undefined,
+                    feeExpenseCategoryId: feeEnabled && feeCat ? feeCat.id : undefined,
+                    feeEnvelopId: feeEnabled && feeCat ? feeCat.default_envelop_id : undefined,
                     idempotencyKey: idem.key,
                 });
             }}
         >
-            <OrbitField label="From" required>
+            <OrbitField
+                label="From"
+                required
+                interactiveHint
+                hint={
+                    <FieldPin
+                        field="account"
+                        currentValue={sourceAccountId}
+                        pinValue={pinState.pins?.account?.id ?? null}
+                        available={!pinState.isPersonal}
+                        canPin={true}
+                        onPin={() => pinState.pinAccount(sourceAccountId)}
+                        onClear={() => pinState.clearPin("account")}
+                    />
+                }
+            >
                 <OrbitSelect
                     value={sourceAccountId}
                     onValueChange={setSource}
@@ -1567,19 +2104,10 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                 />
             </OrbitField>
 
-            <OrbitAmountCard
-                value={amount}
-                onChange={setAmount}
-                tone="brand"
-            />
+            <OrbitAmountCard value={amount} onChange={setAmount} tone="brand" />
 
             <OrbitField label="Date">
-                <OrbitInput
-                    type="datetime-local"
-                    value={datetime}
-                    onChange={(e) => setDatetime(e.target.value)}
-                    leadIcon={<Calendar className="size-3.5" />}
-                />
+                <TransactionDatePicker value={datetime} onChange={setDatetime} />
             </OrbitField>
 
             <OrbitToggle
@@ -1615,11 +2143,7 @@ function TransferForm({ onDone }: { onDone: () => void }) {
             )}
 
             {feeEnabled && amountNum > 0 && feeNum > 0 && (
-                <FeeBreakdown
-                    totalOut={totalOut}
-                    delivered={amountNum}
-                    fee={feeNum}
-                />
+                <FeeBreakdown totalOut={totalOut} delivered={amountNum} fee={feeNum} />
             )}
 
             <OrbitField label="Memo" hint="Optional">
@@ -1630,20 +2154,48 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                 />
             </OrbitField>
 
-            <EventSelect spaceId={spaceId} value={eventId} onChange={setEventId} />
+            <button
+                type="button"
+                onClick={() => setShowMore((v) => !v)}
+                className="of-disclosure-toggle"
+            >
+                <span>{showMore ? "Hide event, receipt" : "Add event or receipt"}</span>
+                {showMore ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            </button>
 
-            <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
-                <FileUploadField
-                    purpose="transaction_receipt"
-                    fileIds={attachmentFileIds}
-                    onChange={setAttachmentFileIds}
-                    label=""
-                />
-            </OrbitField>
+            {showMore && (
+                <>
+                    <EventSelect
+                        spaceId={spaceId}
+                        value={eventId}
+                        onChange={setEventId}
+                        pinSlot={
+                            <FieldPin
+                                field="event"
+                                currentValue={eventId}
+                                pinValue={pinState.pins?.event?.id ?? null}
+                                available={!pinState.isPersonal}
+                                canPin={canEdit}
+                                onPin={() => pinState.pinEvent(eventId)}
+                                onClear={() => pinState.clearPin("event")}
+                            />
+                        }
+                    />
+
+                    <OrbitField label="Receipts" hint="Optional · PNG · JPG · PDF">
+                        <FileUploadField
+                            purpose="transaction_receipt"
+                            fileIds={attachmentFileIds}
+                            onChange={setAttachmentFileIds}
+                            label=""
+                        />
+                    </OrbitField>
+                </>
+            )}
 
             <OrbitInfoPill tone="transfer">
-                Transfers don't show up in income/expense totals. They're recorded as
-                a paired (out, in) ledger entry.
+                Transfers don't show up in income/expense totals. They're recorded as a paired (out,
+                in) ledger entry.
             </OrbitInfoPill>
         </form>
     );
@@ -1671,17 +2223,9 @@ function FeeBreakdown({
                 fontSize: 11,
             }}
         >
-            <FeeRow
-                label="Source debited"
-                value={`−${totalOut.toFixed(2)}`}
-                strong
-            />
+            <FeeRow label="Source debited" value={`−${totalOut.toFixed(2)}`} strong />
             <FeeRow label="Destination credited" value={`+${delivered.toFixed(2)}`} />
-            <FeeRow
-                label="Fee (lost to provider)"
-                value={fee.toFixed(2)}
-                tone="expense"
-            />
+            <FeeRow label="Fee (lost to provider)" value={fee.toFixed(2)} tone="expense" />
         </div>
     );
 }
@@ -1724,12 +2268,23 @@ function FeeRow({
    ============================================================ */
 type AdjReason = "bank-fee" | "missed" | "rounding";
 
-function AdjustmentForm({ onDone }: { onDone: () => void }) {
+function AdjustmentForm({
+    onDone,
+    onPendingChange,
+}: {
+    onDone: () => void;
+    onPendingChange: (pending: boolean) => void;
+}) {
     const spaceId = useCurrentSpaceId();
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
+    const pinState = usePins(spaceId);
 
-    const [accountId, setAccountId] = useState("");
+    const lastAccountKey = `orbit:last-account:${spaceId}:adjustment`;
+    const [accountId, setAccountId] = useState<string>(() => {
+        if (typeof window === "undefined") return "";
+        return window.localStorage.getItem(lastAccountKey) ?? "";
+    });
     const [newBalance, setNewBalance] = useState("");
     const [description, setDescription] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
@@ -1737,23 +2292,42 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
     const adjustableItems = useMemo(
-        () =>
-            (accountsQuery.data ?? [])
-                .filter(ownedByMe)
-                .map(toAccountItem),
+        () => (accountsQuery.data ?? []).filter(ownedByMe).map(toAccountItem),
         [accountsQuery.data]
     );
+
+    useEffect(() => {
+        if (!accountId) return;
+        if (adjustableItems.length === 0) return;
+        if (!adjustableItems.some((i) => i.value === accountId)) {
+            setAccountId("");
+        }
+    }, [accountId, adjustableItems]);
+
+    const hydratedRef = useRef(false);
+    useEffect(() => {
+        if (hydratedRef.current) return;
+        if (!pinState.pins) return;
+        hydratedRef.current = true;
+        if (pinState.pins.account) setAccountId(pinState.pins.account.id);
+    }, [pinState.pins]);
 
     const idem = useIdempotencyKey();
     const mutate = trpc.transaction.adjust.useMutation({
         onSuccess: async () => {
             toast.success("Balance adjusted");
+            if (typeof window !== "undefined" && accountId) {
+                window.localStorage.setItem(lastAccountKey, accountId);
+            }
             idem.rotate();
             await invalidate(spaceId);
             onDone();
         },
         onError: (e) => toast.error(e.message),
     });
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
 
     const selected = (accountsQuery.data ?? []).find((a) => a.id === accountId);
     const orbitBalance = selected ? Number(selected.balance) : 0;
@@ -1790,13 +2364,27 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     newBalance: Number(newBalance),
                     datetime: fromInputDateTime(datetime),
                     description: finalDesc,
-                    attachmentFileIds:
-                        attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
+                    attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
                 });
             }}
         >
-            <OrbitField label="Account" required>
+            <OrbitField
+                label="Account"
+                required
+                interactiveHint
+                hint={
+                    <FieldPin
+                        field="account"
+                        currentValue={accountId}
+                        pinValue={pinState.pins?.account?.id ?? null}
+                        available={!pinState.isPersonal}
+                        canPin={true}
+                        onPin={() => pinState.pinAccount(accountId)}
+                        onClear={() => pinState.clearPin("account")}
+                    />
+                }
+            >
                 <OrbitSelect
                     value={accountId}
                     onValueChange={setAccountId}
@@ -1813,9 +2401,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     <div className="nt-drift-col">
                         <span className="nt-drift-eyebrow">Orbit balance</span>
                         <div className="nt-drift-num">
-                            {selected
-                                ? formatNum(orbitBalance)
-                                : "0.00"}
+                            {selected ? formatNum(orbitBalance) : "0.00"}
                         </div>
                         <span className="nt-drift-foot">
                             {selected
@@ -1849,9 +2435,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
 
                 <div className="nt-drift-summary">
                     <div className="nt-drift-col">
-                        <span className="nt-drift-summary-label">
-                            Adjustment posted
-                        </span>
+                        <span className="nt-drift-summary-label">Adjustment posted</span>
                         <span
                             className="nt-drift-summary-num"
                             style={{
@@ -1916,11 +2500,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                                           : "var(--expense)",
                             }}
                         />
-                        {delta == null
-                            ? "No drift"
-                            : isIncrease
-                              ? "Increase"
-                              : "Decrease"}
+                        {delta == null ? "No drift" : isIncrease ? "Increase" : "Decrease"}
                     </span>
                 </div>
             </div>
@@ -1952,12 +2532,7 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
             </OrbitField>
 
             <OrbitField label="Date">
-                <OrbitInput
-                    type="datetime-local"
-                    value={datetime}
-                    onChange={(e) => setDatetime(e.target.value)}
-                    leadIcon={<Calendar className="size-3.5" />}
-                />
+                <TransactionDatePicker value={datetime} onChange={setDatetime} />
             </OrbitField>
 
             <OrbitField label="Notes" hint="Optional but recommended">
@@ -1979,9 +2554,8 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
             </OrbitField>
 
             <OrbitInfoPill tone="gold">
-                Adjustments don't appear in income or expense totals — they correct
-                your account balance only. They show as <b>adj</b> entries in the
-                ledger.
+                Adjustments don't appear in income or expense totals — they correct your account
+                balance only. They show as <b>adj</b> entries in the ledger.
             </OrbitInfoPill>
         </form>
     );
@@ -1996,7 +2570,3 @@ function formatNum(n: number): string {
         maximumFractionDigits: 2,
     });
 }
-
-/* These imports are referenced but unused; keep them tree-shakable. */
-void Briefcase;
-void Tag;

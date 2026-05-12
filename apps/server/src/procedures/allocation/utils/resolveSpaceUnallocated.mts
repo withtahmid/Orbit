@@ -74,8 +74,7 @@ export async function resolveSpaceUnallocated({
         env_consume AS (
             SELECT p.envelop_id, COALESCE(SUM(t.amount), 0) AS consumed
             FROM period p
-            LEFT JOIN expense_categories ec ON ec.envelop_id = p.envelop_id
-            LEFT JOIN transactions t ON t.expense_category_id = ec.id
+            LEFT JOIN transactions t ON t.envelop_id = p.envelop_id
                 AND t.type = 'expense'
                 AND t.transaction_datetime >= p.p_start
                 AND t.transaction_datetime < p.p_end
@@ -97,10 +96,9 @@ export async function resolveSpaceUnallocated({
         env_prev_consume AS (
             SELECT p.envelop_id, COALESCE(SUM(t.amount), 0) AS consumed
             FROM period p
-            LEFT JOIN expense_categories ec ON ec.envelop_id = p.envelop_id
+            LEFT JOIN transactions t ON t.envelop_id = p.envelop_id
                 AND p.cadence <> 'none'
                 AND p.carry_policy <> 'reset'
-            LEFT JOIN transactions t ON t.expense_category_id = ec.id
                 AND t.type = 'expense'
                 AND t.transaction_datetime >= p.prev_start
                 AND t.transaction_datetime < p.prev_end

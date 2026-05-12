@@ -39,17 +39,6 @@ export const personalSpendingHeatmap = authorizedProcedure
                           AND source_account_id = ANY(${owned})
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        -- Transfer fees out of owned accounts show up
-                        -- on the personal heatmap the day they happen.
-                        SELECT date_trunc('day', transaction_datetime) AS day, fee_amount AS amount
-                        FROM transactions
-                        WHERE space_id = ANY(${memberSpaces})
-                          AND type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND source_account_id = ANY(${owned})
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
                     ) entries
                     GROUP BY day
                     ORDER BY day ASC

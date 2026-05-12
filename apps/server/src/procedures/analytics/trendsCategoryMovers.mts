@@ -65,18 +65,6 @@ export const trendsCategoryMovers = authorizedProcedure
                           AND t.expense_category_id IS NOT NULL
                           AND t.transaction_datetime >= ${prevStart}
                           AND t.transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        SELECT
-                            t.fee_expense_category_id AS category_id,
-                            t.fee_amount AS amount,
-                            t.transaction_datetime AS dt
-                        FROM transactions t
-                        WHERE t.type = 'transfer'
-                          AND t.fee_amount IS NOT NULL
-                          AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                          AND t.fee_expense_category_id IS NOT NULL
-                          AND t.transaction_datetime >= ${prevStart}
-                          AND t.transaction_datetime < ${input.periodEnd}
                     )
                     SELECT
                         ec.id::text AS id,

@@ -129,12 +129,6 @@ export const personalTrendsDailyComparison = authorizedProcedure
                                         AND t.destination_account_id <> ALL(${owned}) THEN t.amount * ${xferFactor}
                                     ELSE 0
                                 END
-                                + CASE
-                                    WHEN t.type = 'transfer'
-                                        AND t.source_account_id = ANY(${owned})
-                                        AND t.fee_amount IS NOT NULL THEN t.fee_amount
-                                    ELSE 0
-                                END
                             ) AS expense
                         FROM transactions t
                         WHERE t.space_id = ANY(${memberSpaces})

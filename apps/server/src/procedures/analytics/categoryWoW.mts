@@ -65,18 +65,6 @@ export const categoryWoW = authorizedProcedure
                           AND t.expense_category_id IS NOT NULL
                           AND t.transaction_datetime >= ${prvStart}
                           AND t.transaction_datetime < ${anchor}
-                        UNION ALL
-                        SELECT
-                            t.fee_expense_category_id,
-                            t.fee_amount,
-                            t.transaction_datetime
-                        FROM transactions t
-                        WHERE t.type = 'transfer'
-                          AND t.fee_amount IS NOT NULL
-                          AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                          AND t.fee_expense_category_id IS NOT NULL
-                          AND t.transaction_datetime >= ${prvStart}
-                          AND t.transaction_datetime < ${anchor}
                     )
                     SELECT
                         ec.id::text AS id,

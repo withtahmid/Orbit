@@ -113,7 +113,7 @@ export interface Events {
 export interface ExpenseCategories {
   color: Generated<string>;
   created_at: Generated<Timestamp>;
-  envelop_id: string;
+  default_envelop_id: string;
   icon: Generated<string>;
   id: Generated<string>;
   name: string;
@@ -212,6 +212,16 @@ export interface SpaceMembers {
   user_id: string;
 }
 
+export interface SpacePin {
+  created_at: Generated<Timestamp>;
+  envelop_id: string | null;
+  event_id: string | null;
+  field: ArrayType<"account" | "envelop" | "event">;
+  set_by_user_id: string | null;
+  space_id: string;
+  updated_at: Generated<Timestamp>;
+}
+
 export interface Spaces {
   budget_mode: Generated<string>;
   created_at: Generated<Timestamp>;
@@ -241,12 +251,12 @@ export interface Transactions {
   created_by: string;
   description: string | null;
   destination_account_id: string | null;
+  envelop_id: string | null;
   event_id: string | null;
   expense_category_id: string | null;
-  fee_amount: Numeric | null;
-  fee_expense_category_id: string | null;
   id: Generated<string>;
   location: string | null;
+  parent_transfer_id: string | null;
   source_account_id: string | null;
   space_id: string;
   transaction_datetime: Generated<Timestamp>;
@@ -272,6 +282,15 @@ export interface Users {
   token_version: Generated<number>;
 }
 
+export interface UserSpacePin {
+  account_id: string | null;
+  created_at: Generated<Timestamp>;
+  field: ArrayType<"account" | "envelop" | "event">;
+  space_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
+}
+
 export interface DB {
   account_balances: AccountBalances;
   accounts: Accounts;
@@ -290,10 +309,12 @@ export interface DB {
   space_accounts: SpaceAccounts;
   space_invites: SpaceInvites;
   space_members: SpaceMembers;
+  space_pin: SpacePin;
   spaces: Spaces;
   tmp_users: TmpUsers;
   transaction_attachments: TransactionAttachments;
   transactions: Transactions;
   user_accounts: UserAccounts;
+  user_space_pin: UserSpacePin;
   users: Users;
 }

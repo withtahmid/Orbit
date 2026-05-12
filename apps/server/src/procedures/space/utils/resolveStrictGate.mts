@@ -57,28 +57,16 @@ export async function resolveStrictGate({
           AND e.cadence = 'monthly'
           AND e.archived = false
           AND (m.m_start + INTERVAL '1 month') <= ${currentMonthStart}
-          -- consumed includes transfer fees rolling up to this
-          -- envelope; matches analytics.envelopeUtilization so a
-          -- fee-only overspend correctly trips the strict gate.
+          -- Fees are first-class type='expense' rows now, so the
+          -- standard expense aggregation already covers them. Any
+          -- fee-only overspend trips the strict gate naturally.
           AND COALESCE((
-              SELECT SUM(entry.amount) FROM (
-                  SELECT t.amount
-                  FROM transactions t
-                  JOIN expense_categories ec ON ec.id = t.expense_category_id
-                  WHERE ec.envelop_id = e.id
-                    AND t.type = 'expense'
-                    AND t.transaction_datetime >= m.m_start
-                    AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
-                  UNION ALL
-                  SELECT t.fee_amount AS amount
-                  FROM transactions t
-                  JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                  WHERE ec.envelop_id = e.id
-                    AND t.type = 'transfer'
-                    AND t.fee_amount IS NOT NULL
-                    AND t.transaction_datetime >= m.m_start
-                    AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
-              ) entry
+              SELECT SUM(t.amount)
+              FROM transactions t
+              WHERE t.envelop_id = e.id
+                AND t.type = 'expense'
+                AND t.transaction_datetime >= m.m_start
+                AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
           ), 0) > COALESCE((
               SELECT SUM(a.amount)
               FROM envelop_allocations a

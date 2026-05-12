@@ -110,7 +110,7 @@ interface CategoryUsage {
     id: string;
     space_id: string;
     name: string;
-    envelop_id: string;
+    default_envelop_id: string;
     parent_id: string | null;
     color: string;
     icon: string;
@@ -969,9 +969,11 @@ function CreateCategoryDialog({
     });
 
     const parentCategory = parentId ? categories.find((c) => c.id === parentId) : null;
-    const effectiveEnvelopId = parentCategory ? parentCategory.envelop_id : envelopId;
+    const effectiveEnvelopId = parentCategory
+        ? parentCategory.default_envelop_id
+        : envelopId;
     const inheritedEnvelope = parentCategory
-        ? envelopes.find((e) => e.id === parentCategory.envelop_id)
+        ? envelopes.find((e) => e.id === parentCategory.default_envelop_id)
         : null;
 
     const submit = () => {
@@ -1508,7 +1510,8 @@ function ChangeParentDialog({
     const candidates = allCategories.filter((c) => !invalidIds.has(c.id));
     const candidate = candidates.find((c) => c.id === parentId);
     const envelopeMismatch =
-        candidate != null && candidate.envelop_id !== category.envelop_id;
+        candidate != null &&
+        candidate.default_envelop_id !== category.default_envelop_id;
     const unchanged = (category.parent_id ?? "none") === parentId;
 
     return (
@@ -1565,7 +1568,6 @@ function ChangeParentDialog({
 function MoveEnvelopDialog({
     category,
     envelopes,
-    hasChildren,
     open,
     onOpenChange,
 }: {
@@ -1576,15 +1578,11 @@ function MoveEnvelopDialog({
     onOpenChange: (v: boolean) => void;
 }) {
     const { space } = useCurrentSpace();
-    const [envelopId, setEnvelopId] = useState(category.envelop_id);
+    const [envelopId, setEnvelopId] = useState(category.default_envelop_id);
     const invalidate = useInvalidateAnalytics();
-    const mutate = trpc.expenseCategory.changeEnvelop.useMutation({
-        onSuccess: async (data) => {
-            toast.success(
-                data && data.movedCount > 0
-                    ? `Moved ${data.movedCount} category${data.movedCount === 1 ? "" : "ies"}`
-                    : "No change"
-            );
+    const mutate = trpc.expenseCategory.update.useMutation({
+        onSuccess: async () => {
+            toast.success("Default envelope updated");
             await invalidate(space.id);
             onOpenChange(false);
         },
@@ -1594,15 +1592,17 @@ function MoveEnvelopDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Move "{category.name}" to another envelope</DialogTitle>
+                    <DialogTitle>
+                        Change default envelope for "{category.name}"
+                    </DialogTitle>
                     <DialogDescription>
-                        {hasChildren
-                            ? "Sub-categories will move with it."
-                            : "New transactions will route to the chosen envelope. Past envelope balances are not rewritten."}
+                        New transactions on this category will default to the
+                        chosen envelope. Past transactions keep their existing
+                        envelope assignment.
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-2">
-                    <Label>Envelope</Label>
+                    <Label>Default envelope</Label>
                     <Select value={envelopId} onValueChange={setEnvelopId}>
                         <SelectTrigger>
                             <SelectValue />
@@ -1626,15 +1626,18 @@ function MoveEnvelopDialog({
                     </Button>
                     <Button
                         variant="gradient"
-                        disabled={mutate.isPending || envelopId === category.envelop_id}
+                        disabled={
+                            mutate.isPending ||
+                            envelopId === category.default_envelop_id
+                        }
                         onClick={() =>
                             mutate.mutate({
                                 categoryId: category.id,
-                                envelopId,
+                                defaultEnvelopId: envelopId,
                             })
                         }
                     >
-                        {mutate.isPending ? "Moving…" : "Move"}
+                        {mutate.isPending ? "Saving…" : "Save"}
                     </Button>
                 </DialogFooter>
             </DialogContent>

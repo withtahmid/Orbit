@@ -106,17 +106,6 @@ export const personalCashFlow = authorizedProcedure
                                     WHEN type = 'adjustment' AND source_account_id = ANY(${owned}) THEN amount
                                     ELSE 0
                                 END
-                                -- Transfer fees out of owned accounts
-                                -- are personal outflow regardless of
-                                -- whether the transfer itself is
-                                -- internal (owned-to-owned). Counts in
-                                -- both cash and operational modes.
-                                + CASE
-                                    WHEN type = 'transfer'
-                                        AND source_account_id = ANY(${owned})
-                                        AND fee_amount IS NOT NULL THEN fee_amount
-                                    ELSE 0
-                                END
                             ) AS expense
                         FROM transactions
                         WHERE space_id = ANY(${memberSpaces})

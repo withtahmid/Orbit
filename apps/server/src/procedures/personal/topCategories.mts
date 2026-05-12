@@ -55,23 +55,6 @@ export const personalTopCategories = authorizedProcedure
                           AND expense_category_id IS NOT NULL
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        -- Transfer fees out of owned accounts count the
-                        -- same as a regular personal expense in the
-                        -- fee's category. Internal (owned→owned)
-                        -- transfers still pay a fee and it's still the
-                        -- user's outflow.
-                        SELECT
-                            fee_expense_category_id AS category_id,
-                            space_id,
-                            fee_amount AS amount
-                        FROM transactions
-                        WHERE type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND space_id = ANY(${memberSpaces})
-                          AND source_account_id = ANY(${owned})
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
                     )
                     SELECT
                         ec.id::text AS id,

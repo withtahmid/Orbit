@@ -112,16 +112,9 @@ export const personalTransactionFilteredTotals = authorizedProcedure
                                     AND t.source_account_id = ANY(${owned}) THEN t.amount
                                 ELSE 0
                             END
-                            + CASE
-                                WHEN t.type = 'transfer'
-                                    AND t.source_account_id = ANY(${owned})
-                                    AND t.fee_amount IS NOT NULL THEN t.fee_amount
-                                ELSE 0
-                            END
                         ), 0)::text AS out_total,
                         COUNT(*)::text AS count
                     FROM transactions t
-                    LEFT JOIN expense_categories ec ON ec.id = t.expense_category_id
                     WHERE t.space_id = ANY(${spaceFilter})
                       AND (
                           t.source_account_id = ANY(${owned})
@@ -129,7 +122,7 @@ export const personalTransactionFilteredTotals = authorizedProcedure
                       )
                       ${input.type ? sql`AND t.type = ${input.type as unknown as Transactions["type"]}` : sql``}
                       ${input.userId ? sql`AND t.created_by = ${input.userId}` : sql``}
-                      ${input.envelopId ? sql`AND ec.envelop_id = ${input.envelopId}` : sql``}
+                      ${input.envelopId ? sql`AND t.envelop_id = ${input.envelopId}` : sql``}
                       ${categoryIds ? sql`AND t.expense_category_id = ANY(${categoryIds})` : sql``}
                       ${input.eventId ? sql`AND t.event_id = ${input.eventId}` : sql``}
                       ${input.accountId ? sql`AND (t.source_account_id = ${input.accountId} OR t.destination_account_id = ${input.accountId})` : sql``}

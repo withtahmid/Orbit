@@ -28,6 +28,9 @@
  * - 24 events — trips, weddings, conferences, renovations, celebrations;
  *   past events marked closed with closed_at; some have estimated_amount
  * - 3 pending space invites so the invite-by-email flow has visible data
+ * - 2 transaction-entry pins on the family space (Account: Joint
+ *   Checking for Alex; Envelope: Groceries shared) so the new-transaction
+ *   form shows the "pinned" affordance out of the box
  * - ~18 months of history ending today
  * - ~8,000+ transactions, with realistic monthly bills, weekly grocery
  *   runs, daily coffee, freelance income, bonuses, tax refunds, foreign
@@ -44,7 +47,14 @@ import crypto from "crypto";
 import { sql } from "kysely";
 import createPGPool from "../index.mjs";
 import { createQueryBuilder } from "./index.mjs";
-import type { Accounts, SpaceMembers, Transactions, UserAccounts } from "./types.mjs";
+import type {
+    Accounts,
+    SpaceMembers,
+    SpacePin,
+    Transactions,
+    UserAccounts,
+    UserSpacePin,
+} from "./types.mjs";
 import { ENV } from "../../env.mjs";
 import { logger } from "../../utils/logger.mjs";
 
@@ -870,7 +880,11 @@ export async function seedDatabase() {
         const accounts = await seedAccounts(db, users, spaces);
         const envelopes = await seedEnvelopes(db, spaces);
         const plans = await seedPlans(db, spaces);
-        const categories = await seedCategories(db, spaces, envelopes);
+        const { byKey: categories, envelopByCategoryId } = await seedCategories(
+            db,
+            spaces,
+            envelopes
+        );
         const events = await seedEvents(db, spaces);
         await seedEnvelopeAllocations(db, users, envelopes, accounts);
         await seedPlanAllocations(db, users, plans, accounts);
@@ -880,9 +894,11 @@ export async function seedDatabase() {
             spaces,
             accounts,
             categories,
+            envelopByCategoryId,
             events
         );
         const inviteCount = await seedSpaceInvites(db, users, spaces);
+        const pinCount = await seedPins(db, users, spaces, accounts, envelopes);
 
         logger.info("Seed complete ✅");
         console.log("");
@@ -897,6 +913,7 @@ export async function seedDatabase() {
         console.log(`  categories:    ${Object.keys(categories).length}`);
         console.log(`  events:        ${Object.keys(events).length}`);
         console.log(`  invites:       ${inviteCount} pending`);
+        console.log(`  pins:          ${pinCount} (account + envelope, family space)`);
         console.log(`  transactions:  ${txCount}`);
         console.log("");
         console.log(" Log in with:");
@@ -1141,6 +1158,7 @@ async function seedCategories(
 ) {
     logger.info("Expense categories…");
     const byKey: Record<string, string> = {};
+    const envelopByCategoryId: Record<string, string> = {};
     // Root categories get the envelope's priority tier. Children leave
     // priority NULL so the recursive-inheritance rule in
     // analytics.priorityBreakdown rolls them up via their parent chain.
@@ -1149,7 +1167,7 @@ async function seedCategories(
             .insertInto("expense_categories")
             .values({
                 space_id: spaces[c.space],
-                envelop_id: envelopes[c.envelope],
+                default_envelop_id: envelopes[c.envelope],
                 name: c.name,
                 color: c.color,
                 icon: c.icon,
@@ -1159,13 +1177,14 @@ async function seedCategories(
             .returning("id")
             .executeTakeFirstOrThrow();
         byKey[c.key] = row.id;
+        envelopByCategoryId[row.id] = envelopes[c.envelope];
     }
     for (const c of CATEGORIES.filter((x) => x.parent)) {
         const row = await db
             .insertInto("expense_categories")
             .values({
                 space_id: spaces[c.space],
-                envelop_id: envelopes[c.envelope],
+                default_envelop_id: envelopes[c.envelope],
                 name: c.name,
                 color: c.color,
                 icon: c.icon,
@@ -1174,8 +1193,9 @@ async function seedCategories(
             .returning("id")
             .executeTakeFirstOrThrow();
         byKey[c.key] = row.id;
+        envelopByCategoryId[row.id] = envelopes[c.envelope];
     }
-    return byKey;
+    return { byKey, envelopByCategoryId };
 }
 
 // ---------------------------------------------------------------------
@@ -1264,6 +1284,47 @@ async function seedSpaceInvites(
     }));
     await db.insertInto("space_invites").values(rows).execute();
     return rows.length;
+}
+
+// ---------------------------------------------------------------------
+// Transaction-entry pins (migration 043). One per-user Account pin for
+// Alex in the family space, and one space-wide Envelope pin so the new
+// transaction form has visible "pinned" state on first open.
+// ---------------------------------------------------------------------
+
+async function seedPins(
+    db: ReturnType<typeof createQueryBuilder>,
+    users: Record<UserKey, string>,
+    spaces: Record<SpaceKey, string>,
+    accounts: Record<AccountKey, string>,
+    envelopes: Record<EnvelopeKey, string>
+) {
+    logger.info("Pins…");
+    // Alex's personal account pin in the family space — Joint Checking
+    // is the account most family expenses run through.
+    await db
+        .insertInto("user_space_pin")
+        .values({
+            user_id: users.primary,
+            space_id: spaces.family,
+            field: "account" as unknown as UserSpacePin["field"],
+            account_id: accounts.joint,
+        })
+        .execute();
+    // Space-wide envelope pin for the family space — Groceries is the
+    // most-used envelope, good default so the new-expense form has the
+    // pin glyph lit out of the box.
+    await db
+        .insertInto("space_pin")
+        .values({
+            space_id: spaces.family,
+            field: "envelop" as unknown as SpacePin["field"],
+            envelop_id: envelopes.fam_groceries,
+            event_id: null,
+            set_by_user_id: users.primary,
+        })
+        .execute();
+    return 2;
 }
 
 // ---------------------------------------------------------------------
@@ -1422,6 +1483,7 @@ async function seedPlanAllocations(
 // ---------------------------------------------------------------------
 
 type TxRow = {
+    id?: string;
     space_id: string;
     created_by: string;
     type: Transactions["type"];
@@ -1429,13 +1491,15 @@ type TxRow = {
     source_account_id: string | null;
     destination_account_id: string | null;
     expense_category_id: string | null;
+    envelop_id: string | null;
     event_id: string | null;
     description: string | null;
     location: string | null;
     transaction_datetime: Date;
-    fee_amount: number | null;
-    fee_expense_category_id: string | null;
+    parent_transfer_id: string | null;
 };
+
+type FeeSpec = { amount: number; expenseCategoryId: string };
 
 async function seedTransactions(
     db: ReturnType<typeof createQueryBuilder>,
@@ -1443,6 +1507,7 @@ async function seedTransactions(
     spaces: Record<SpaceKey, string>,
     accounts: Record<AccountKey, string>,
     categories: Record<string, string>,
+    envelopByCategoryId: Record<string, string>,
     events: Record<EventKey, string>
 ): Promise<number> {
     logger.info("Transactions…");
@@ -1466,13 +1531,70 @@ async function seedTransactions(
     const transferType= "transfer" as unknown as Transactions["type"];
     const adjType     = "adjustment" as unknown as Transactions["type"];
 
-    // A small push helper that auto-fills fee fields (nullable by default).
-    const push = (row: Omit<TxRow, "fee_amount" | "fee_expense_category_id"> & Partial<Pick<TxRow, "fee_amount" | "fee_expense_category_id">>) => {
+    // A small push helper.
+    //
+    // For expense rows: auto-derives `envelop_id` from the chosen
+    // category's seeded default envelope so the CHECK constraint is
+    // satisfied without each call spelling it out.
+    //
+    // For transfer rows with `fee`: also pushes a paired type='expense'
+    // row pointing back at the transfer via `parent_transfer_id`. We
+    // generate the transfer's id upfront (instead of letting the DB
+    // default) so the linked expense can reference it before either is
+    // inserted. After this migration fees are first-class expense rows,
+    // not inline columns on the transfer.
+    const push = (
+        row: Omit<TxRow, "envelop_id" | "parent_transfer_id"> &
+            Partial<Pick<TxRow, "envelop_id" | "parent_transfer_id">> & {
+                fee?: FeeSpec;
+            }
+    ) => {
+        const { fee, ...rest } = row;
+        const envelopId =
+            rest.envelop_id !== undefined
+                ? rest.envelop_id
+                : rest.type === ("expense" as unknown as Transactions["type"]) &&
+                    rest.expense_category_id
+                  ? (envelopByCategoryId[rest.expense_category_id] ?? null)
+                  : null;
+
+        if (
+            fee &&
+            rest.type !== ("transfer" as unknown as Transactions["type"])
+        ) {
+            throw new Error("seed: fee can only be attached to a transfer row");
+        }
+        const transferId =
+            fee && !rest.id ? crypto.randomUUID() : (rest.id ?? undefined);
+
         TX.push({
-            fee_amount: null,
-            fee_expense_category_id: null,
-            ...row,
+            ...rest,
+            id: transferId,
+            envelop_id: envelopId,
+            parent_transfer_id: rest.parent_transfer_id ?? null,
         });
+
+        if (fee) {
+            TX.push({
+                id: crypto.randomUUID(),
+                space_id: rest.space_id,
+                created_by: rest.created_by,
+                type: "expense" as unknown as Transactions["type"],
+                amount: fee.amount,
+                source_account_id: rest.source_account_id,
+                destination_account_id: null,
+                expense_category_id: fee.expenseCategoryId,
+                envelop_id:
+                    envelopByCategoryId[fee.expenseCategoryId] ?? null,
+                event_id: rest.event_id,
+                description: rest.description
+                    ? `Fee — ${rest.description}`
+                    : "Transfer fee",
+                location: rest.location,
+                transaction_datetime: rest.transaction_datetime,
+                parent_transfer_id: transferId!,
+            });
+        }
     };
 
     // --- 1. Opening deposits.
@@ -2210,8 +2332,9 @@ async function seedTransactions(
                 description: withFee ? "ATM withdrawal" : "Wallet top-up",
                 location: withFee ? pick(GENERIC_LOCATIONS) : null,
                 transaction_datetime: atHour(new Date(ps.getTime() + (6 + i * 8) * MS_DAY), range(10, 18)),
-                fee_amount: withFee ? rangeF(1, 4.5) : null,
-                fee_expense_category_id: withFee ? categories.c_bank_fees : null,
+                fee: withFee
+                    ? { amount: rangeF(1, 4.5), expenseCategoryId: categories.c_bank_fees }
+                    : undefined,
             });
         }
         // CC payoffs — both cards.
@@ -2285,8 +2408,7 @@ async function seedTransactions(
                 description: "Crypto top-up",
                 location: null,
                 transaction_datetime: atHour(new Date(ps.getTime() + range(5, 25) * MS_DAY), range(10, 22)),
-                fee_amount: rangeF(0.5, 5),
-                fee_expense_category_id: categories.c_crypto_fees,
+                fee: { amount: rangeF(0.5, 5), expenseCategoryId: categories.c_crypto_fees },
             });
         }
         // Shared house top-ups from roommates (recorded as income into
@@ -2363,8 +2485,7 @@ async function seedTransactions(
             description: "International wire",
             location: null,
             transaction_datetime: atHour(daysAgo(range(20, HISTORY_MONTHS * 30 - 20)), range(10, 17)),
-            fee_amount: range(15, 42),
-            fee_expense_category_id: categories.c_bank_fees,
+            fee: { amount: range(15, 42), expenseCategoryId: categories.c_bank_fees },
         });
     }
 

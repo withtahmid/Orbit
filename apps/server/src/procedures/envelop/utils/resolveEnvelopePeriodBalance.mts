@@ -70,8 +70,7 @@ export async function resolveEnvelopePeriodBalance({
             COALESCE((
                 SELECT SUM(t.amount)
                 FROM transactions t
-                JOIN expense_categories ec ON ec.id = t.expense_category_id
-                WHERE ec.envelop_id = ${envelopId}
+                WHERE t.envelop_id = ${envelopId}
                   AND t.type = 'expense'
                   AND ${sql.raw(transactionAccountMatch(accountId))}
                   AND t.transaction_datetime >= ${start}
@@ -96,8 +95,7 @@ export async function resolveEnvelopePeriodBalance({
                 COALESCE((
                     SELECT SUM(t.amount)
                     FROM transactions t
-                    JOIN expense_categories ec ON ec.id = t.expense_category_id
-                    WHERE ec.envelop_id = ${envelopId}
+                    WHERE t.envelop_id = ${envelopId}
                       AND t.type = 'expense'
                       AND ${sql.raw(transactionAccountMatch(accountId))}
                       AND t.transaction_datetime >= ${prevStart}

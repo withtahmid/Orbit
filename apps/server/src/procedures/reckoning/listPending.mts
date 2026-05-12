@@ -87,28 +87,18 @@ export const listPendingReckoning = authorizedProcedure
                             -- Consumption must include transfer fees that
                             -- roll up to this envelope's category, otherwise
                             -- a fee-only overspend would never appear here
-                            -- and the strict-mode gate could be bypassed by
-                            -- routing spend through transfer fees. Mirrors
-                            -- the analytics.envelopeUtilization formula.
+                            -- Fees are first-class type='expense' rows
+                            -- (parent_transfer_id IS NOT NULL), so the
+                            -- standard envelop_id aggregation below covers
+                            -- them — a fee-only overspend correctly trips
+                            -- the strict gate without any extra branch.
                             COALESCE((
-                                SELECT SUM(entry.amount) FROM (
-                                    SELECT t.amount
-                                    FROM transactions t
-                                    JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                    WHERE ec.envelop_id = e.id
-                                      AND t.type = 'expense'
-                                      AND t.transaction_datetime >= m.m_start
-                                      AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
-                                    UNION ALL
-                                    SELECT t.fee_amount AS amount
-                                    FROM transactions t
-                                    JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                    WHERE ec.envelop_id = e.id
-                                      AND t.type = 'transfer'
-                                      AND t.fee_amount IS NOT NULL
-                                      AND t.transaction_datetime >= m.m_start
-                                      AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
-                                ) entry
+                                SELECT SUM(t.amount)
+                                FROM transactions t
+                                WHERE t.envelop_id = e.id
+                                  AND t.type = 'expense'
+                                  AND t.transaction_datetime >= m.m_start
+                                  AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
                             ), 0) AS consumed
                         FROM envelops e
                         CROSS JOIN months m

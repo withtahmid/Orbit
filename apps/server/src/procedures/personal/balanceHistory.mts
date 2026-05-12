@@ -90,14 +90,6 @@ export const personalBalanceHistory = authorizedProcedure
                                         THEN -t.amount
                                     ELSE 0
                                 END
-                                +
-                                CASE
-                                    WHEN t.type = 'transfer'
-                                        AND t.source_account_id = sa.account_id
-                                        AND t.fee_amount IS NOT NULL
-                                        THEN -t.fee_amount
-                                    ELSE 0
-                                END
                             ) AS delta
                         FROM scope_accounts sa
                         JOIN transactions t ON t.space_id = ANY(${memberSpaces})

@@ -107,18 +107,8 @@ export const acknowledgeReckoning = authorizedProcedure
                             WITH spend AS (
                                 SELECT t.amount, t.source_account_id
                                 FROM transactions t
-                                JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                WHERE ec.envelop_id = ${envelop.id}
+                                WHERE t.envelop_id = ${envelop.id}
                                   AND t.type = 'expense'
-                                  AND t.transaction_datetime >= ${clamped}::date
-                                  AND t.transaction_datetime < (${clamped}::date + INTERVAL '1 month')
-                                UNION ALL
-                                SELECT t.fee_amount AS amount, t.source_account_id
-                                FROM transactions t
-                                JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                WHERE ec.envelop_id = ${envelop.id}
-                                  AND t.type = 'transfer'
-                                  AND t.fee_amount IS NOT NULL
                                   AND t.transaction_datetime >= ${clamped}::date
                                   AND t.transaction_datetime < (${clamped}::date + INTERVAL '1 month')
                             ),

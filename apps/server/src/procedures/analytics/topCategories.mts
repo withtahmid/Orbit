@@ -7,11 +7,10 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 
 /**
- * Top N spending categories for the window. "Spending" includes both
- * regular expense transactions and transfer fees (stored on transfer
- * rows as `fee_amount` + `fee_expense_category_id`) — the fee is real
- * money leaving the system and users categorize them like any other
- * expense.
+ * Top N spending categories for the window. Transfer fees are now their
+ * own first-class `type='expense'` rows (with `parent_transfer_id`
+ * linking back to the originating transfer), so they're already counted
+ * by the regular expense aggregation here — no separate fee branch.
  *
  * Scope rule: per spec §12, money-flow analytics are *account-scoped*,
  * not `space_id`-tag scoped. The previous implementation filtered by
@@ -59,15 +58,6 @@ export const topCategories = authorizedProcedure
                         WHERE type = 'expense'
                           AND source_account_id IN (SELECT account_id FROM scope_accounts)
                           AND expense_category_id IS NOT NULL
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        SELECT fee_expense_category_id AS category_id, fee_amount AS amount
-                        FROM transactions
-                        WHERE type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                          AND fee_expense_category_id IS NOT NULL
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
                     )

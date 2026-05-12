@@ -52,6 +52,7 @@ export const createIncomeTransaction = authorizedProcedure
                                 trx,
                                 eventId: input.eventId,
                                 spaceId: input.spaceId,
+                                requireActive: true,
                             });
                         }
 
@@ -66,8 +67,7 @@ export const createIncomeTransaction = authorizedProcedure
                                 destination_account_id: input.accountId,
                                 description: input.description || null,
                                 location: input.location || null,
-                                transaction_datetime:
-                                    input.datetime || new Date(),
+                                transaction_datetime: input.datetime || new Date(),
                                 event_id: input.eventId ?? null,
                             })
                             .returning(["id"])

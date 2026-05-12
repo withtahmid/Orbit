@@ -88,26 +88,13 @@ export const personalReckoningListPending = authorizedProcedure
                             -- formula); also restricted to owned-source
                             -- transactions for personal-slice scoping.
                             COALESCE((
-                                SELECT SUM(entry.amount) FROM (
-                                    SELECT t.amount
-                                    FROM transactions t
-                                    JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                    WHERE ec.envelop_id = e.id
-                                      AND t.type = 'expense'
-                                      AND t.source_account_id = ANY(${ownedParam}::uuid[])
-                                      AND t.transaction_datetime >= m.m_start
-                                      AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
-                                    UNION ALL
-                                    SELECT t.fee_amount AS amount
-                                    FROM transactions t
-                                    JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                    WHERE ec.envelop_id = e.id
-                                      AND t.type = 'transfer'
-                                      AND t.fee_amount IS NOT NULL
-                                      AND t.source_account_id = ANY(${ownedParam}::uuid[])
-                                      AND t.transaction_datetime >= m.m_start
-                                      AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
-                                ) entry
+                                SELECT SUM(t.amount)
+                                FROM transactions t
+                                WHERE t.envelop_id = e.id
+                                  AND t.type = 'expense'
+                                  AND t.source_account_id = ANY(${ownedParam}::uuid[])
+                                  AND t.transaction_datetime >= m.m_start
+                                  AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')
                             ), 0) AS consumed
                         FROM envelops e
                         JOIN spaces s ON s.id = e.space_id

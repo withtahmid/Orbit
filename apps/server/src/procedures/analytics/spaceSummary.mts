@@ -109,8 +109,7 @@ export const spaceSummary = authorizedProcedure
                             COALESCE((
                                 SELECT SUM(t.amount)
                                 FROM transactions t
-                                JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                WHERE ec.envelop_id = p.envelop_id
+                                WHERE t.envelop_id = p.envelop_id
                                   AND t.type = 'expense'
                                   AND t.transaction_datetime >= p.p_start
                                   AND t.transaction_datetime < p.p_end
@@ -192,12 +191,6 @@ export const spaceSummary = authorizedProcedure
                                     AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                                 ELSE 0
                             END
-                            + CASE
-                                WHEN type = 'transfer'
-                                    AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                                    AND fee_amount IS NOT NULL THEN fee_amount
-                                ELSE 0
-                            END
                         ), 0)::text AS cash_expense,
                         -- Operational income: only true type=income
                         -- deposits (and crediting adjustments) into
@@ -210,21 +203,15 @@ export const spaceSummary = authorizedProcedure
                             ELSE 0
                         END), 0)::text AS operational_income,
                         -- Operational expense: true type=expense debits
-                        -- + transfer fees (real money to the bank) +
-                        -- debiting adjustments. Transfer principal
-                        -- excluded both directions.
+                        -- (which now include transfer fees as first-class
+                        -- expense rows) + debiting adjustments. Transfer
+                        -- principal excluded both directions.
                         COALESCE(SUM(
                             CASE
                                 WHEN type = 'expense'
                                     AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                                 WHEN type = 'adjustment'
                                     AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
-                                ELSE 0
-                            END
-                            + CASE
-                                WHEN type = 'transfer'
-                                    AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                                    AND fee_amount IS NOT NULL THEN fee_amount
                                 ELSE 0
                             END
                         ), 0)::text AS operational_expense

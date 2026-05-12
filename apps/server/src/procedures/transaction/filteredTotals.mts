@@ -70,11 +70,6 @@ export const transactionFilteredTotals = authorizedProcedure
 
                 const row = await ctx.services.qb
                     .selectFrom("transactions")
-                    .leftJoin(
-                        "expense_categories",
-                        "expense_categories.id",
-                        "transactions.expense_category_id"
-                    )
                     .where("transactions.space_id", "=", input.spaceId)
                     .$if(!!input.userId, (qb) =>
                         qb.where("transactions.created_by", "=", input.userId!)
@@ -88,7 +83,7 @@ export const transactionFilteredTotals = authorizedProcedure
                     )
                     .$if(!!input.envelopId, (qb) =>
                         qb.where(
-                            "expense_categories.envelop_id",
+                            "transactions.envelop_id",
                             "=",
                             input.envelopId!
                         )
@@ -179,13 +174,6 @@ export const transactionFilteredTotals = authorizedProcedure
                                 "transactions.type"
                             )} = 'expense' THEN ${eb.ref(
                                 "transactions.amount"
-                            )} ELSE 0 END
-                            + CASE WHEN ${eb.ref(
-                                "transactions.type"
-                            )} = 'transfer' AND ${eb.ref(
-                                "transactions.fee_amount"
-                            )} IS NOT NULL THEN ${eb.ref(
-                                "transactions.fee_amount"
                             )} ELSE 0 END
                         ), 0)::text`.as("out_total"),
                     ])

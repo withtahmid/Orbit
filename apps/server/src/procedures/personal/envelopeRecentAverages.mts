@@ -75,8 +75,7 @@ export const personalEnvelopeRecentAverages = authorizedProcedure
                         COALESCE((
                             SELECT SUM(t.amount)
                             FROM transactions t
-                            JOIN expense_categories ec ON ec.id = t.expense_category_id
-                            WHERE ec.envelop_id = e.id
+                            WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
                               AND t.source_account_id = ANY(${ownedParam}::uuid[])
                               AND t.transaction_datetime >= ${lastMonthStart}
@@ -101,8 +100,7 @@ export const personalEnvelopeRecentAverages = authorizedProcedure
                         COALESCE((
                             SELECT SUM(t.amount)
                             FROM transactions t
-                            JOIN expense_categories ec ON ec.id = t.expense_category_id
-                            WHERE ec.envelop_id = e.id
+                            WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
                               AND t.source_account_id = ANY(${ownedParam}::uuid[])
                               AND t.transaction_datetime >= ${threeMonthsAgo}

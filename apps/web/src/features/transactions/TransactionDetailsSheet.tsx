@@ -5,6 +5,7 @@ import {
     FileText,
     Loader2,
     Paperclip,
+    Pencil,
     Trash2,
     X,
 } from "lucide-react";
@@ -16,6 +17,7 @@ import {
     SheetTitle,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Separator } from "@/components/ui/separator";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
@@ -45,11 +47,11 @@ type Transaction = {
     created_by_last_name?: string | null;
     created_by_avatar_file_id?: string | null;
     /**
-     * Transfer fee columns — only populated on transfers that carried
-     * a fee (wire, ATM, FX, etc.). Both move together; see spec §11.6.
+     * Non-null on a fee-expense row that mirrors a transfer's fee.
+     * Points at the originating transfer; deleting that transfer
+     * cascades to this row.
      */
-    fee_amount?: string | number | null;
-    fee_expense_category_id?: string | null;
+    parent_transfer_id?: string | null;
 };
 
 type Props = {
@@ -60,6 +62,18 @@ type Props = {
     categoriesById: Map<string, { name: string }>;
     eventsById: Map<string, { name: string }>;
     canEdit: boolean;
+    /**
+     * Hand off to the page-level edit sheet. The page is expected to
+     * close the details sheet itself; this is just the "user clicked
+     * Edit" signal.
+     */
+    onEdit?: () => void;
+    /**
+     * Confirm + delete the transaction. The page is expected to run
+     * the mutation and close the details sheet; this is just the
+     * "user confirmed Delete" signal.
+     */
+    onDelete?: () => void;
 };
 
 export function TransactionDetailsSheet({
@@ -70,6 +84,8 @@ export function TransactionDetailsSheet({
     categoriesById,
     eventsById,
     canEdit,
+    onEdit,
+    onDelete,
 }: Props) {
     return (
         <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -81,6 +97,8 @@ export function TransactionDetailsSheet({
                         categoriesById={categoriesById}
                         eventsById={eventsById}
                         canEdit={canEdit}
+                        onEdit={onEdit}
+                        onDelete={onDelete}
                     />
                 ) : (
                     <div className="p-8 text-sm text-muted-foreground">No transaction</div>
@@ -96,12 +114,16 @@ function Details({
     categoriesById,
     eventsById,
     canEdit,
+    onEdit,
+    onDelete,
 }: {
     transaction: Transaction;
     accountsById: Map<string, { name: string }>;
     categoriesById: Map<string, { name: string }>;
     eventsById: Map<string, { name: string }>;
     canEdit: boolean;
+    onEdit?: () => void;
+    onDelete?: () => void;
 }) {
     const type = transaction.type as unknown as TxType;
     const variant = type === "income" ? "income" : type === "expense" ? "expense" : "transfer";
@@ -120,24 +142,54 @@ function Details({
         ? categoriesById.get(transaction.expense_category_id)?.name
         : null;
     const event = transaction.event_id ? eventsById.get(transaction.event_id)?.name : null;
-    const feeAmount =
-        transaction.fee_amount != null ? Number(transaction.fee_amount) : null;
-    const feeCategory =
-        transaction.fee_expense_category_id != null
-            ? categoriesById.get(transaction.fee_expense_category_id)?.name
-            : null;
-    const hasFee = feeAmount != null && feeAmount > 0;
-    const sourceTotalOut =
-        type === "transfer" && hasFee
-            ? Number(transaction.amount) + (feeAmount ?? 0)
-            : null;
 
     return (
         <>
             <SheetHeader className="border-b border-border p-5">
-                <SheetTitle className="flex items-center gap-2">
-                    Transaction details
-                    <TransactionTypeBadge type={type} />
+                {/* pr-10 clears Radix's absolutely-positioned close × in
+                    the top-right of SheetContent so the action buttons on
+                    this row don't sit flush against the X. */}
+                <SheetTitle className="flex items-center justify-between gap-2 pr-10">
+                    <span className="flex items-center gap-2">
+                        Transaction details
+                        <TransactionTypeBadge type={type} />
+                    </span>
+                    {canEdit && (onEdit || onDelete) && (
+                        <span className="flex items-center gap-2">
+                            {onEdit && (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5"
+                                    onClick={onEdit}
+                                >
+                                    <Pencil className="size-3" />
+                                    Edit
+                                </Button>
+                            )}
+                            {onDelete && (
+                                <ConfirmDialog
+                                    trigger={
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="gap-1.5 text-[color:var(--destructive,#ef4444)] hover:text-[color:var(--destructive,#ef4444)]"
+                                        >
+                                            <Trash2 className="size-3" />
+                                            Delete
+                                        </Button>
+                                    }
+                                    title="Delete transaction?"
+                                    description="Balances will update automatically."
+                                    confirmLabel="Delete"
+                                    destructive
+                                    onConfirm={onDelete}
+                                />
+                            )}
+                        </span>
+                    )}
                 </SheetTitle>
                 <SheetDescription className="flex items-baseline justify-between">
                     <span>
@@ -155,33 +207,6 @@ function Details({
                     {source && <Row label="From">{source}</Row>}
                     {destination && <Row label="To">{destination}</Row>}
                     {category && <Row label="Category">{category}</Row>}
-                    {hasFee && (
-                        <>
-                            <Row label="Fee">
-                                <span className="inline-flex items-center gap-2">
-                                    <MoneyDisplay
-                                        amount={feeAmount ?? 0}
-                                        variant="expense"
-                                        className="font-semibold"
-                                    />
-                                    {feeCategory && (
-                                        <span className="text-xs text-muted-foreground">
-                                            · {feeCategory}
-                                        </span>
-                                    )}
-                                </span>
-                            </Row>
-                            {sourceTotalOut != null && (
-                                <Row label="Source out">
-                                    <MoneyDisplay
-                                        amount={sourceTotalOut}
-                                        variant="expense"
-                                        className="font-semibold"
-                                    />
-                                </Row>
-                            )}
-                        </>
-                    )}
                     {event && <Row label="Event">{event}</Row>}
                     {transaction.location && <Row label="Location">{transaction.location}</Row>}
                     {transaction.description && (

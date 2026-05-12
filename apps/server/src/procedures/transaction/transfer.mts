@@ -8,9 +8,14 @@ import { TRPCError } from "@trpc/server";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
+import { resolveEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
 import { resolveStrictGate } from "../space/utils/resolveStrictGate.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
+
+// Either all three fee fields are provided, or none. Mirrors the
+// shape clients must send and keeps the type union below tight.
+const FEE_FIELDS = ["feeAmount", "feeExpenseCategoryId", "feeEnvelopId"] as const;
 
 export const createTransferTransaction = authorizedProcedure
     .input(
@@ -24,27 +29,25 @@ export const createTransferTransaction = authorizedProcedure
             destinationAccountId: z.string().uuid(),
             eventId: z.string().uuid().optional(),
             attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
-            // Optional transfer fee: a positive amount deducted from
-            // source on top of `amount`, categorized as an expense so it
-            // flows through the category/envelope analytics. Both
-            // fields move together; DB CHECK enforces this.
+            // Optional fee: if any of the three are set, all three must
+            // be set. The fee is persisted as its own paired expense
+            // row (type='expense', parent_transfer_id = this transfer)
+            // — first-class spend rather than a special inline column.
             feeAmount: z.number().positive().optional(),
             feeExpenseCategoryId: z.string().uuid().optional(),
+            feeEnvelopId: z.string().uuid().optional(),
             idempotencyKey: z.string().uuid().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
-        // Both or neither of the fee fields — client-side guard mirrors
-        // the CHECK constraint.
-        if (
-            (input.feeAmount !== undefined) !==
-            (input.feeExpenseCategoryId !== undefined)
-        ) {
+        const feeSet = FEE_FIELDS.map((k) => input[k] !== undefined);
+        if (feeSet.some(Boolean) && !feeSet.every(Boolean)) {
             throw new TRPCError({
                 code: "BAD_REQUEST",
-                message: "Fee amount and fee category must both be provided",
+                message: "Fee amount, fee category, and fee envelope must all be provided together",
             });
         }
+        const hasFee = feeSet.every(Boolean);
 
         const [error, result] = await safeAwait(
             ctx.services.qb.transaction().execute(async (trx) =>
@@ -79,25 +82,35 @@ export const createTransferTransaction = authorizedProcedure
                                 trx,
                                 eventId: input.eventId,
                                 spaceId: input.spaceId,
+                                requireActive: true,
                             });
                         }
 
-                        if (input.feeExpenseCategoryId) {
+                        if (hasFee) {
                             await resolveExpenseCategoryBelongsToSpace({
                                 trx,
-                                expenseCategoryId: input.feeExpenseCategoryId,
+                                expenseCategoryId: input.feeExpenseCategoryId!,
+                                spaceId: input.spaceId,
+                            });
+                            await resolveEnvelopActive({
+                                trx,
+                                envelopId: input.feeEnvelopId!,
                                 spaceId: input.spaceId,
                             });
                         }
 
-                        // Source must cover amount + fee. Passing the sum
-                        // keeps the existing balance guard honest.
+                        // Source must cover amount + fee. The fee shows
+                        // up as its own expense row that also debits the
+                        // source — both deductions hit the same account.
                         const totalOut = input.amount + (input.feeAmount ?? 0);
                         await resolveAvailableBalance({
                             trx,
                             accountId: input.sourceAccountId,
                             requiredBalance: totalOut,
                         });
+
+                        const datetime = input.datetime || new Date();
+                        const desc = input.description || null;
 
                         const transaction = await trx
                             .insertInto("transactions")
@@ -107,19 +120,35 @@ export const createTransferTransaction = authorizedProcedure
                                 type: "transfer" as unknown as Transactions["type"],
                                 amount: input.amount,
                                 source_account_id: input.sourceAccountId,
-                                destination_account_id:
-                                    input.destinationAccountId,
-                                description: input.description || null,
+                                destination_account_id: input.destinationAccountId,
+                                description: desc,
                                 location: input.location || null,
-                                transaction_datetime:
-                                    input.datetime || new Date(),
+                                transaction_datetime: datetime,
                                 event_id: input.eventId ?? null,
-                                fee_amount: input.feeAmount ?? null,
-                                fee_expense_category_id:
-                                    input.feeExpenseCategoryId ?? null,
                             })
                             .returning(["id"])
                             .executeTakeFirstOrThrow();
+
+                        if (hasFee) {
+                            await trx
+                                .insertInto("transactions")
+                                .values({
+                                    space_id: input.spaceId,
+                                    created_by: ctx.auth.user.id,
+                                    type: "expense" as unknown as Transactions["type"],
+                                    amount: input.feeAmount!,
+                                    source_account_id: input.sourceAccountId,
+                                    destination_account_id: null,
+                                    expense_category_id: input.feeExpenseCategoryId!,
+                                    envelop_id: input.feeEnvelopId!,
+                                    description: desc ? `Fee — ${desc}` : "Transfer fee",
+                                    location: input.location || null,
+                                    transaction_datetime: datetime,
+                                    event_id: input.eventId ?? null,
+                                    parent_transfer_id: transaction.id,
+                                })
+                                .execute();
+                        }
 
                         await attachFilesToTransaction({
                             trx,

@@ -80,20 +80,10 @@ export const allocations = authorizedProcedure
                             WHERE a.envelop_id = e.id
                         ), 0)::text AS allocated,
                         COALESCE((
-                            SELECT SUM(s.amount) FROM (
-                                SELECT t.amount
-                                FROM transactions t
-                                JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                WHERE ec.envelop_id = e.id
-                                  AND t.type = 'expense'
-                                UNION ALL
-                                SELECT t.fee_amount AS amount
-                                FROM transactions t
-                                JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                WHERE ec.envelop_id = e.id
-                                  AND t.type = 'transfer'
-                                  AND t.fee_amount IS NOT NULL
-                            ) s
+                            SELECT SUM(t.amount)
+                            FROM transactions t
+                            WHERE t.envelop_id = e.id
+                              AND t.type = 'expense'
                         ), 0)::text AS consumed
                     FROM envelops e
                     WHERE e.space_id = ${input.spaceId}

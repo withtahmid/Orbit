@@ -6,7 +6,7 @@ import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpac
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { TRPCError } from "@trpc/server";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
-import { resolveCategoryEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
+import { resolveEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
 import { resolveStrictGate } from "../space/utils/resolveStrictGate.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
@@ -23,6 +23,7 @@ export const createExpenseTransaction = authorizedProcedure
             location: z.string().optional(),
             sourceAccountId: z.string().uuid(),
             expense_category_id: z.string().uuid(),
+            envelopId: z.string().uuid(),
             eventId: z.string().uuid().optional(),
             attachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
             idempotencyKey: z.string().uuid().optional(),
@@ -60,9 +61,10 @@ export const createExpenseTransaction = authorizedProcedure
                             expenseCategoryId: input.expense_category_id,
                             spaceId: input.spaceId,
                         });
-                        await resolveCategoryEnvelopActive({
+                        await resolveEnvelopActive({
                             trx,
-                            expenseCategoryId: input.expense_category_id,
+                            envelopId: input.envelopId,
+                            spaceId: input.spaceId,
                         });
 
                         if (input.eventId) {
@@ -70,6 +72,7 @@ export const createExpenseTransaction = authorizedProcedure
                                 trx,
                                 eventId: input.eventId,
                                 spaceId: input.spaceId,
+                                requireActive: true,
                             });
                         }
 
@@ -89,10 +92,10 @@ export const createExpenseTransaction = authorizedProcedure
                                 source_account_id: input.sourceAccountId,
                                 destination_account_id: null,
                                 expense_category_id: input.expense_category_id,
+                                envelop_id: input.envelopId,
                                 description: input.description || null,
                                 location: input.location || null,
-                                transaction_datetime:
-                                    input.datetime || new Date(),
+                                transaction_datetime: input.datetime || new Date(),
                                 event_id: input.eventId ?? null,
                             })
                             .returning(["id"])

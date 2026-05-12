@@ -66,11 +66,6 @@ export const listTransactionsBySpace = authorizedProcedure
 
                 const rows = await ctx.services.qb
                     .selectFrom("transactions")
-                    .leftJoin(
-                        "expense_categories",
-                        "expense_categories.id",
-                        "transactions.expense_category_id"
-                    )
                     .leftJoin("users", "users.id", "transactions.created_by")
                     .select([
                         "transactions.id",
@@ -85,9 +80,9 @@ export const listTransactionsBySpace = authorizedProcedure
                         "transactions.transaction_datetime",
                         "transactions.created_at",
                         "transactions.expense_category_id",
+                        "transactions.envelop_id",
                         "transactions.event_id",
-                        "transactions.fee_amount",
-                        "transactions.fee_expense_category_id",
+                        "transactions.parent_transfer_id",
                         "users.first_name as created_by_first_name",
                         "users.last_name as created_by_last_name",
                         "users.avatar_file_id as created_by_avatar_file_id",
@@ -104,7 +99,7 @@ export const listTransactionsBySpace = authorizedProcedure
                         )
                     )
                     .$if(!!input.envelopId, (qb) =>
-                        qb.where("expense_categories.envelop_id", "=", input.envelopId!)
+                        qb.where("transactions.envelop_id", "=", input.envelopId!)
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where("transactions.expense_category_id", "in", categoryIds!)
