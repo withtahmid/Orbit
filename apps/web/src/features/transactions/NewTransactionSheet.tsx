@@ -1599,16 +1599,21 @@ function ExpenseForm({
         }
     }, [sourceAccountId, accountItems]);
 
-    // Filter categories whose envelope is archived. Server blocks new
-    // transactions against them anyway; filtering here means the user
-    // never sees them as a selectable option to begin with.
-    const activeCategories = useMemo(() => {
-        const cats = categoriesQuery.data ?? [];
-        const envs = envelopesQuery.data ?? [];
-        const archivedEnvIds = new Set(envs.filter((e) => e.archived).map((e) => e.id));
-        if (archivedEnvIds.size === 0) return cats;
-        return cats.filter((c) => !archivedEnvIds.has(c.default_envelop_id));
-    }, [categoriesQuery.data, envelopesQuery.data]);
+    // Post-decoupling (migration 041) the category's `default_envelop_id`
+    // is purely a UX hint — the envelope is now a separate field on the
+    // transaction itself. So even if a category's default envelope is
+    // archived, the category is still valid (the user can pick any
+    // active envelope on the form). We list every category and instead
+    // skip the auto-fill below when the default points at an archived
+    // envelope, so the user has to pick a live one explicitly.
+    const activeCategories = categoriesQuery.data ?? [];
+    const archivedEnvIds = useMemo(
+        () =>
+            new Set(
+                (envelopesQuery.data ?? []).filter((e) => e.archived).map((e) => e.id)
+            ),
+        [envelopesQuery.data]
+    );
 
     const envelopeItems: OrbitSelectItem[] = useMemo(
         () =>
@@ -1638,11 +1643,19 @@ function ExpenseForm({
         if (!categoryId) return;
         if (envelopePinnedAndActive) return;
         const cat = activeCategories.find((c) => c.id === categoryId);
-        if (cat) {
-            setEnvelopeId(cat.default_envelop_id);
-            setEnvelopePickerOpen(false);
+        if (!cat) return;
+        // If the category's default envelope is archived, leave the
+        // envelope unset and pop the picker open so the user picks a
+        // live one explicitly — auto-filling an archived id would just
+        // get rejected by the server on submit.
+        if (archivedEnvIds.has(cat.default_envelop_id)) {
+            setEnvelopeId("");
+            setEnvelopePickerOpen(true);
+            return;
         }
-    }, [categoryId, activeCategories, envelopePinnedAndActive]);
+        setEnvelopeId(cat.default_envelop_id);
+        setEnvelopePickerOpen(false);
+    }, [categoryId, activeCategories, envelopePinnedAndActive, archivedEnvIds]);
 
     /* Hydrate pinned values once, after the first pins payload arrives.
        Order matters slightly: setEnvelopeId before setCategoryId would
