@@ -832,12 +832,14 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
     const [moveOpen, setMoveOpen] = useState(false);
     const [topUpOpen, setTopUpOpen] = useState(false);
     return (
-        <span
-            onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-            }}
-        >
+        // EnvelopeCard wraps everything in a <Link>, so we need to stop the
+        // menu/dialog clicks from bubbling up and triggering navigation.
+        // stopPropagation alone is enough — preventDefault would also cancel
+        // browser defaults like `<label>` → input activation, which silently
+        // kills the carry-policy radios inside the edit modal (Radix portals
+        // the dialog out of the DOM, but synthetic events still bubble up
+        // through the React component tree).
+        <span onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <button
@@ -1563,6 +1565,11 @@ export function CreateOrEditEnvelopeDialog({
                         {cadence !== "none" ? (
                             <OrbitField
                                 label="Carry policy"
+                                // OrbitField defaults to a <label> wrapper.
+                                // Radio rows already render one <label> per
+                                // option; nested labels make the outer one
+                                // steal every click back to the first input.
+                                interactiveHint
                                 hint={
                                     carryPolicy === "both"
                                         ? "Surplus AND debt persist"

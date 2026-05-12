@@ -170,6 +170,14 @@ export default function TransactionsPage() {
         ? categoriesPersonalQuery.data ?? []
         : categoriesSpaceQuery.data ?? [];
 
+    // Envelopes only exist per-space; in the personal cross-space view we
+    // don't have a flat envelope list to look up against, so the Envelope
+    // column renders "—" there.
+    const envelopesQuery = trpc.envelop.listBySpace.useQuery(
+        { spaceId: space.id },
+        { enabled: !isPersonal }
+    );
+
     const eventsQuery = trpc.event.listBySpace.useQuery(
         { spaceId: space.id },
         { enabled: !isPersonal }
@@ -239,6 +247,13 @@ export default function TransactionsPage() {
             m.set(c.id, { name: c.name, color: c.color, icon: c.icon });
         return m;
     }, [categoriesData]);
+
+    const envelopesById = useMemo(() => {
+        const m = new Map<string, { name: string; color: string; icon: string }>();
+        for (const e of envelopesQuery.data ?? [])
+            m.set(e.id, { name: e.name, color: e.color, icon: e.icon });
+        return m;
+    }, [envelopesQuery.data]);
 
     const eventsById = useMemo(() => {
         const m = new Map<string, { name: string; color: string; icon: string }>();
@@ -612,6 +627,7 @@ export default function TransactionsPage() {
                             "Type",
                             "From / To",
                             "Category",
+                            "Envelope",
                             "Event",
                             "By",
                             "Amount",
@@ -620,7 +636,7 @@ export default function TransactionsPage() {
                             <span
                                 key={i}
                                 className="tx-th"
-                                style={{ textAlign: i === 6 ? "right" : "left" }}
+                                style={{ textAlign: i === 7 ? "right" : "left" }}
                             >
                                 {h}
                             </span>
@@ -649,6 +665,9 @@ export default function TransactionsPage() {
                                                 (t.type as unknown as TxType) ?? "expense";
                                             const cat = t.expense_category_id
                                                 ? categoriesById.get(t.expense_category_id)
+                                                : null;
+                                            const env = t.envelop_id
+                                                ? envelopesById.get(t.envelop_id)
                                                 : null;
                                             const ev = t.event_id
                                                 ? eventsById.get(t.event_id)
@@ -695,6 +714,24 @@ export default function TransactionsPage() {
                                                         />
                                                         <span style={{ color: "var(--fg-2)" }}>
                                                             {cat.name}
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <span style={{ color: "var(--fg-4)" }}>
+                                                        —
+                                                    </span>
+                                                )}
+                                            </span>
+                                            <span className="tx-cell-env">
+                                                {env ? (
+                                                    <>
+                                                        <Avatar
+                                                            color={env.color}
+                                                            icon={env.icon}
+                                                            size={20}
+                                                        />
+                                                        <span style={{ color: "var(--fg-2)" }}>
+                                                            {env.name}
                                                         </span>
                                                     </>
                                                 ) : (
@@ -1815,7 +1852,7 @@ const TX_STYLES = `
 }
 .tx-row-grid {
     display: grid;
-    grid-template-columns: 110px 130px minmax(0, 1.4fr) minmax(0, 1.2fr) minmax(0, 0.6fr) 100px 130px 60px;
+    grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.6fr) 100px 130px 60px;
     align-items: center;
 }
 .tx-table-head {
@@ -1902,11 +1939,17 @@ const TX_STYLES = `
     transition: color 140ms ease;
 }
 .tx-flow-acct:hover { color: var(--brand); }
-.tx-cell-cat {
+.tx-cell-cat,
+.tx-cell-env {
     display: inline-flex;
     align-items: center;
     gap: 8px;
     min-width: 0;
+}
+.tx-cell-env > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .tx-event-chip {
     display: inline-flex;
@@ -2014,13 +2057,14 @@ const TX_STYLES = `
     white-space: nowrap;
 }
 
-/* Tighter table at <1280 — drop event + by columns */
+/* Tighter table at <1280 — drop event + by columns. Envelope (col 5)
+   stays since it's the column the user explicitly wants surfaced. */
 @media (max-width: 1280px) and (min-width: 901px) {
     .tx-row-grid {
-        grid-template-columns: 100px 120px minmax(0, 1.4fr) minmax(0, 1.2fr) 130px 60px;
+        grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 130px 60px;
     }
-    .tx-row-grid > :nth-child(5),
-    .tx-row-grid > :nth-child(6) { display: none; }
+    .tx-row-grid > :nth-child(6),
+    .tx-row-grid > :nth-child(7) { display: none; }
 }
 
 /* Phone (<640px) — tighten filters, search, summary tiles. */
