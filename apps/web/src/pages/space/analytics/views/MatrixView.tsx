@@ -59,7 +59,7 @@ export default function MatrixView() {
         [q.data]
     );
 
-    /** matrix[envIdx][acctIdx] = $ amount (0 if no contribution at all) */
+    /** matrix[envIdx][acctIdx] = amount (0 if no contribution at all) */
     const cells: number[][] = useMemo(() => {
         if (!q.data) return [];
         const lookup = new Map<string, number>();
@@ -321,7 +321,7 @@ function MatrixGrid({
     accent: string;
 }) {
     /**
-     * Map a cell's $ amount to a 0..1 intensity. Floors at 0.15 so the
+     * Map a cell's amount to a 0..1 intensity. Floors at 0.15 so the
      * smallest non-zero cells still read as filled — without the floor,
      * `min` maps to 0 and the cell visually disappears against an empty
      * one, defeating the heatmap.
@@ -484,7 +484,7 @@ function Cell({
     return (
         <span
             className="flex h-9 items-center justify-center rounded-md border text-[12px] font-semibold tabular-nums"
-            title={`${envName} ← ${acctName}: $${value.toLocaleString("en-US", {
+            title={`${envName} ← ${acctName}: ${value.toLocaleString("en-US", {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
             })}`}
@@ -500,19 +500,19 @@ function Cell({
 }
 
 /**
- * Cell formatter. Small values render as exact dollars (`$240`, `$600`),
- * large values collapse to `$X.XK`. The design's `(v/1000).toFixed(0)`
- * approach mapped both `$240` and `$600` to `$0`/`$1` which reads as a bug
+ * Cell formatter. Small values render exact (`240`, `600`), large values
+ * collapse to `X.XK`. The design's `(v/1000).toFixed(0)` approach mapped
+ * both `240` and `600` to `0`/`1` which reads as a bug
  * — exact small numbers communicate the partition shape better.
  */
 function compactCellMoney(v: number): string {
-    if (v >= 1000) return `$${(v / 1000).toFixed(1)}K`;
-    return `$${Math.round(v)}`;
+    if (v >= 1000) return `${(v / 1000).toFixed(1)}K`;
+    return `${Math.round(v)}`;
 }
 
 /** Margin-cell formatter — same shape, used for row/column/grand totals. */
 function compactMoney(n: number): string {
-    if (!Number.isFinite(n) || n === 0) return "$0";
-    if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(1)}K`;
-    return `$${Math.round(n)}`;
+    if (!Number.isFinite(n) || n === 0) return "0";
+    if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}K`;
+    return `${Math.round(n)}`;
 }

@@ -41,7 +41,7 @@ export const listExpenseCategoriesBySpaceWithUsage = authorizedProcedure
                     id: string;
                     space_id: string;
                     parent_id: string | null;
-                    envelop_id: string;
+                    default_envelop_id: string;
                     name: string;
                     color: string;
                     icon: string;
@@ -62,21 +62,6 @@ export const listExpenseCategoriesBySpaceWithUsage = authorizedProcedure
                                OR transaction_datetime >= ${start}::timestamptz)
                           AND (${end}::timestamptz IS NULL
                                OR transaction_datetime <  ${end}::timestamptz)
-                        UNION ALL
-                        -- Transfer fees roll up to their category like a
-                        -- regular expense, matching analytics.categoryBreakdown.
-                        SELECT fee_expense_category_id AS id,
-                               fee_amount AS amount,
-                               transaction_datetime
-                        FROM transactions
-                        WHERE space_id = ${input.spaceId}
-                          AND type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND fee_expense_category_id IS NOT NULL
-                          AND (${start}::timestamptz IS NULL
-                               OR transaction_datetime >= ${start}::timestamptz)
-                          AND (${end}::timestamptz IS NULL
-                               OR transaction_datetime <  ${end}::timestamptz)
                     ),
                     usage AS (
                         SELECT id,
@@ -90,7 +75,7 @@ export const listExpenseCategoriesBySpaceWithUsage = authorizedProcedure
                         ec.id::text,
                         ec.space_id::text,
                         ec.parent_id::text,
-                        ec.envelop_id::text,
+                        ec.default_envelop_id::text,
                         ec.name,
                         ec.color,
                         ec.icon,
@@ -111,7 +96,7 @@ export const listExpenseCategoriesBySpaceWithUsage = authorizedProcedure
                     id: r.id,
                     space_id: r.space_id,
                     parent_id: r.parent_id,
-                    envelop_id: r.envelop_id,
+                    default_envelop_id: r.default_envelop_id,
                     name: r.name,
                     color: r.color,
                     icon: r.icon,

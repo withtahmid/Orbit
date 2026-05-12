@@ -113,7 +113,7 @@ export interface Events {
 export interface ExpenseCategories {
   color: Generated<string>;
   created_at: Generated<Timestamp>;
-  envelop_id: string;
+  default_envelop_id: string;
   icon: Generated<string>;
   id: Generated<string>;
   name: string;
@@ -191,11 +191,35 @@ export interface SpaceAccounts {
   space_id: string;
 }
 
+export interface SpaceInvites {
+  accepted_at: Timestamp | null;
+  accepted_by_user_id: string | null;
+  created_at: Generated<Timestamp>;
+  email: string;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  invited_by: string;
+  revoked_at: Timestamp | null;
+  role: ArrayType<"editor" | "owner" | "viewer">;
+  space_id: string;
+  token: string;
+}
+
 export interface SpaceMembers {
   created_at: Generated<Timestamp>;
   role: ArrayType<"editor" | "owner" | "viewer">;
   space_id: string;
   user_id: string;
+}
+
+export interface SpacePin {
+  created_at: Generated<Timestamp>;
+  envelop_id: string | null;
+  event_id: string | null;
+  field: ArrayType<"account" | "envelop" | "event">;
+  set_by_user_id: string | null;
+  space_id: string;
+  updated_at: Generated<Timestamp>;
 }
 
 export interface Spaces {
@@ -227,12 +251,12 @@ export interface Transactions {
   created_by: string;
   description: string | null;
   destination_account_id: string | null;
+  envelop_id: string | null;
   event_id: string | null;
   expense_category_id: string | null;
-  fee_amount: Numeric | null;
-  fee_expense_category_id: string | null;
   id: Generated<string>;
   location: string | null;
+  parent_transfer_id: string | null;
   source_account_id: string | null;
   space_id: string;
   transaction_datetime: Generated<Timestamp>;
@@ -249,11 +273,22 @@ export interface UserAccounts {
 export interface Users {
   avatar_file_id: string | null;
   created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
   email: string;
   first_name: string;
   id: Generated<string>;
   last_name: string;
   password_hash: string;
+  token_version: Generated<number>;
+}
+
+export interface UserSpacePin {
+  account_id: string | null;
+  created_at: Generated<Timestamp>;
+  field: ArrayType<"account" | "envelop" | "event">;
+  space_id: string;
+  updated_at: Generated<Timestamp>;
+  user_id: string;
 }
 
 export interface DB {
@@ -272,11 +307,14 @@ export interface DB {
   plans: Plans;
   reckoning_acknowledgments: ReckoningAcknowledgments;
   space_accounts: SpaceAccounts;
+  space_invites: SpaceInvites;
   space_members: SpaceMembers;
+  space_pin: SpacePin;
   spaces: Spaces;
   tmp_users: TmpUsers;
   transaction_attachments: TransactionAttachments;
   transactions: Transactions;
   user_accounts: UserAccounts;
+  user_space_pin: UserSpacePin;
   users: Users;
 }

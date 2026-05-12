@@ -3,13 +3,19 @@ import { Kysely } from "kysely";
 import type { DB } from "../db/kysely/types.mjs";
 import { ENV } from "../env.mjs";
 import { logger } from "../utils/logger.mjs";
+import { safeAwait } from "../utils/safeAwait.mjs";
 
 interface JWTPayload {
     userId: string;
+    tokenVersion?: number;
+    iat?: number;
+    exp?: number;
 }
 
-export const signJWT = (payload: Omit<JWTPayload, "iat" | "exp">): string => {
-    return jwt.sign(payload as object, ENV.JWT_SECRET);
+const JWT_EXPIRES_IN = "30d";
+
+export const signJWT = (payload: { userId: string; tokenVersion: number }): string => {
+    return jwt.sign(payload as object, ENV.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 
 export const authorizeJWT = async (authHeader: string | undefined): Promise<JWTPayload | null> => {
@@ -34,22 +40,30 @@ export interface AuthenticatedUser {
 
 export const fetchUserFromJWT = async (
     payload: JWTPayload | null,
-    _qb: Kysely<DB>
+    qb: Kysely<DB>
 ): Promise<AuthenticatedUser | null> => {
     if (!payload) return null;
 
-    // const [error, user] = await safeAwait(
-    //     qb
-    //         .selectFrom("users")
-    //         .select(["id"])
-    //         .where("id", "=", payload.userId)
-    //         .executeTakeFirstOrThrow()
-    // );
+    const [error, user] = await safeAwait(
+        qb
+            .selectFrom("users")
+            .select(["id", "deleted_at", "token_version"])
+            .where("id", "=", payload.userId)
+            .executeTakeFirst()
+    );
 
-    // if (error) {
-    //     logger.debug(`Error fetching user: ${(error as Error).message}`);
-    //     return null;
-    // }
+    if (error) {
+        logger.debug(`Error fetching user: ${(error as Error).message}`);
+        return null;
+    }
+    if (!user) return null;
+    if (user.deleted_at) return null;
 
-    return { id: payload.userId };
+    // Tokens minted before migration 040 don't carry tokenVersion; treat them
+    // as version 1 (the default for backfilled rows) so we don't log everyone
+    // out the moment that migration lands.
+    const claimedVersion = payload.tokenVersion ?? 1;
+    if (claimedVersion !== user.token_version) return null;
+
+    return { id: user.id };
 };

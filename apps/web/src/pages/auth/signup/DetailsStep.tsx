@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { observer } from "mobx-react-lite";
 import { toast } from "sonner";
 import { trpc } from "@/trpc";
@@ -10,6 +10,18 @@ import { ArrowRight } from "@/pages/auth/AuthShell";
 export const DetailsStep = observer(function DetailsStep() {
     const { signupStore, authStore } = useStore();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    // Honor `?from=` so an invite link that bounced through /signup
+    // delivers the freshly-created user back to /invite/<token>. Apply
+    // the same in-app-path guard as the login flow.
+    const rawFrom = searchParams.get("from");
+    const safeFrom =
+        rawFrom &&
+        rawFrom.startsWith("/") &&
+        !rawFrom.startsWith("//") &&
+        !rawFrom.includes("\\")
+            ? rawFrom
+            : null;
     const [firstName, setFirstName] = useState("");
     const [lastName, setLastName] = useState("");
     const [password, setPassword] = useState("");
@@ -24,7 +36,7 @@ export const DetailsStep = observer(function DetailsStep() {
             });
             signupStore.reset();
             toast.success("Welcome to Orbit!");
-            navigate(ROUTES.root, { replace: true });
+            navigate(safeFrom ?? ROUTES.root, { replace: true });
         },
         onError: (e) => toast.error(e.message),
     });

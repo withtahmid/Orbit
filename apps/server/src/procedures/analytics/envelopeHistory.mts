@@ -82,26 +82,13 @@ export const envelopeHistory = authorizedProcedure
                     ),
                     spend AS (
                         SELECT
-                            date_trunc(${input.bucket}, dt) AS bucket,
-                            SUM(amount) AS amount
-                        FROM (
-                            SELECT t.transaction_datetime AS dt, t.amount
-                            FROM transactions t
-                            JOIN expense_categories ec ON ec.id = t.expense_category_id
-                            WHERE ec.envelop_id = ${input.envelopId}
-                              AND t.type = 'expense'
-                              AND t.transaction_datetime >= ${input.periodStart}
-                              AND t.transaction_datetime < ${input.periodEnd}
-                            UNION ALL
-                            SELECT t.transaction_datetime AS dt, t.fee_amount
-                            FROM transactions t
-                            JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                            WHERE ec.envelop_id = ${input.envelopId}
-                              AND t.type = 'transfer'
-                              AND t.fee_amount IS NOT NULL
-                              AND t.transaction_datetime >= ${input.periodStart}
-                              AND t.transaction_datetime < ${input.periodEnd}
-                        ) e
+                            date_trunc(${input.bucket}, t.transaction_datetime) AS bucket,
+                            SUM(t.amount) AS amount
+                        FROM transactions t
+                        WHERE t.envelop_id = ${input.envelopId}
+                          AND t.type = 'expense'
+                          AND t.transaction_datetime >= ${input.periodStart}
+                          AND t.transaction_datetime < ${input.periodEnd}
                         GROUP BY 1
                     )
                     SELECT

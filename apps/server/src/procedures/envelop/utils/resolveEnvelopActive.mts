@@ -3,24 +3,26 @@ import { TRPCError } from "@trpc/server";
 import type { DB } from "../../../db/kysely/types.mjs";
 
 /**
- * Throw if the envelope is archived. Use as a guard before any operation
- * that creates new state attached to the envelope: new categories, new
- * transactions whose category routes to it, etc.
+ * Throw if the envelope is missing, not in the given space, or archived.
+ * Use as a guard before any operation that creates new state attached to
+ * the envelope.
  */
 export async function resolveEnvelopActive({
     trx,
     envelopId,
+    spaceId,
 }: {
     trx: Kysely<DB>;
     envelopId: string;
+    spaceId?: string;
 }): Promise<void> {
     const env = await trx
         .selectFrom("envelops")
-        .select(["id", "archived", "name"])
+        .select(["id", "space_id", "archived", "name"])
         .where("envelops.id", "=", envelopId)
         .executeTakeFirst();
 
-    if (!env) {
+    if (!env || (spaceId !== undefined && env.space_id !== spaceId)) {
         throw new TRPCError({
             code: "NOT_FOUND",
             message: "Envelop not found",
@@ -36,9 +38,9 @@ export async function resolveEnvelopActive({
 }
 
 /**
- * Same guard, but resolves the envelope via a category. Use for transaction
- * paths where the user picks a category and we need to verify its routed
- * envelope is still active.
+ * Resolve the active state of the category's default envelope. Used to
+ * surface a clean error when the user picks a category whose default
+ * envelope has been archived.
  */
 export async function resolveCategoryEnvelopActive({
     trx,
@@ -49,7 +51,7 @@ export async function resolveCategoryEnvelopActive({
 }): Promise<void> {
     const row = await trx
         .selectFrom("expense_categories")
-        .innerJoin("envelops", "envelops.id", "expense_categories.envelop_id")
+        .innerJoin("envelops", "envelops.id", "expense_categories.default_envelop_id")
         .select(["envelops.id", "envelops.archived", "envelops.name"])
         .where("expense_categories.id", "=", expenseCategoryId)
         .executeTakeFirst();
@@ -64,7 +66,7 @@ export async function resolveCategoryEnvelopActive({
     if (row.archived) {
         throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `This category routes to archived envelope "${row.name}". Move the category to an active envelope, or unarchive.`,
+            message: `This category's default envelope "${row.name}" is archived. Pick a different envelope for this transaction, or unarchive.`,
         });
     }
 }

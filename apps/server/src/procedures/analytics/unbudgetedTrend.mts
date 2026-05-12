@@ -128,8 +128,7 @@ export const unbudgetedTrend = authorizedProcedure
                             COALESCE((
                                 SELECT SUM(t.amount)
                                 FROM transactions t
-                                JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                WHERE ec.envelop_id = e.id
+                                WHERE t.envelop_id = e.id
                                   AND t.type = 'expense'
                                   AND t.transaction_datetime >= m.m_start
                                   AND t.transaction_datetime < (m.m_start + INTERVAL '1 month')

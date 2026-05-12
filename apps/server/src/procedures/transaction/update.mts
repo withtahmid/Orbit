@@ -8,7 +8,7 @@ import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpac
 import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
-import { resolveCategoryEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
+import { resolveEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
 import type { SpaceMembers, Transactions } from "../../db/kysely/types.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
 
@@ -23,12 +23,17 @@ export const updateTransaction = authorizedProcedure
             sourceAccountId: z.string().uuid().nullable().optional(),
             destinationAccountId: z.string().uuid().nullable().optional(),
             expenseCategoryId: z.string().uuid().nullable().optional(),
+            envelopId: z.string().uuid().optional(),
             eventId: z.string().uuid().nullable().optional(),
             addAttachmentFileIds: z.array(z.string().uuid()).max(10).optional(),
-            // Fee fields only valid on transfers; pass `null` for both
-            // to clear. Both must move together (CHECK enforces).
+            // Fee fields only valid on transfers. The fee lives as a
+            // paired type='expense' row pointing at the parent transfer
+            // via `parent_transfer_id`. All three fee fields move
+            // together: set all to create / update the linked row, or
+            // pass `feeAmount: null` (with the others) to delete it.
             feeAmount: z.number().positive().nullable().optional(),
             feeExpenseCategoryId: z.string().uuid().nullable().optional(),
+            feeEnvelopId: z.string().uuid().nullable().optional(),
         })
     )
     .mutation(async ({ ctx, input }) => {
@@ -77,44 +82,106 @@ export const updateTransaction = authorizedProcedure
                         input.expenseCategoryId === undefined
                             ? existing.expense_category_id
                             : input.expenseCategoryId,
+                    envelopId:
+                        input.envelopId === undefined
+                            ? existing.envelop_id
+                            : input.envelopId,
                     eventId:
                         input.eventId === undefined ? existing.event_id : input.eventId,
-                    feeAmount:
-                        input.feeAmount === undefined
-                            ? existing.fee_amount === null
-                                ? null
-                                : Number(existing.fee_amount)
-                            : input.feeAmount,
-                    feeExpenseCategoryId:
-                        input.feeExpenseCategoryId === undefined
-                            ? existing.fee_expense_category_id
-                            : input.feeExpenseCategoryId,
                 };
 
-                // Fee fields must move together. Rejecting here gives a
-                // cleaner error than letting the DB CHECK raise.
-                if (
-                    (merged.feeAmount === null) !==
-                    (merged.feeExpenseCategoryId === null)
-                ) {
-                    throw new TRPCError({
-                        code: "BAD_REQUEST",
-                        message: "Fee amount and fee category must both be set or both cleared",
-                    });
-                }
                 const isTransfer =
                     (existing.type as unknown as string) === "transfer";
-                if (!isTransfer && merged.feeAmount !== null) {
+
+                // Fee shape validation: if any fee field is touched, the
+                // resulting state must be "all three set" or "all three
+                // cleared". Mid-states are rejected up-front for a cleaner
+                // error than discovering it during the linked-row update.
+                const feeTouched =
+                    input.feeAmount !== undefined ||
+                    input.feeExpenseCategoryId !== undefined ||
+                    input.feeEnvelopId !== undefined;
+                if (feeTouched && !isTransfer) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",
                         message: "Fees are only valid on transfer transactions",
                     });
                 }
+                let linkedFee: {
+                    id: string;
+                    amount: number;
+                    expense_category_id: string | null;
+                    envelop_id: string | null;
+                } | null = null;
+                if (isTransfer) {
+                    const row = await trx
+                        .selectFrom("transactions")
+                        .select([
+                            "id",
+                            "amount",
+                            "expense_category_id",
+                            "envelop_id",
+                        ])
+                        .where("parent_transfer_id", "=", input.transactionId)
+                        .where(
+                            "type",
+                            "=",
+                            "expense" as unknown as Transactions["type"]
+                        )
+                        .executeTakeFirst();
+                    if (row) {
+                        linkedFee = {
+                            id: row.id,
+                            amount: Number(row.amount),
+                            expense_category_id: row.expense_category_id,
+                            envelop_id: row.envelop_id,
+                        };
+                    }
+                }
 
-                if (merged.feeExpenseCategoryId) {
+                let desiredFee: {
+                    amount: number;
+                    expenseCategoryId: string;
+                    envelopId: string;
+                } | null = null;
+                let clearFee = false;
+                if (feeTouched) {
+                    const triple = [
+                        input.feeAmount,
+                        input.feeExpenseCategoryId,
+                        input.feeEnvelopId,
+                    ];
+                    const allNull = triple.every((v) => v === null);
+                    const allSet = triple.every(
+                        (v) => v !== null && v !== undefined
+                    );
+                    if (!allNull && !allSet) {
+                        throw new TRPCError({
+                            code: "BAD_REQUEST",
+                            message:
+                                "Fee amount, category, and envelope must all be set or all cleared",
+                        });
+                    }
+                    if (allNull) {
+                        clearFee = true;
+                    } else {
+                        desiredFee = {
+                            amount: input.feeAmount as number,
+                            expenseCategoryId: input.feeExpenseCategoryId as string,
+                            envelopId: input.feeEnvelopId as string,
+                        };
+                    }
+                }
+
+                if (desiredFee) {
                     await resolveExpenseCategoryBelongsToSpace({
                         trx,
-                        expenseCategoryId: merged.feeExpenseCategoryId,
+                        expenseCategoryId: desiredFee.expenseCategoryId,
+                        spaceId: existing.space_id,
+                    });
+                    await resolveEnvelopActive({
+                        trx,
+                        envelopId: desiredFee.envelopId,
                         spaceId: existing.space_id,
                     });
                 }
@@ -140,21 +207,17 @@ export const updateTransaction = authorizedProcedure
                         expenseCategoryId: merged.expenseCategoryId,
                         spaceId: existing.space_id,
                     });
-                    // Only enforce the active-envelope check when the user
-                    // is actually changing the category. Edits that keep
-                    // the existing category should pass even if its envelope
-                    // got archived between the original create and this edit
-                    // — otherwise we'd block legitimate corrections to old
-                    // transactions.
-                    if (
-                        merged.expenseCategoryId !==
-                        existing.expense_category_id
-                    ) {
-                        await resolveCategoryEnvelopActive({
-                            trx,
-                            expenseCategoryId: merged.expenseCategoryId,
-                        });
-                    }
+                }
+
+                if (
+                    input.envelopId !== undefined &&
+                    input.envelopId !== existing.envelop_id
+                ) {
+                    await resolveEnvelopActive({
+                        trx,
+                        envelopId: input.envelopId,
+                        spaceId: existing.space_id,
+                    });
                 }
 
                 if (merged.eventId) {
@@ -165,16 +228,22 @@ export const updateTransaction = authorizedProcedure
                     });
                 }
 
+                // Balance pre-check. Both the transfer row and any
+                // linked-fee row debit the same source account, so we
+                // pre-check the combined delta. Existing transfer +
+                // existing fee already debited the source; we only need
+                // to clear the *increase*.
                 if (merged.sourceAccountId) {
-                    // Validate balance if amount+fee increased or source
-                    // changed. Account for fee too since transfers with
-                    // fees debit the source by amount + fee.
-                    const newTotalOut =
-                        merged.amount + Number(merged.feeAmount ?? 0);
+                    const existingFeeAmount = linkedFee?.amount ?? 0;
+                    const newFeeAmount = desiredFee
+                        ? desiredFee.amount
+                        : clearFee
+                          ? 0
+                          : existingFeeAmount;
+                    const newTotalOut = merged.amount + newFeeAmount;
                     const previousTotalOutOnSource =
                         existing.source_account_id === merged.sourceAccountId
-                            ? Number(existing.amount) +
-                              Number(existing.fee_amount ?? 0)
+                            ? Number(existing.amount) + existingFeeAmount
                             : 0;
                     const required = Math.max(
                         0,
@@ -199,12 +268,57 @@ export const updateTransaction = authorizedProcedure
                         source_account_id: merged.sourceAccountId,
                         destination_account_id: merged.destinationAccountId,
                         expense_category_id: merged.expenseCategoryId,
+                        envelop_id: merged.envelopId,
                         event_id: merged.eventId,
-                        fee_amount: merged.feeAmount,
-                        fee_expense_category_id: merged.feeExpenseCategoryId,
                     })
                     .where("id", "=", input.transactionId)
                     .execute();
+
+                // Manage the linked fee expense for transfer edits.
+                // Three branches: clear → delete; set + had one → update
+                // in place (keep id, attachments, etc.); set + no
+                // existing → insert.
+                if (isTransfer && feeTouched) {
+                    if (clearFee && linkedFee) {
+                        await trx
+                            .deleteFrom("transactions")
+                            .where("id", "=", linkedFee.id)
+                            .execute();
+                    } else if (desiredFee && linkedFee) {
+                        await trx
+                            .updateTable("transactions")
+                            .set({
+                                amount: desiredFee.amount,
+                                expense_category_id:
+                                    desiredFee.expenseCategoryId,
+                                envelop_id: desiredFee.envelopId,
+                            })
+                            .where("id", "=", linkedFee.id)
+                            .execute();
+                    } else if (desiredFee && !linkedFee) {
+                        await trx
+                            .insertInto("transactions")
+                            .values({
+                                space_id: existing.space_id,
+                                created_by: ctx.auth.user.id,
+                                type: "expense" as unknown as Transactions["type"],
+                                amount: desiredFee.amount,
+                                source_account_id: merged.sourceAccountId,
+                                destination_account_id: null,
+                                expense_category_id:
+                                    desiredFee.expenseCategoryId,
+                                envelop_id: desiredFee.envelopId,
+                                description: merged.description
+                                    ? `Fee — ${merged.description}`
+                                    : "Transfer fee",
+                                location: merged.location,
+                                transaction_datetime: merged.datetime,
+                                event_id: merged.eventId,
+                                parent_transfer_id: input.transactionId,
+                            })
+                            .execute();
+                    }
+                }
 
                 await attachFilesToTransaction({
                     trx,

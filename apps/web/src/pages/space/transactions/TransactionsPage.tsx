@@ -6,7 +6,6 @@ import {
     X,
     Filter as FilterIcon,
     ChevronDown,
-    Trash2,
     Wallet,
     Folder,
     Calendar as CalendarIcon,
@@ -28,10 +27,8 @@ import {
     OrbitFieldRow,
 } from "@/components/orbit/OrbitForm";
 import { OrbitField } from "@/components/orbit/OrbitModalShell";
-import { Button } from "@/components/ui/button";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { DateRangePicker } from "@/components/shared/DateRangePicker";
-import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { trpc } from "@/trpc";
 import { useInvalidateAnalytics } from "@/lib/invalidate";
@@ -181,6 +178,16 @@ export default function TransactionsPage() {
     const [pageCursors, setPageCursors] = useState<(string | null)[]>([null]);
     const cursor = pageCursors[pageCursors.length - 1];
     const [selectedTx, setSelectedTx] = useState<any>(null);
+    /**
+     * Page-owned edit state. Previously each row mounted its own
+     * EditTransactionSheet, which could stack on top of the details
+     * sheet and double up two right-side Radix sheets. Owning open
+     * state here lets the details sheet hand off cleanly:
+     *   click row -> selectedTx set -> details sheet opens
+     *   click Edit in details -> selectedTx cleared, editingTx set
+     *   close edit sheet -> editingTx cleared
+     */
+    const [editingTx, setEditingTx] = useState<any>(null);
 
     const listSpaceQuery = trpc.transaction.listBySpace.useQuery(
         {
@@ -646,8 +653,6 @@ export default function TransactionsPage() {
                                             const ev = t.event_id
                                                 ? eventsById.get(t.event_id)
                                                 : null;
-                                            const canDelete =
-                                                t.created_by === authStore.user?.id;
                                             return (
                                         <div
                                             key={t.id}
@@ -754,38 +759,6 @@ export default function TransactionsPage() {
                                                     <span className="tx-cell-desc">
                                                         {t.description}
                                                     </span>
-                                                )}
-                                            </span>
-                                            <span
-                                                className="tx-cell-actions"
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
-                                                {canDelete && (
-                                                    <EditTransactionSheet
-                                                        transaction={t}
-                                                    />
-                                                )}
-                                                {canDelete && (
-                                                    <ConfirmDialog
-                                                        trigger={
-                                                            <Button
-                                                                size="icon"
-                                                                variant="ghost"
-                                                                className="size-7"
-                                                            >
-                                                                <Trash2 className="size-3.5" />
-                                                            </Button>
-                                                        }
-                                                        title="Delete transaction?"
-                                                        description="Balances will update automatically."
-                                                        confirmLabel="Delete"
-                                                        destructive
-                                                        onConfirm={() =>
-                                                            del.mutate({
-                                                                transactionId: t.id,
-                                                            })
-                                                        }
-                                                    />
                                                 )}
                                             </span>
                                         </div>
@@ -907,7 +880,30 @@ export default function TransactionsPage() {
                 categoriesById={categoriesById}
                 eventsById={eventsById}
                 canEdit={selectedTx?.created_by === authStore.user?.id}
+                onEdit={() => {
+                    // Hand off from details -> edit. Capture the row,
+                    // close details first so the two right-side sheets
+                    // never coexist (this was the bug that motivated
+                    // hoisting edit state to the page).
+                    const tx = selectedTx;
+                    setSelectedTx(null);
+                    setEditingTx(tx);
+                }}
+                onDelete={() => {
+                    const tx = selectedTx;
+                    if (!tx) return;
+                    setSelectedTx(null);
+                    del.mutate({ transactionId: tx.id });
+                }}
             />
+
+            {editingTx && (
+                <EditTransactionSheet
+                    transaction={editingTx}
+                    open
+                    onClose={() => setEditingTx(null)}
+                />
+            )}
         </div>
     );
 }
@@ -1424,7 +1420,6 @@ function MoreFiltersSheet({
                             value={amountMin ?? ""}
                             onChange={(e) => setAmountMin(e.target.value || null)}
                             placeholder="0"
-                            prefix="$"
                         />
                         <OrbitInput
                             type="number"
@@ -1432,7 +1427,6 @@ function MoreFiltersSheet({
                             value={amountMax ?? ""}
                             onChange={(e) => setAmountMax(e.target.value || null)}
                             placeholder="∞"
-                            prefix="$"
                         />
                     </OrbitFieldRow>
                 </OrbitField>

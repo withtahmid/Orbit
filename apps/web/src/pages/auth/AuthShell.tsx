@@ -29,11 +29,11 @@ export function AuthShell({
 
                 <div className="oa-editorial-body">
                     <h2 className="serif oa-editorial-title">
-                        Money that makes sense,{" "}
+                        Plan, spend,{" "}
                         <em
                             style={{ color: "var(--gold)", fontStyle: "italic" }}
                         >
-                            together
+                            reconcile
                         </em>
                         .
                     </h2>

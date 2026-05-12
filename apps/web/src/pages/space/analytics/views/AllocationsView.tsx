@@ -190,7 +190,7 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
                                         {r.segments.map((s) => (
                                             <span
                                                 key={s.id}
-                                                title={`${s.name}: $${s.value.toLocaleString(
+                                                title={`${s.name}: ${s.value.toLocaleString(
                                                     "en-US",
                                                     {
                                                         minimumFractionDigits: 2,
@@ -665,7 +665,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
                                     return (
                                         <span
                                             key={p.label}
-                                            title={`${p.label}: $${p.value.toLocaleString("en-US")}`}
+                                            title={`${p.label}: ${p.value.toLocaleString("en-US")}`}
                                             className="grid place-items-center text-[11px] font-semibold tracking-wide"
                                             style={{
                                                 flex: p.value,
@@ -680,9 +680,9 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
                                 })}
                             </div>
                             <div className="flex justify-between text-[10.5px] text-muted-foreground">
-                                <span>$0</span>
+                                <span>0</span>
                                 <span>
-                                    ${formatCompactTotal(partitionTotal)} total
+                                    {formatCompactTotal(partitionTotal)} total
                                 </span>
                             </div>
                         </div>

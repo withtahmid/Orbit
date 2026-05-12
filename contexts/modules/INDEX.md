@@ -26,6 +26,7 @@ One file per procedure namespace under `apps/server/src/procedures/<name>/`, mir
 | [analytics](server/analytics.md) | ~35 procedures grouped by surface (summary / cash-flow / categories / envelopes / plans / events / accounts / heatmaps / recurring / trends / anomalies). Transfer fees folded into expense sums via `UNION ALL` pattern. |
 | [personal](server/personal.md) | Virtual `/s/me` twin of analytics. Scoped by `resolveOwnedAccountIds` + `resolveMemberSpaceIds`. Owned→owned transfers excluded as "internal." |
 | [reckoning](server/reckoning.md) | YNAB-style overspend reconciliation. Two procedures (`listPending`, `acknowledge`). The strict-gate that enforces `spaces.budget_mode='strict'` lives in `space/utils/resolveStrictGate.mts` (not in reckoning). |
+| [pin](server/pin.md) | Transaction-entry defaults — three pinnable fields (Account per-user, Envelope/Event space-wide). Two tables (`user_space_pin`, `space_pin`) + a shared enum, owner/editor gate on the shared scopes. Migration 044 relaxed `set_by_user_id` from CASCADE → SET NULL so a setter leaving the space doesn't drop the team pin. |
 
 ---
 
@@ -88,6 +89,8 @@ Findings from the agents that documented current code; the older `engineering-sp
 - Envelope archive is **asymmetric**: allocate-in blocked, transfer-out/deallocate allowed → trapped cash can always be freed.
 - Strict-gate (`spaces.budget_mode='strict'`) is called on expense/transfer/adjust but **not** income.
 - Migration 038 added event `status`/`estimated_amount`/`closed_at`. `transactions.event_id` FK is `ON DELETE SET NULL`.
+- `resolveEventBelongsToSpace` now takes an opt-in `requireActive?: boolean` (`procedures/event/utils/resolveEventBelongsToSpace.mts:14`). Set on the four creation paths (expense/income/transfer/adjustment) so a stale pin or UI bug can't land a transaction against a closed event. Update path stays lenient so legacy rows with now-closed events remain editable.
+- Migrations 043 (pin tables) and 044 (`space_pin.set_by_user_id` nullable + SET NULL) shipped together. The pin tables are wiped via TRUNCATE CASCADE from `spaces`/`users` — they're not in the seed's explicit wipe list, that's fine.
 
 ### Stale comments still in code
 - `procedures/expenseCategory/changeEnvelop.mts:16-19` references `envelop_balances.consumed` — that table no longer exists.

@@ -44,16 +44,12 @@ export function shiftForFormat(absolute: Date): Date {
     //   localFields = absolute - userOffsetMin minutes
     //   appTz wall-clock = absolute + APP_TZ_OFFSET_MIN minutes (in UTC field space)
     // So we need to shift by (APP_TZ_OFFSET_MIN + userOffsetMin) minutes.
-    return new Date(
-        absolute.getTime() + (APP_TZ_OFFSET_MIN + userOffsetMin) * 60_000
-    );
+    return new Date(absolute.getTime() + (APP_TZ_OFFSET_MIN + userOffsetMin) * 60_000);
 }
 
 export function startOfMonth(date: Date = new Date()): Date {
     const p = projectToAppTz(date);
-    const start = new Date(
-        Date.UTC(p.getUTCFullYear(), p.getUTCMonth(), 1, 0, 0, 0, 0)
-    );
+    const start = new Date(Date.UTC(p.getUTCFullYear(), p.getUTCMonth(), 1, 0, 0, 0, 0));
     return unprojectFromAppTz(start);
 }
 
@@ -61,9 +57,7 @@ export function endOfMonth(date: Date = new Date()): Date {
     // Return the start of the next month (exclusive end), matching
     // existing call-site semantics.
     const p = projectToAppTz(date);
-    const start = new Date(
-        Date.UTC(p.getUTCFullYear(), p.getUTCMonth() + 1, 1, 0, 0, 0, 0)
-    );
+    const start = new Date(Date.UTC(p.getUTCFullYear(), p.getUTCMonth() + 1, 1, 0, 0, 0, 0));
     return unprojectFromAppTz(start);
 }
 
@@ -99,6 +93,80 @@ export function addMonths(date: Date, months: number): Date {
     return unprojectFromAppTz(shifted);
 }
 
+/**
+ * Like `addMonths`, but clamps day-of-month to the last day of the target
+ * month rather than letting JS overflow into the next month. e.g.
+ * `addMonthsClamped(Jan 31, +1)` → Feb 28/29 (not Mar 3). Use this for
+ * UI date pickers where users expect the "same day next month" mental
+ * model; use plain `addMonths` for analytics windows where overflow is
+ * fine (since the inputs are usually month-aligned).
+ */
+export function addMonthsClamped(date: Date, months: number): Date {
+    const p = projectToAppTz(date);
+    const y = p.getUTCFullYear();
+    const m = p.getUTCMonth() + months;
+    const day = p.getUTCDate();
+    // Day 0 of next month = last day of target month.
+    const lastDayOfTarget = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const clampedDay = Math.min(day, lastDayOfTarget);
+    const shifted = new Date(
+        Date.UTC(
+            y,
+            m,
+            clampedDay,
+            p.getUTCHours(),
+            p.getUTCMinutes(),
+            p.getUTCSeconds(),
+            p.getUTCMilliseconds()
+        )
+    );
+    return unprojectFromAppTz(shifted);
+}
+
+/* ─── APP_TZ field accessors ──────────────────────────────────────────
+ *
+ * Use these instead of native `Date.getHours()` etc. when reading the
+ * wall-clock of an absolute moment as APP_TIMEZONE expects it. Native
+ * getters use the browser's local tz — invisible bug for users in
+ * Dhaka, but for any user in a different tz the picker would display
+ * (and commit) times that drift by their local offset. */
+
+export function getAppTzYear(date: Date): number {
+    return projectToAppTz(date).getUTCFullYear();
+}
+export function getAppTzMonth(date: Date): number {
+    return projectToAppTz(date).getUTCMonth();
+}
+export function getAppTzDate(date: Date): number {
+    return projectToAppTz(date).getUTCDate();
+}
+export function getAppTzDay(date: Date): number {
+    return projectToAppTz(date).getUTCDay();
+}
+export function getAppTzHours(date: Date): number {
+    return projectToAppTz(date).getUTCHours();
+}
+export function getAppTzMinutes(date: Date): number {
+    return projectToAppTz(date).getUTCMinutes();
+}
+
+/**
+ * Build an absolute Date from APP_TIMEZONE wall-clock fields. Mirror of
+ * `new Date(y, m, d, h, mi)` but for APP_TZ — the native constructor
+ * uses the browser's local tz and so is wrong for the picker.
+ */
+export function makeAppTzDate(
+    year: number,
+    month: number,
+    day: number,
+    hours = 0,
+    minutes = 0,
+    seconds = 0,
+    ms = 0
+): Date {
+    return unprojectFromAppTz(new Date(Date.UTC(year, month, day, hours, minutes, seconds, ms)));
+}
+
 export function startOfDay(date: Date = new Date()): Date {
     const p = projectToAppTz(date);
     const start = new Date(
@@ -110,15 +178,7 @@ export function startOfDay(date: Date = new Date()): Date {
 export function endOfDay(date: Date = new Date()): Date {
     const p = projectToAppTz(date);
     const end = new Date(
-        Date.UTC(
-            p.getUTCFullYear(),
-            p.getUTCMonth(),
-            p.getUTCDate(),
-            23,
-            59,
-            59,
-            999
-        )
+        Date.UTC(p.getUTCFullYear(), p.getUTCMonth(), p.getUTCDate(), 23, 59, 59, 999)
     );
     return unprojectFromAppTz(end);
 }
@@ -152,9 +212,7 @@ export function startOfIsoWeek(date: Date = new Date()): Date {
 export function startOfQuarter(date: Date = new Date()): Date {
     const p = projectToAppTz(date);
     const quarterMonth = Math.floor(p.getUTCMonth() / 3) * 3;
-    const start = new Date(
-        Date.UTC(p.getUTCFullYear(), quarterMonth, 1, 0, 0, 0, 0)
-    );
+    const start = new Date(Date.UTC(p.getUTCFullYear(), quarterMonth, 1, 0, 0, 0, 0));
     return unprojectFromAppTz(start);
 }
 
@@ -230,9 +288,7 @@ export function fromInputDateTime(v: string): Date {
 export function fromInputDate(v: string): Date | null {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
     if (!m) return null;
-    const projected = new Date(
-        Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0)
-    );
+    const projected = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0));
     return unprojectFromAppTz(projected);
 }
 

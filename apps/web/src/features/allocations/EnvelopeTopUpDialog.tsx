@@ -204,8 +204,8 @@ export function EnvelopeTopUpDialog({
                             }}
                         >
                             {remaining < 0
-                                ? `$${overBy.toFixed(2)} over`
-                                : `$${remaining.toFixed(2)} left`}
+                                ? `${overBy.toFixed(2)} over`
+                                : `${remaining.toFixed(2)} left`}
                         </span>
                     )}
                 </div>
@@ -254,7 +254,7 @@ export function EnvelopeTopUpDialog({
                                                     {c.name}
                                                 </span>
                                                 <span className="etu-opt-meta tabular">
-                                                    ${c.remaining.toFixed(2)}{" "}
+                                                    {c.remaining.toFixed(2)}{" "}
                                                     left
                                                 </span>
                                             </span>
@@ -302,7 +302,7 @@ export function EnvelopeTopUpDialog({
                                     {transferMutation.isPending
                                         ? "Pulling…"
                                         : pullAmountNum > 0
-                                          ? `Pull $${pullAmountNum.toFixed(2)}`
+                                          ? `Pull ${pullAmountNum.toFixed(2)}`
                                           : "Pull"}
                                 </Button>
                             </div>
@@ -316,10 +316,10 @@ export function EnvelopeTopUpDialog({
                                     }}
                                 >
                                     {pullOver
-                                        ? `Exceeds source's remaining ($${sourceMax.toFixed(
+                                        ? `Exceeds source's remaining (${sourceMax.toFixed(
                                               2
                                           )}).`
-                                        : `Max: $${sourceMax.toFixed(2)}`}
+                                        : `Max: ${sourceMax.toFixed(2)}`}
                                 </p>
                             )}
                         </div>
@@ -369,7 +369,7 @@ export function EnvelopeTopUpDialog({
                                     {borrowMutation.isPending
                                         ? "Borrowing…"
                                         : borrowAmountNum > 0
-                                          ? `Borrow $${borrowAmountNum.toFixed(2)}`
+                                          ? `Borrow ${borrowAmountNum.toFixed(2)}`
                                           : "Borrow"}
                                 </Button>
                             </div>

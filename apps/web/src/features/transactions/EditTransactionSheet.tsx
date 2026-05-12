@@ -1,6 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-    Pencil,
     ArrowDown,
     ArrowUp,
     ArrowLeftRight,
@@ -8,27 +7,22 @@ import {
     Calendar,
     Wallet,
     Check,
+    Layers,
+    ChevronDown,
+    ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { OrbitDrawerShell, OrbitField } from "@/components/orbit/OrbitModalShell";
 import {
     OrbitAmountCard,
-    OrbitFieldRow,
     OrbitFormStyles,
     OrbitInfoPill,
     OrbitInput,
     OrbitSelect,
     OrbitTextarea,
-    OrbitToggle,
     type OrbitSelectItem,
 } from "@/components/orbit/OrbitForm";
-import {
-    Sheet,
-    SheetContent,
-    SheetTitle,
-    SheetTrigger,
-} from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { trpc } from "@/trpc";
@@ -36,6 +30,8 @@ import { useInvalidateAnalytics } from "@/lib/invalidate";
 import type { RouterOutput } from "@/trpc";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 import { getIcon } from "@/lib/entityIcons";
+import { NT_STYLES } from "./NewTransactionSheet";
+import { TransactionDatePicker, TDP_POPOVER_STYLES } from "./TransactionDatePicker";
 
 type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
 const ownedByMe = (a: SpaceAccount) => a.myRole === "owner";
@@ -84,19 +80,23 @@ export interface EditableTransaction {
     location: string | null;
     transaction_datetime: Date | string;
     expense_category_id: string | null;
+    envelop_id: string | null;
     event_id: string | null;
     /**
-     * Transfer fee columns. Both null on non-transfer rows and on
-     * transfers without a fee. Both populated when the transfer
-     * carries a fee.
+     * Set on the linked-expense row that mirrors a transfer's fee.
+     * `null` on regular rows. Transfers themselves never carry this.
      */
-    fee_amount?: string | number | null;
-    fee_expense_category_id?: string | null;
+    parent_transfer_id?: string | null;
 }
 
 const EDIT_META: Record<
     TxType,
-    { title: string; color: string; icon: typeof ArrowDown; tone: "fg" | "income" | "brand" | "gold" }
+    {
+        title: string;
+        color: string;
+        icon: typeof ArrowDown;
+        tone: "fg" | "income" | "brand" | "gold";
+    }
 > = {
     expense: {
         title: "Edit expense",
@@ -124,27 +124,34 @@ const EDIT_META: Record<
     },
 };
 
+/**
+ * Edit sheet for a transaction. Always controlled by a parent that owns
+ * the open/closed state — there is no internal trigger button anymore.
+ * Mount this once at page level and pass `transaction` when the user
+ * asks to edit something; pass `null`/unmount to dismiss.
+ */
 export function EditTransactionSheet({
     transaction,
+    open,
+    onClose,
 }: {
     transaction: EditableTransaction;
+    open: boolean;
+    onClose: () => void;
 }) {
-    const [open, setOpen] = useState(false);
     const type = transaction.type as unknown as TxType;
     const meta = EDIT_META[type];
     const LeadIcon = meta.icon;
+    /* Lifted from EditForm so the footer Save button can reflect the
+       mutation's pending state (disable + spinner + "Saving…" label).
+       Without this, the button looks unresponsive on click — and worse,
+       double-clicks could fire two updates. Matches NewTransactionSheet
+       pattern. */
+    const [isSaving, setIsSaving] = useState(false);
 
     return (
-        <Sheet open={open} onOpenChange={setOpen}>
-            <SheetTrigger asChild>
-                <Button size="icon" variant="ghost" className="size-7">
-                    <Pencil className="size-3.5" />
-                </Button>
-            </SheetTrigger>
-            <SheetContent
-                side="right"
-                className="orbit-shell-host !p-0 sm:max-w-[520px]"
-            >
+        <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+            <SheetContent side="right" className="orbit-shell-host !p-0 sm:max-w-[520px]">
                 <SheetTitle className="sr-only">{meta.title}</SheetTitle>
                 <OrbitDrawerShell
                     eyebrow="Edit transaction"
@@ -152,13 +159,14 @@ export function EditTransactionSheet({
                     subtitle="Balances and envelope usage will recompute automatically."
                     leadIcon={<LeadIcon className="size-4" />}
                     leadColor={meta.color}
-                    onClose={() => setOpen(false)}
+                    onClose={onClose}
                     footer={
                         <>
                             <button
                                 type="button"
                                 className="nt-btn"
-                                onClick={() => setOpen(false)}
+                                onClick={onClose}
+                                disabled={isSaving}
                             >
                                 Cancel
                             </button>
@@ -166,18 +174,26 @@ export function EditTransactionSheet({
                                 type="submit"
                                 form="edit-tx-form"
                                 className="nt-btn nt-btn-primary"
+                                disabled={isSaving}
                             >
-                                <Check className="size-3.5" />
-                                Save changes
+                                {isSaving ? (
+                                    <span className="nt-spinner" aria-hidden />
+                                ) : (
+                                    <Check className="size-3.5" />
+                                )}
+                                {isSaving ? "Saving…" : "Save changes"}
                             </button>
                         </>
                     }
                 >
                     <OrbitFormStyles />
+                    <style>{NT_STYLES}</style>
+                    <style>{TDP_POPOVER_STYLES}</style>
                     <EditForm
                         key={transaction.id}
                         transaction={transaction}
-                        onDone={() => setOpen(false)}
+                        onDone={onClose}
+                        onPendingChange={setIsSaving}
                     />
                 </OrbitDrawerShell>
             </SheetContent>
@@ -188,14 +204,17 @@ export function EditTransactionSheet({
 function EditForm({
     transaction,
     onDone,
+    onPendingChange,
 }: {
     transaction: EditableTransaction;
     onDone: () => void;
+    onPendingChange: (pending: boolean) => void;
 }) {
     const spaceId = transaction.space_id;
     const type = transaction.type as unknown as TxType;
     const meta = EDIT_META[type];
     const invalidate = useInvalidateAnalytics();
+    const isFeeExpense = type === "expense" && transaction.parent_transfer_id != null;
 
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const categoriesQuery = trpc.expenseCategory.listBySpace.useQuery({ spaceId });
@@ -208,24 +227,26 @@ function EditForm({
     const [datetime, setDatetime] = useState(initialDatetime);
     const [description, setDescription] = useState(transaction.description ?? "");
     const [location, setLocation] = useState(transaction.location ?? "");
-    const [sourceAccountId, setSource] = useState(
-        transaction.source_account_id ?? ""
-    );
-    const [destinationAccountId, setDest] = useState(
-        transaction.destination_account_id ?? ""
-    );
+    const [sourceAccountId, setSource] = useState(transaction.source_account_id ?? "");
+    const [destinationAccountId, setDest] = useState(transaction.destination_account_id ?? "");
     const [categoryId, setCategoryId] = useState<string | null>(
         transaction.expense_category_id ?? null
     );
+    const [envelopeId, setEnvelopeId] = useState<string>(transaction.envelop_id ?? "");
+    const [envelopePickerOpen, setEnvelopePickerOpen] = useState(false);
     const [eventId, setEventId] = useState(transaction.event_id ?? "");
 
-    const initialFeeAmount =
-        transaction.fee_amount != null ? String(transaction.fee_amount) : "";
-    const [feeEnabled, setFeeEnabled] = useState(transaction.fee_amount != null);
-    const [feeAmount, setFeeAmount] = useState(initialFeeAmount);
-    const [feeCategoryId, setFeeCategoryId] = useState<string | null>(
-        transaction.fee_expense_category_id ?? null
-    );
+    // Optional-field disclosure mirrors the new-tx form. Auto-opens if
+    // any optional field already has content so the user never loses
+    // visibility into data they entered earlier.
+    const optionalFieldsHaveContent =
+        location.trim().length > 0 ||
+        (eventId !== "" && eventId !== "__none") ||
+        description.trim().length > 0;
+    const [showMore, setShowMore] = useState<boolean>(optionalFieldsHaveContent);
+    useEffect(() => {
+        if (optionalFieldsHaveContent && !showMore) setShowMore(true);
+    }, [optionalFieldsHaveContent, showMore]);
 
     const allItems = useMemo(
         () => (accountsQuery.data ?? []).map(toAccountItem),
@@ -240,17 +261,14 @@ function EditForm({
         [accountsQuery.data]
     );
     const destItems = useMemo(
-        () =>
-            (accountsQuery.data ?? [])
-                .filter((a) => a.id !== sourceAccountId)
-                .map(toAccountItem),
+        () => (accountsQuery.data ?? []).filter((a) => a.id !== sourceAccountId).map(toAccountItem),
         [accountsQuery.data, sourceAccountId]
     );
 
     // For edit flows: hide categories whose envelope is archived from the
     // dropdown to discourage NEW selections of them — but always preserve
-    // the currently selected category (and the fee one) so the user can
-    // save the transaction without rewriting an existing assignment.
+    // the currently selected category so the user can save without
+    // rewriting an existing assignment.
     const categoriesForEdit = useMemo(() => {
         const cats = categoriesQuery.data ?? [];
         const envs = envelopesQuery.data ?? [];
@@ -258,11 +276,23 @@ function EditForm({
         if (archived.size === 0) return cats;
         const keep = new Set<string>();
         if (categoryId) keep.add(categoryId);
-        if (feeCategoryId) keep.add(feeCategoryId);
-        return cats.filter(
-            (c) => !archived.has(c.envelop_id) || keep.has(c.id)
-        );
-    }, [categoriesQuery.data, envelopesQuery.data, categoryId, feeCategoryId]);
+        return cats.filter((c) => !archived.has(c.default_envelop_id) || keep.has(c.id));
+    }, [categoriesQuery.data, envelopesQuery.data, categoryId]);
+
+    const selectedCategory = useMemo(
+        () => (categoryId ? (categoriesQuery.data ?? []).find((c) => c.id === categoryId) : null),
+        [categoriesQuery.data, categoryId]
+    );
+    const categoryDefaultEnvelopId = selectedCategory?.default_envelop_id ?? null;
+    const envelopeOverridden =
+        categoryDefaultEnvelopId !== null &&
+        envelopeId !== "" &&
+        envelopeId !== categoryDefaultEnvelopId;
+
+    const selectedEnvelope = useMemo(
+        () => (envelopeId ? (envelopesQuery.data ?? []).find((e) => e.id === envelopeId) : null),
+        [envelopeId, envelopesQuery.data]
+    );
 
     const eventItems: OrbitSelectItem[] = useMemo(() => {
         const evs = eventsQuery.data ?? [];
@@ -271,10 +301,7 @@ function EditForm({
            an old transaction can see what it's tied to. */
         const active = evs.filter((ev) => ev.status === "active");
         const linkedClosed = transaction.event_id
-            ? evs.find(
-                  (ev) =>
-                      ev.id === transaction.event_id && ev.status === "closed"
-              )
+            ? evs.find((ev) => ev.id === transaction.event_id && ev.status === "closed")
             : null;
         const visible = linkedClosed ? [...active, linkedClosed] : active;
         return [
@@ -288,6 +315,22 @@ function EditForm({
         ];
     }, [eventsQuery.data, transaction.event_id]);
 
+    const envelopeItems: OrbitSelectItem[] = useMemo(
+        () =>
+            (envelopesQuery.data ?? [])
+                // Allow the currently selected envelope through even if
+                // archived — otherwise the picker would silently strip
+                // the existing assignment on open.
+                .filter((e) => !e.archived || e.id === envelopeId)
+                .map((e) => ({
+                    value: e.id,
+                    label: e.name,
+                    leadIcon: <Layers className="size-3.5" />,
+                    leadColor: e.color || "var(--ent-2)",
+                })),
+        [envelopesQuery.data, envelopeId]
+    );
+
     const mutate = trpc.transaction.update.useMutation({
         onSuccess: async () => {
             toast.success("Transaction updated");
@@ -296,6 +339,9 @@ function EditForm({
         },
         onError: (e) => toast.error(e.message),
     });
+    useEffect(() => {
+        onPendingChange(mutate.isPending);
+    }, [mutate.isPending, onPendingChange]);
 
     const submit = (e: FormEvent) => {
         e.preventDefault();
@@ -308,11 +354,14 @@ function EditForm({
             toast.error("Pick an account and category");
             return;
         }
+        if (type === "expense" && !envelopeId) {
+            toast.error("Pick an envelope");
+            return;
+        }
         if (type === "income" && !destinationAccountId) {
             toast.error("Pick a destination account");
             return;
         }
-        const feeNum = feeEnabled ? Number(feeAmount) : 0;
         if (type === "transfer") {
             if (!sourceAccountId || !destinationAccountId) {
                 toast.error("Pick both accounts");
@@ -322,66 +371,51 @@ function EditForm({
                 toast.error("Source and destination must differ");
                 return;
             }
-            if (feeEnabled) {
-                if (!(feeNum > 0)) {
-                    toast.error("Fee must be greater than 0");
-                    return;
-                }
-                if (!feeCategoryId) {
-                    toast.error("Pick a category for the fee");
-                    return;
-                }
-            }
         }
+        const envelopeChanged =
+            type === "expense" &&
+            envelopeId !== "" &&
+            envelopeId !== (transaction.envelop_id ?? "");
+        // For fee-expense rows we don't allow editing source_account from
+        // here — keep server payload consistent with the parent transfer
+        // by sending undefined (no change) rather than the form value.
+        const sendSource =
+            type === "income" || type === "adjustment"
+                ? undefined
+                : isFeeExpense
+                  ? undefined
+                  : sourceAccountId || null;
         mutate.mutate({
             transactionId: transaction.id,
             amount: parsed,
             datetime: fromInputDateTime(datetime),
             description: description.trim() === "" ? null : description.trim(),
             location: location.trim() === "" ? null : location.trim(),
-            sourceAccountId:
-                type === "income" || type === "adjustment"
-                    ? undefined
-                    : sourceAccountId || null,
+            sourceAccountId: sendSource,
             destinationAccountId:
                 type === "expense" || type === "adjustment"
                     ? undefined
                     : destinationAccountId || null,
             expenseCategoryId: type === "expense" ? categoryId : undefined,
-            eventId:
-                type === "adjustment" ? undefined : eventId === "" ? null : eventId,
-            feeAmount:
-                type === "transfer"
-                    ? feeEnabled
-                        ? feeNum
-                        : null
-                    : undefined,
-            feeExpenseCategoryId:
-                type === "transfer"
-                    ? feeEnabled
-                        ? feeCategoryId
-                        : null
-                    : undefined,
+            envelopId: envelopeChanged ? envelopeId : undefined,
+            eventId: type === "adjustment" ? undefined : eventId === "" ? null : eventId,
         });
     };
 
     return (
         <form id="edit-tx-form" className="nt-form" onSubmit={submit}>
-            <OrbitAmountCard
-                value={amount}
-                onChange={setAmount}
-                tone={meta.tone}
-                autoFocus
-            />
+            {isFeeExpense && (
+                <OrbitInfoPill tone="transfer">
+                    This is a transfer fee. Edit the parent transfer to change the fee's amount or
+                    source account.
+                </OrbitInfoPill>
+            )}
+
+            <OrbitAmountCard value={amount} onChange={setAmount} tone={meta.tone} autoFocus />
 
             {type !== "adjustment" && (
                 <OrbitField label="Date">
-                    <OrbitInput
-                        type="datetime-local"
-                        value={datetime}
-                        onChange={(e) => setDatetime(e.target.value)}
-                        leadIcon={<Calendar className="size-3.5" />}
-                    />
+                    <TransactionDatePicker value={datetime} onChange={setDatetime} />
                 </OrbitField>
             )}
 
@@ -400,7 +434,15 @@ function EditForm({
 
             {type === "expense" && (
                 <>
-                    <OrbitField label="From account" required>
+                    <OrbitField
+                        label="From account"
+                        required
+                        hint={
+                            isFeeExpense
+                                ? "Locked — fees share the parent transfer's source"
+                                : undefined
+                        }
+                    >
                         <OrbitSelect
                             value={sourceAccountId}
                             onValueChange={setSource}
@@ -408,13 +450,10 @@ function EditForm({
                             placeholder="Choose account"
                             leadIcon={<Wallet className="size-3.5" />}
                             leadColor="var(--ent-1)"
+                            disabled={isFeeExpense}
                         />
                     </OrbitField>
-                    <OrbitField
-                        label="Category"
-                        hint="Envelope is inferred from the category"
-                        required
-                    >
+                    <OrbitField label="Category" hint="Tag for what the spend was" required>
                         <CategoryTreeSelect
                             categories={categoriesForEdit as any}
                             value={categoryId}
@@ -423,6 +462,56 @@ function EditForm({
                             allowAll={false}
                         />
                     </OrbitField>
+
+                    {categoryId &&
+                        (envelopePickerOpen ? (
+                            <div className="of-inline-picker-row">
+                                <OrbitSelect
+                                    value={envelopeId}
+                                    onValueChange={(v) => {
+                                        setEnvelopeId(v);
+                                        setEnvelopePickerOpen(false);
+                                    }}
+                                    items={envelopeItems}
+                                    placeholder="Choose envelope"
+                                    leadIcon={<Layers className="size-3.5" />}
+                                    leadColor="var(--ent-2)"
+                                />
+                                <button
+                                    type="button"
+                                    className="of-chip-btn"
+                                    onClick={() => setEnvelopePickerOpen(false)}
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="of-chip-row">
+                                <div className="of-chip-row-content">
+                                    <span className="of-chip-eyebrow">Envelope</span>
+                                    <span
+                                        className="of-chip-dot"
+                                        style={{
+                                            backgroundColor:
+                                                selectedEnvelope?.color || "var(--ent-2)",
+                                        }}
+                                    />
+                                    <span className="of-chip-name">
+                                        {selectedEnvelope?.name ?? "—"}
+                                    </span>
+                                    <span className="of-chip-meta">
+                                        · {envelopeOverridden ? "overridden" : "category default"}
+                                    </span>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="of-chip-btn"
+                                    onClick={() => setEnvelopePickerOpen(true)}
+                                >
+                                    Change
+                                </button>
+                            </div>
+                        ))}
                 </>
             )}
 
@@ -453,97 +542,96 @@ function EditForm({
                             leadColor="var(--ent-3)"
                         />
                     </OrbitField>
-
-                    <OrbitToggle
-                        checked={feeEnabled}
-                        onChange={setFeeEnabled}
-                        label="There's a fee on this transfer"
-                        hint="Deducted from source on top of the amount; logged as a regular expense."
-                    />
-
-                    {feeEnabled && (
-                        <OrbitFieldRow>
-                            <OrbitField label="Fee amount" hint="Charged by source">
-                                <OrbitInput
-                                    type="number"
-                                    inputMode="decimal"
-                                    min="0"
-                                    step="0.01"
-                                    value={feeAmount}
-                                    onChange={(e) => setFeeAmount(e.target.value)}
-                                    placeholder="0.00"
-                                    prefix="$"
-                                />
-                            </OrbitField>
-                            <OrbitField
-                                label="Fee category"
-                                hint="Where the fee is logged"
-                            >
-                                <CategoryTreeSelect
-                                    categories={categoriesForEdit as any}
-                                    value={feeCategoryId}
-                                    onChange={setFeeCategoryId}
-                                    placeholder="Pick category"
-                                    allowAll={false}
-                                />
-                            </OrbitField>
-                        </OrbitFieldRow>
-                    )}
                 </>
-            )}
-
-            {(type === "expense" || type === "income") && (
-                <OrbitField label="Location" hint="Optional">
-                    <OrbitInput
-                        value={location}
-                        onChange={(e) => setLocation(e.target.value)}
-                        placeholder="Where did this happen?"
-                    />
-                </OrbitField>
-            )}
-
-            <OrbitField label="Description" hint="Optional">
-                <OrbitTextarea
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Optional note"
-                    rows={2}
-                />
-            </OrbitField>
-
-            {type !== "adjustment" && (eventsQuery.data?.length ?? 0) > 0 && (
-                <OrbitField label="Link to event" hint="Optional">
-                    <OrbitSelect
-                        value={eventId || "__none"}
-                        onValueChange={(v) => setEventId(v === "__none" ? "" : v)}
-                        items={eventItems}
-                        placeholder="No event"
-                    />
-                </OrbitField>
             )}
 
             {type === "adjustment" && (
                 <OrbitField label="Date">
-                    <OrbitInput
-                        type="datetime-local"
-                        value={datetime}
-                        onChange={(e) => setDatetime(e.target.value)}
-                        leadIcon={<Calendar className="size-3.5" />}
+                    <TransactionDatePicker value={datetime} onChange={setDatetime} />
+                </OrbitField>
+            )}
+
+            {/* Optional fields collapsed behind a disclosure to match the
+                new-transaction form. Auto-opens (above) when any of the
+                wrapped fields already has content. Adjustments have no
+                optional fields available, so the disclosure is hidden. */}
+            {type !== "adjustment" && (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => setShowMore((v) => !v)}
+                        className="of-disclosure-toggle"
+                    >
+                        <span>
+                            {showMore
+                                ? "Hide notes, location, event"
+                                : "Add notes, location, or event"}
+                        </span>
+                        {showMore ? (
+                            <ChevronUp className="size-4" />
+                        ) : (
+                            <ChevronDown className="size-4" />
+                        )}
+                    </button>
+
+                    {showMore && (
+                        <>
+                            {(type === "expense" || type === "income") && (
+                                <OrbitField label="Location" hint="Optional">
+                                    <OrbitInput
+                                        value={location}
+                                        onChange={(e) => setLocation(e.target.value)}
+                                        placeholder="Where did this happen?"
+                                    />
+                                </OrbitField>
+                            )}
+
+                            <OrbitField label="Description" hint="Optional">
+                                <OrbitTextarea
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    placeholder="Optional note"
+                                    rows={2}
+                                />
+                            </OrbitField>
+
+                            {(eventsQuery.data?.length ?? 0) > 0 && (
+                                <OrbitField label="Link to event" hint="Optional">
+                                    <OrbitSelect
+                                        value={eventId || "__none"}
+                                        onValueChange={(v) => setEventId(v === "__none" ? "" : v)}
+                                        items={eventItems}
+                                        placeholder="No event"
+                                    />
+                                </OrbitField>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+
+            {type === "adjustment" && (
+                <OrbitField label="Description" hint="Optional">
+                    <OrbitTextarea
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Optional note"
+                        rows={2}
                     />
                 </OrbitField>
             )}
 
             {type === "transfer" && (
                 <OrbitInfoPill tone="transfer">
-                    Transfers don't show up in income/expense totals. They're recorded
-                    as a paired (out, in) ledger entry.
+                    Transfers don't show up in income/expense totals. They're recorded as a paired
+                    (out, in) ledger entry.
                 </OrbitInfoPill>
             )}
 
             {type === "adjustment" && (
                 <OrbitInfoPill tone="gold">
-                    Adjustments don't appear in income or expense totals — they
-                    correct your account balance only.
+                    Adjustments don't appear in income or expense totals — they correct your account
+                    balance only.
                 </OrbitInfoPill>
             )}
         </form>

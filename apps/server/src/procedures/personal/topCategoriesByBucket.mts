@@ -72,19 +72,6 @@ export const personalTopCategoriesByBucket = authorizedProcedure
                           AND expense_category_id IS NOT NULL
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        SELECT
-                            date_trunc(${input.bucket}, transaction_datetime) AS bucket,
-                            fee_expense_category_id,
-                            fee_amount
-                        FROM transactions
-                        WHERE type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND space_id = ANY(${memberSpaces})
-                          AND source_account_id = ANY(${owned})
-                          AND fee_expense_category_id IS NOT NULL
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
                     ),
                     rolled AS (
                         SELECT bucket, category_id, SUM(amount) AS total

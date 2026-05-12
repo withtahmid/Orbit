@@ -38,7 +38,7 @@ export const personalCategoryBreakdown = authorizedProcedure
                     name: string;
                     color: string;
                     icon: string;
-                    envelop_id: string;
+                    default_envelop_id: string;
                     space_id: string;
                     space_name: string;
                     direct_total: string;
@@ -63,18 +63,6 @@ export const personalCategoryBreakdown = authorizedProcedure
                           AND source_account_id = ANY(${owned})
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        -- Transfer fees out of owned accounts roll up
-                        -- into the category tree just like a regular
-                        -- personal expense.
-                        SELECT fee_expense_category_id AS id, fee_amount AS amount
-                        FROM transactions
-                        WHERE space_id = ANY(${memberSpaces})
-                          AND type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND source_account_id = ANY(${owned})
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
                     ),
                     spends AS (
                         SELECT id, SUM(amount) AS total
@@ -87,7 +75,7 @@ export const personalCategoryBreakdown = authorizedProcedure
                         ec.name,
                         ec.color,
                         ec.icon,
-                        ec.envelop_id::text,
+                        ec.default_envelop_id::text,
                         ec.space_id::text,
                         s.name AS space_name,
                         COALESCE(sp.total, 0)::text AS direct_total,
@@ -110,7 +98,7 @@ export const personalCategoryBreakdown = authorizedProcedure
                     name: r.name,
                     color: r.color,
                     icon: r.icon,
-                    envelopId: r.envelop_id,
+                    envelopId: r.default_envelop_id,
                     spaceId: r.space_id,
                     spaceName: r.space_name,
                     directTotal: Number(r.direct_total),

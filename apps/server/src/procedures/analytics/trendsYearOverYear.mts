@@ -89,12 +89,6 @@ export const trendsYearOverYear = authorizedProcedure
                                     AND t.destination_account_id NOT IN (SELECT account_id FROM scope_accounts) THEN t.amount
                                 ELSE 0
                             END
-                            + CASE
-                                WHEN t.type = 'transfer'
-                                    AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                                    AND t.fee_amount IS NOT NULL THEN t.fee_amount
-                                ELSE 0
-                            END
                         )::text AS expense
                     FROM transactions t
                     WHERE t.transaction_datetime >= (SELECT y0::timestamptz FROM bounds)

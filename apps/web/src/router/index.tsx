@@ -16,6 +16,7 @@ import { LoginPage } from "@/pages/auth/LoginPage";
 const SignupPage = lazy(() => import("@/pages/auth/signup/index"));
 const ForgotPasswordPage = lazy(() => import("@/pages/auth/forgot-password/index"));
 const DocsPage = lazy(() => import("@/pages/DocsPage"));
+const AcceptInvitePage = lazy(() => import("@/pages/AcceptInvitePage"));
 
 const SpaceSelectorPage = lazy(() => import("@/pages/app/SpaceSelectorPage"));
 const ProfilePage = lazy(() => import("@/pages/app/ProfilePage"));
@@ -86,6 +87,11 @@ export const router = createBrowserRouter([
             // about the product before signing up; logged-in users can
             // reach it from the app-shell help link.
             { path: "/docs", element: withSuspense(<DocsPage />) },
+            // Invite acceptance is public so the page can render space
+            // metadata before the user signs in. The page itself
+            // bounces unauthenticated visitors to /login?from=… and
+            // calls the auth-only accept mutation once signed in.
+            { path: "/invite/:token", element: withSuspense(<AcceptInvitePage />) },
             {
                 element: <GuestOnlyRoute />,
                 children: [

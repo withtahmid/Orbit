@@ -64,7 +64,8 @@ Generated types: `Events` at `db/kysely/types.mts:98`, `EventAttachments` at `db
 - Status is per-event-only; closed events still appear in analytics, lists, and historical transaction filters (per the comment block at `038:6`). Don't filter them out unconditionally on the server.
 - Delete is a hard delete. There is no soft-delete; if you need "history without the row" use `setStatus: closed` instead.
 - `updateEvent` only adds attachments; it does not remove them. A separate detach path (not in this module) is needed if you ever build "remove receipt" UI.
-- `resolveEventBelongsToSpace` (`procedures/event/utils/resolveEventBelongsToSpace.mts:5`) is used by the transaction module to verify the `eventId` foreign-key target lives in the right space — keep it side-effect-free.
+- `resolveEventBelongsToSpace` (`procedures/event/utils/resolveEventBelongsToSpace.mts:5`) is used by the transaction module to verify the `eventId` foreign-key target lives in the right space — keep it side-effect-free. It also takes an opt-in `requireActive?: boolean` flag that rejects non-`active` events; the four creation paths set this, `update.mts` does not (so legacy rows with now-closed events stay editable).
+- Closed events are deliberately preserved in `space_pin` rows — pin lookups (`procedures/pin/listBySpace.mts:74`) JOIN-filter `events.status = 'active'` so the client reads "no pin" when the event closes, but the row itself is kept for the audit history. See the pin module doc.
 
 ## Cross-references
 

@@ -27,6 +27,8 @@ export const ENV = configEnv(process.env, {
     R2_SECRET_ACCESS_KEY: e.string().default(""),
     R2_BUCKET: e.string().default(""),
     R2_PUBLIC_URL_BASE: e.string().optional(),
+    /** Public web origin used to build links in outbound emails (invites etc.). */
+    WEB_URL: e.string().default("http://localhost:5173"),
 });
 
 /**

@@ -109,12 +109,6 @@ export const cashFlow = authorizedProcedure
                                         AND source_account_id IN (SELECT account_id FROM scope_accounts) THEN amount
                                     ELSE 0
                                 END
-                                + CASE
-                                    WHEN type = 'transfer'
-                                        AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                                        AND fee_amount IS NOT NULL THEN fee_amount
-                                    ELSE 0
-                                END
                             ) AS expense
                         FROM transactions
                         WHERE transaction_datetime >= ${input.periodStart}

@@ -59,6 +59,15 @@ export class AuthStore {
         localStorage.setItem("auth_user", JSON.stringify(user));
     }
 
+    /**
+     * Replace just the token (e.g. after a password change rotates the
+     * server-side token version and invalidates the current JWT).
+     */
+    setToken(token: string) {
+        this.token = token;
+        localStorage.setItem(TOKEN_KEY, token);
+    }
+
     /** Patch the current user's avatar file id in place. */
     setAvatarFileId(fileId: string | null) {
         if (!this.user) return;

@@ -826,7 +826,6 @@ function CreateOrEditPlanDialog({
                                     value={targetAmount}
                                     onChange={(e) => setTargetAmount(e.target.value)}
                                     placeholder="80,000.00"
-                                    prefix="$"
                                 />
                             </OrbitField>
 
@@ -889,7 +888,7 @@ function CreateOrEditPlanDialog({
                                         <span className="plan-mod-forecast-foot">
                                             Reach{" "}
                                             <strong style={{ color: "var(--fg)" }}>
-                                                ${Number(targetAmount).toLocaleString()}
+                                                {Number(targetAmount).toLocaleString()}
                                             </strong>{" "}
                                             in {monthsUntilTarget} months
                                         </span>
@@ -935,7 +934,6 @@ function CreateOrEditPlanDialog({
                                     <span className="plan-mod-forecast-foot">
                                         Approx{" "}
                                         <strong style={{ color: "var(--fg)" }}>
-                                            $
                                             {monthlyContribution.toLocaleString(undefined, {
                                                 maximumFractionDigits: 0,
                                             })}

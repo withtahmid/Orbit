@@ -30,7 +30,7 @@ export const categoryBreakdown = authorizedProcedure
                     name: string;
                     color: string;
                     icon: string;
-                    envelop_id: string;
+                    default_envelop_id: string;
                     direct_total: string;
                     subtree_total: string;
                 }>`
@@ -51,16 +51,6 @@ export const categoryBreakdown = authorizedProcedure
                           AND expense_category_id IS NOT NULL
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        -- Transfer fees roll up to their category like a
-                        -- regular expense on the source account.
-                        SELECT fee_expense_category_id AS id, fee_amount AS amount
-                        FROM transactions
-                        WHERE space_id = ${input.spaceId}
-                          AND type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
                     ),
                     spends AS (
                         SELECT id, SUM(amount) AS total
@@ -73,7 +63,7 @@ export const categoryBreakdown = authorizedProcedure
                         ec.name,
                         ec.color,
                         ec.icon,
-                        ec.envelop_id::text,
+                        ec.default_envelop_id::text,
                         COALESCE(s.total, 0)::text AS direct_total,
                         COALESCE((
                             SELECT SUM(ss.total)
@@ -93,7 +83,7 @@ export const categoryBreakdown = authorizedProcedure
                     name: r.name,
                     color: r.color,
                     icon: r.icon,
-                    envelopId: r.envelop_id,
+                    envelopId: r.default_envelop_id,
                     directTotal: Number(r.direct_total),
                     subtreeTotal: Number(r.subtree_total),
                 }));

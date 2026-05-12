@@ -30,7 +30,7 @@ type Direction = "allocate" | "deallocate";
 /**
  * Envelope allocate/deallocate dialog. Account-agnostic — allocations are
  * intent (planning), so the picker for "from account" is gone. Soft
- * over-allocation is allowed; the dialog surfaces "Unbudgeted: $X" inline
+ * over-allocation is allowed; the dialog surfaces "Unbudgeted: X" inline
  * so the user can see the gap.
  */
 export function EnvelopeAllocateDialog({
@@ -176,14 +176,14 @@ export function EnvelopeAllocateDialog({
                                 {overAllocating ? (
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
                                         <AlertTriangle className="size-3" />
-                                        Planning ${overBy.toFixed(2)} more than
+                                        Planning {overBy.toFixed(2)} more than
                                         currently funded. You'll need that much
                                         more income — or reduce another envelope.
                                     </span>
                                 ) : (
                                     <>
                                         Unbudgeted available:{" "}
-                                        <strong>${unallocated.toFixed(2)}</strong>
+                                        <strong>{unallocated.toFixed(2)}</strong>
                                     </>
                                 )}
                             </p>

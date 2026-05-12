@@ -151,26 +151,13 @@ export const personalSummary = authorizedProcedure
                             -- analytics formula so OverviewPage and
                             -- EnvelopesView reconcile.
                             COALESCE((
-                                SELECT SUM(entry.amount) FROM (
-                                    SELECT t.amount
-                                    FROM transactions t
-                                    JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                    WHERE ec.envelop_id = p.envelop_id
-                                      AND t.type = 'expense'
-                                      AND t.source_account_id = ANY(${owned})
-                                      AND t.transaction_datetime >= p.p_start
-                                      AND t.transaction_datetime < p.p_end
-                                    UNION ALL
-                                    SELECT t.fee_amount AS amount
-                                    FROM transactions t
-                                    JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                    WHERE ec.envelop_id = p.envelop_id
-                                      AND t.type = 'transfer'
-                                      AND t.fee_amount IS NOT NULL
-                                      AND t.source_account_id = ANY(${owned})
-                                      AND t.transaction_datetime >= p.p_start
-                                      AND t.transaction_datetime < p.p_end
-                                ) entry
+                                SELECT SUM(t.amount)
+                                FROM transactions t
+                                WHERE t.envelop_id = p.envelop_id
+                                  AND t.type = 'expense'
+                                  AND t.source_account_id = ANY(${owned})
+                                  AND t.transaction_datetime >= p.p_start
+                                  AND t.transaction_datetime < p.p_end
                             ), 0) AS p_consumed,
                             -- Three-mode carry policy:
                             --   reset → 0; positive_only → max(0, prev_remaining);
@@ -188,26 +175,13 @@ export const personalSummary = authorizedProcedure
                                     ), 0)
                                     -
                                     COALESCE((
-                                        SELECT SUM(entry.amount) FROM (
-                                            SELECT t.amount
-                                            FROM transactions t
-                                            JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                            WHERE ec.envelop_id = p.envelop_id
-                                              AND t.type = 'expense'
-                                              AND t.source_account_id = ANY(${owned})
-                                              AND t.transaction_datetime >= p.prev_start
-                                              AND t.transaction_datetime < p.prev_end
-                                            UNION ALL
-                                            SELECT t.fee_amount AS amount
-                                            FROM transactions t
-                                            JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                            WHERE ec.envelop_id = p.envelop_id
-                                              AND t.type = 'transfer'
-                                              AND t.fee_amount IS NOT NULL
-                                              AND t.source_account_id = ANY(${owned})
-                                              AND t.transaction_datetime >= p.prev_start
-                                              AND t.transaction_datetime < p.prev_end
-                                        ) entry
+                                        SELECT SUM(t.amount)
+                                        FROM transactions t
+                                        WHERE t.envelop_id = p.envelop_id
+                                          AND t.type = 'expense'
+                                          AND t.source_account_id = ANY(${owned})
+                                          AND t.transaction_datetime >= p.prev_start
+                                          AND t.transaction_datetime < p.prev_end
                                     ), 0)
                                 )
                                 ELSE GREATEST(0, (
@@ -221,26 +195,13 @@ export const personalSummary = authorizedProcedure
                                     ), 0)
                                     -
                                     COALESCE((
-                                        SELECT SUM(entry.amount) FROM (
-                                            SELECT t.amount
-                                            FROM transactions t
-                                            JOIN expense_categories ec ON ec.id = t.expense_category_id
-                                            WHERE ec.envelop_id = p.envelop_id
-                                              AND t.type = 'expense'
-                                              AND t.source_account_id = ANY(${owned})
-                                              AND t.transaction_datetime >= p.prev_start
-                                              AND t.transaction_datetime < p.prev_end
-                                            UNION ALL
-                                            SELECT t.fee_amount AS amount
-                                            FROM transactions t
-                                            JOIN expense_categories ec ON ec.id = t.fee_expense_category_id
-                                            WHERE ec.envelop_id = p.envelop_id
-                                              AND t.type = 'transfer'
-                                              AND t.fee_amount IS NOT NULL
-                                              AND t.source_account_id = ANY(${owned})
-                                              AND t.transaction_datetime >= p.prev_start
-                                              AND t.transaction_datetime < p.prev_end
-                                        ) entry
+                                        SELECT SUM(t.amount)
+                                        FROM transactions t
+                                        WHERE t.envelop_id = p.envelop_id
+                                          AND t.type = 'expense'
+                                          AND t.source_account_id = ANY(${owned})
+                                          AND t.transaction_datetime >= p.prev_start
+                                          AND t.transaction_datetime < p.prev_end
                                     ), 0)
                                 ))
                             END AS p_carry_in
@@ -303,12 +264,6 @@ export const personalSummary = authorizedProcedure
                                 WHEN type = 'adjustment' AND source_account_id = ANY(${owned}) THEN amount
                                 ELSE 0
                             END
-                            + CASE
-                                WHEN type = 'transfer'
-                                    AND source_account_id = ANY(${owned})
-                                    AND fee_amount IS NOT NULL THEN fee_amount
-                                ELSE 0
-                            END
                         ), 0)::text AS cash_expense,
                         COALESCE(SUM(CASE
                             WHEN type = 'income' AND destination_account_id = ANY(${owned}) THEN amount
@@ -319,12 +274,6 @@ export const personalSummary = authorizedProcedure
                             CASE
                                 WHEN type = 'expense' AND source_account_id = ANY(${owned}) THEN amount
                                 WHEN type = 'adjustment' AND source_account_id = ANY(${owned}) THEN amount
-                                ELSE 0
-                            END
-                            + CASE
-                                WHEN type = 'transfer'
-                                    AND source_account_id = ANY(${owned})
-                                    AND fee_amount IS NOT NULL THEN fee_amount
                                 ELSE 0
                             END
                         ), 0)::text AS operational_expense

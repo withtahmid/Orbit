@@ -19,13 +19,15 @@ export const updateExpenseCategory = authorizedProcedure
                     .enum(["essential", "important", "discretionary", "luxury"])
                     .nullable()
                     .optional(),
+                defaultEnvelopId: z.string().uuid().optional(),
             })
             .refine(
                 (d) =>
                     d.name !== undefined ||
                     d.color !== undefined ||
                     d.icon !== undefined ||
-                    d.priority !== undefined,
+                    d.priority !== undefined ||
+                    d.defaultEnvelopId !== undefined,
                 { message: "At least one field must be provided" }
             )
     )
@@ -59,6 +61,7 @@ export const updateExpenseCategory = authorizedProcedure
                         color: input.color,
                         icon: input.icon,
                         priority: input.priority,
+                        default_envelop_id: input.defaultEnvelopId,
                         updated_at: new Date(),
                     })
                     .where("expense_categories.id", "=", input.categoryId)
@@ -66,7 +69,7 @@ export const updateExpenseCategory = authorizedProcedure
                         "id",
                         "space_id",
                         "parent_id",
-                        "envelop_id",
+                        "default_envelop_id",
                         "name",
                         "color",
                         "icon",

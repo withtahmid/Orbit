@@ -193,7 +193,7 @@ export default function AnomaliesView() {
                                         {o.categoryName ?? "Uncategorized"}
                                     </span>
                                     <span className="text-[10px] text-muted-foreground">
-                                        · avg ${o.categoryAverage.toFixed(0)}
+                                        · avg {o.categoryAverage.toFixed(0)}
                                     </span>
                                 </span>
                                 <MoneyDisplay
@@ -250,11 +250,11 @@ export default function AnomaliesView() {
                                         <span className="truncate text-[11px] text-muted-foreground">
                                             {formatInAppTz(r.lastDate, "MMM d")}
                                             {r.status === "cancelled"
-                                                ? ` · last $${r.lastAmount.toFixed(2)} → ended`
+                                                ? ` · last ${r.lastAmount.toFixed(2)} → ended`
                                                 : r.prevAmount != null
-                                                  ? ` · $${r.prevAmount.toFixed(
+                                                  ? ` · ${r.prevAmount.toFixed(
                                                         2
-                                                    )} → $${r.lastAmount.toFixed(2)}`
+                                                    )} → ${r.lastAmount.toFixed(2)}`
                                                   : ""}
                                         </span>
                                     </span>
@@ -401,13 +401,13 @@ export default function AnomaliesView() {
                             />
                             <ShapeCard
                                 label="Median day"
-                                value={`$${shape.medianDay.toFixed(0)}`}
+                                value={shape.medianDay.toFixed(0)}
                                 sub="Half of all days are below this"
                                 tone="neutral"
                             />
                             <ShapeCard
                                 label="P95 day"
-                                value={`$${shape.p95Day.toFixed(0)}`}
+                                value={shape.p95Day.toFixed(0)}
                                 sub="1-in-20 day spike"
                                 tone="warning"
                             />
@@ -453,7 +453,7 @@ function RecurringChip({
                 background: `color-mix(in oklab, var(--${tone}) 10%, transparent)`,
             }}
         >
-            {sign}${Math.abs(delta).toFixed(2)}
+            {sign}{Math.abs(delta).toFixed(2)}
         </span>
     );
 }

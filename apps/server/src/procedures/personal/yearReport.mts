@@ -102,39 +102,18 @@ export const personalYearReport = authorizedProcedure
                     consumed: string;
                 }>`
                     SELECT
-                        ec.envelop_id::text AS envelop_id,
+                        t.envelop_id::text AS envelop_id,
                         EXTRACT(MONTH FROM t.transaction_datetime)::text AS month_idx,
-                        SUM(amt)::text AS consumed
-                    FROM (
-                        SELECT
-                            t.expense_category_id AS cat_id,
-                            t.amount AS amt,
-                            t.transaction_datetime
-                        FROM transactions t
-                        WHERE t.space_id = ANY(${memberSpaces}::uuid[])
-                          AND t.type = 'expense'
-                          AND t.source_account_id = ANY(${ownedParam}::uuid[])
-                          AND t.transaction_datetime >= ${yearStart}
-                          AND t.transaction_datetime < ${yearEnd}
-                        UNION ALL
-                        SELECT
-                            t.fee_expense_category_id AS cat_id,
-                            t.fee_amount AS amt,
-                            t.transaction_datetime
-                        FROM transactions t
-                        WHERE t.space_id = ANY(${memberSpaces}::uuid[])
-                          AND t.type = 'transfer'
-                          AND t.source_account_id = ANY(${ownedParam}::uuid[])
-                          AND t.fee_amount IS NOT NULL
-                          AND t.fee_expense_category_id IS NOT NULL
-                          AND t.transaction_datetime >= ${yearStart}
-                          AND t.transaction_datetime < ${yearEnd}
-                    ) t
-                    JOIN expense_categories ec ON ec.id = t.cat_id
-                    JOIN envelops e ON e.id = ec.envelop_id
-                    WHERE e.space_id = ANY(${memberSpaces}::uuid[])
+                        SUM(t.amount)::text AS consumed
+                    FROM transactions t
+                    JOIN envelops e ON e.id = t.envelop_id
+                    WHERE t.space_id = ANY(${memberSpaces}::uuid[])
+                      AND t.type = 'expense'
+                      AND t.source_account_id = ANY(${ownedParam}::uuid[])
                       AND e.cadence = 'monthly'
-                    GROUP BY ec.envelop_id, month_idx
+                      AND t.transaction_datetime >= ${yearStart}
+                      AND t.transaction_datetime < ${yearEnd}
+                    GROUP BY t.envelop_id, EXTRACT(MONTH FROM t.transaction_datetime)
                 `
                     .execute(trx)
                     .then((r) => r.rows);

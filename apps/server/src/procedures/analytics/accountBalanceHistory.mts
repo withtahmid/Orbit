@@ -98,13 +98,6 @@ export const accountBalanceHistory = authorizedProcedure
                                         THEN -t.amount
                                     ELSE 0
                                 END
-                                + CASE
-                                    WHEN t.type = 'transfer'
-                                        AND t.source_account_id = ${input.accountId}
-                                        AND t.fee_amount IS NOT NULL
-                                        THEN -t.fee_amount
-                                    ELSE 0
-                                END
                             ) AS delta
                         FROM transactions t
                         WHERE t.source_account_id = ${input.accountId}

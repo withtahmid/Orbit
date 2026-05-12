@@ -105,11 +105,6 @@ export const personalTransactions = authorizedProcedure
 
                 const rows = await ctx.services.qb
                     .selectFrom("transactions")
-                    .leftJoin(
-                        "expense_categories",
-                        "expense_categories.id",
-                        "transactions.expense_category_id"
-                    )
                     .leftJoin("users", "users.id", "transactions.created_by")
                     .innerJoin("spaces", "spaces.id", "transactions.space_id")
                     .where("transactions.space_id", "in", spaceFilter)
@@ -146,7 +141,7 @@ export const personalTransactions = authorizedProcedure
                         qb.where("transactions.created_by", "=", input.userId!)
                     )
                     .$if(!!input.envelopId, (qb) =>
-                        qb.where("expense_categories.envelop_id", "=", input.envelopId!)
+                        qb.where("transactions.envelop_id", "=", input.envelopId!)
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where("transactions.expense_category_id", "in", categoryIds!)
@@ -221,9 +216,9 @@ export const personalTransactions = authorizedProcedure
                         "transactions.transaction_datetime",
                         "transactions.created_at",
                         "transactions.expense_category_id",
+                        "transactions.envelop_id",
                         "transactions.event_id",
-                        "transactions.fee_amount",
-                        "transactions.fee_expense_category_id",
+                        "transactions.parent_transfer_id",
                         "users.first_name as created_by_first_name",
                         "users.last_name as created_by_last_name",
                         "users.avatar_file_id as created_by_avatar_file_id",

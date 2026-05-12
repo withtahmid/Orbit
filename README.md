@@ -21,6 +21,14 @@ single coherent ledger:
   premium leaf as luxury while its siblings stay essential.
 - **Goal-based planning** — plans hold money earmarked for long-horizon targets.
 
+The transaction-entry form is the highest-traffic surface, and ships with
+two friction reducers worth calling out: a **custom date+time picker**
+with smart relative labels (Now / Today / Yesterday / Mar 5) and full
+keyboard navigation in APP-timezone math, and a **pin system** that
+remembers your usual Account, Envelope, and Event so the form
+pre-hydrates instead of starting empty — per-user for Account,
+space-wide for Envelope and Event with an owner/editor permission gate.
+
 Users in multiple shared spaces (roommates, office, family, …) also get a
 **virtual "My money" space** at `/s/me` that unions every space they're in,
 filtered to accounts they personally own — same overview / transactions /
@@ -150,13 +158,15 @@ Want a rich, screenshot-ready dataset without clicking through the UI?
 pnpm --filter backend seed
 ```
 
-Wipes every product table and populates 4 users, 3 spaces, 9 accounts,
-17 envelopes, 6 plans, ~60 categories, 6 events, and ~800 transactions
-spread across the last 6 months — with intentional drift and rebalances
-to show off the 2D allocation idea. Data is locale-neutral and
-currency-agnostic (interpret amounts as whatever unit you like). Refuses
-to run when `NODE_ENV=production`. Primary login is printed at the end:
-`alex@orbit.dev` / `password123`.
+Wipes every product table and populates 8 users, 5 spaces, 16 accounts,
+34 envelopes, 12 plans, ~150 categories, 24 events, ~4,000 transactions
+spread across ~18 months — with intentional drift and rebalances to
+show off the 2D allocation idea — plus two transaction-entry pins on
+the family space (an account pin for Alex, a space-wide envelope pin)
+so the new-transaction form's "pinned" affordance is visible out of the
+box. Data is locale-neutral and currency-agnostic (interpret amounts as
+whatever unit you like). Refuses to run when `NODE_ENV=production`.
+Primary login is printed at the end: `alex@orbit.dev` / `password123`.
 
 ### Without Docker
 

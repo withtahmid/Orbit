@@ -130,7 +130,7 @@ function PerSpaceReckoning() {
                 idempotencyKey: crypto.randomUUID(),
             });
             await refresh();
-            toast.success(`Borrowed $${item.overBy.toFixed(2)} from next month`);
+            toast.success(`Borrowed ${item.overBy.toFixed(2)} from next month`);
         } catch (e) {
             toast.error((e as Error).message);
         } finally {
@@ -178,7 +178,7 @@ function PerSpaceReckoning() {
                     <p className="rk-sub">
                         {items.length === 0
                             ? "Nothing pending — every past-month overspend has been resolved."
-                            : `${items.length} envelope${items.length === 1 ? "" : "s"} overspent across past months — total $${totalOverspend.toFixed(2)}. Pick how to handle each.`}
+                            : `${items.length} envelope${items.length === 1 ? "" : "s"} overspent across past months — total ${totalOverspend.toFixed(2)}. Pick how to handle each.`}
                     </p>
                 </div>
                 {items.length > 0 && (
@@ -285,7 +285,7 @@ function ReckoningRow({
             ackIdem.rotate();
             await utils.reckoning.listPending.invalidate({ spaceId });
             await onPullSuccess();
-            toast.success(`Pulled $${item.overBy.toFixed(2)}`);
+            toast.success(`Pulled ${item.overBy.toFixed(2)}`);
         } catch (e) {
             toast.error((e as Error).message);
         } finally {
@@ -314,11 +314,11 @@ function ReckoningRow({
                         </span>
                     </div>
                     <div className="rk-row-sub">
-                        Spent ${item.consumed.toFixed(2)} of $
+                        Spent {item.consumed.toFixed(2)} of{" "}
                         {item.allocated.toFixed(2)} planned ·
                         <strong style={{ color: "var(--expense)" }}>
                             {" "}
-                            ${item.overBy.toFixed(2)} over
+                            {item.overBy.toFixed(2)} over
                         </strong>
                     </div>
                 </div>
@@ -331,7 +331,7 @@ function ReckoningRow({
                             Pull from another envelope
                         </div>
                         <div className="rk-option-hint">
-                            Move ${item.overBy.toFixed(2)} of allocation from
+                            Move {item.overBy.toFixed(2)} of allocation from
                             an envelope with surplus.
                         </div>
                         <div className="rk-option-row">
@@ -349,7 +349,7 @@ function ReckoningRow({
                                         key={c.envelopId}
                                         value={c.envelopId}
                                     >
-                                        {c.name} · ${c.remaining.toFixed(2)}{" "}
+                                        {c.name} · {c.remaining.toFixed(2)}{" "}
                                         left
                                     </option>
                                 ))}
@@ -367,7 +367,7 @@ function ReckoningRow({
                             >
                                 {pulling
                                     ? "Pulling…"
-                                    : `Pull $${item.overBy.toFixed(2)}`}
+                                    : `Pull ${item.overBy.toFixed(2)}`}
                             </button>
                         </div>
                     </div>
@@ -378,7 +378,7 @@ function ReckoningRow({
                         Borrow from next month
                     </div>
                     <div className="rk-option-hint">
-                        Adds ${item.overBy.toFixed(2)} to{" "}
+                        Adds {item.overBy.toFixed(2)} to{" "}
                         {item.name} retroactively, removes the same from
                         next month's plan.
                     </div>
@@ -391,7 +391,7 @@ function ReckoningRow({
                         >
                             {busy
                                 ? "Borrowing…"
-                                : `Borrow $${item.overBy.toFixed(2)}`}
+                                : `Borrow ${item.overBy.toFixed(2)}`}
                         </button>
                     </div>
                 </div>
@@ -401,7 +401,7 @@ function ReckoningRow({
                         Just acknowledge it
                     </div>
                     <div className="rk-option-hint">
-                        Accept that ${item.overBy.toFixed(2)} came out of
+                        Accept that {item.overBy.toFixed(2)} came out of
                         your unbudgeted buffer this period. Move on.
                     </div>
                     <div className="rk-option-row rk-option-row--end">
@@ -714,7 +714,7 @@ function PersonalReckoning() {
                     <p className="rk-sub">
                         {items.length === 0
                             ? "Nothing pending across any of your spaces — every past-month overspend has been resolved."
-                            : `${items.length} envelope${items.length === 1 ? "" : "s"} overspent across ${groups.length} space${groups.length === 1 ? "" : "s"} — total $${totalOverspend.toFixed(2)}. Open each space to resolve.`}
+                            : `${items.length} envelope${items.length === 1 ? "" : "s"} overspent across ${groups.length} space${groups.length === 1 ? "" : "s"} — total ${totalOverspend.toFixed(2)}. Open each space to resolve.`}
                     </p>
                 </div>
             </header>
@@ -769,9 +769,9 @@ function PersonalReckoning() {
                                                 </div>
                                                 <div className="rk-personal-row-meta">
                                                     {fmtMonth(row.periodStart)}{" "}
-                                                    · spent $
+                                                    · spent{" "}
                                                     {row.consumed.toFixed(2)}{" "}
-                                                    of ${row.allocated.toFixed(2)}{" "}
+                                                    of {row.allocated.toFixed(2)}{" "}
                                                     ·{" "}
                                                     <strong
                                                         style={{
@@ -779,7 +779,7 @@ function PersonalReckoning() {
                                                                 "var(--expense)",
                                                         }}
                                                     >
-                                                        ${row.overBy.toFixed(2)}{" "}
+                                                        {row.overBy.toFixed(2)}{" "}
                                                         over
                                                     </strong>
                                                 </div>

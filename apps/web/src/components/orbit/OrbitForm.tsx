@@ -20,43 +20,33 @@ export type OrbitInputProps = InputHTMLAttributes<HTMLInputElement> & {
     mono?: boolean;
 };
 
-export const OrbitInput = forwardRef<HTMLInputElement, OrbitInputProps>(
-    function OrbitInput(
-        { leadIcon, prefix, suffix, mono, className, ...rest },
-        ref
-    ) {
-        return (
-            <span className={`of-input ${className ?? ""}`}>
-                {leadIcon && (
-                    <span className="of-input-lead" aria-hidden>
-                        {leadIcon}
-                    </span>
-                )}
-                {prefix && <span className="of-input-affix">{prefix}</span>}
-                <input
-                    ref={ref}
-                    className={mono ? "of-input-control of-mono" : "of-input-control"}
-                    {...rest}
-                />
-                {suffix && (
-                    <span className="of-input-affix of-input-suffix">{suffix}</span>
-                )}
-            </span>
-        );
-    }
-);
+export const OrbitInput = forwardRef<HTMLInputElement, OrbitInputProps>(function OrbitInput(
+    { leadIcon, prefix, suffix, mono, className, ...rest },
+    ref
+) {
+    return (
+        <span className={`of-input ${className ?? ""}`}>
+            {leadIcon && (
+                <span className="of-input-lead" aria-hidden>
+                    {leadIcon}
+                </span>
+            )}
+            {prefix && <span className="of-input-affix">{prefix}</span>}
+            <input
+                ref={ref}
+                className={mono ? "of-input-control of-mono" : "of-input-control"}
+                {...rest}
+            />
+            {suffix && <span className="of-input-affix of-input-suffix">{suffix}</span>}
+        </span>
+    );
+});
 
 export type OrbitTextareaProps = TextareaHTMLAttributes<HTMLTextAreaElement>;
 
 export const OrbitTextarea = forwardRef<HTMLTextAreaElement, OrbitTextareaProps>(
     function OrbitTextarea({ className, ...rest }, ref) {
-        return (
-            <textarea
-                ref={ref}
-                className={`of-textarea ${className ?? ""}`}
-                {...rest}
-            />
-        );
+        return <textarea ref={ref} className={`of-textarea ${className ?? ""}`} {...rest} />;
     }
 );
 
@@ -120,9 +110,7 @@ export function OrbitSelect({
                     {selected ? (
                         selected.label
                     ) : (
-                        <span className="of-select-placeholder">
-                            {placeholder ?? "Select…"}
-                        </span>
+                        <span className="of-select-placeholder">{placeholder ?? "Select…"}</span>
                     )}
                 </span>
                 <ChevronDown className="size-3 of-select-chev" aria-hidden />
@@ -180,7 +168,7 @@ export function OrbitAmountCard({
     value,
     onChange,
     eyebrow = "Amount",
-    suffix = "USD",
+    suffix = "",
     autoFocus,
     tone = "fg",
     leadIconBefore,
@@ -191,7 +179,7 @@ export function OrbitAmountCard({
     suffix?: ReactNode;
     autoFocus?: boolean;
     tone?: "fg" | "brand" | "expense" | "income" | "transfer" | "gold";
-    /** Optional small icon rendered before the $ glyph (e.g. arrow up/down). */
+    /** Optional small icon rendered before the input (e.g. arrow up/down). */
     leadIconBefore?: ReactNode;
 }) {
     const toneColor =
@@ -215,7 +203,6 @@ export function OrbitAmountCard({
                         {leadIconBefore}
                     </span>
                 )}
-                <span className="of-amount-currency">$</span>
                 <input
                     className="of-amount-input"
                     type="number"
@@ -228,7 +215,7 @@ export function OrbitAmountCard({
                     autoFocus={autoFocus}
                     style={{ color: toneColor }}
                 />
-                <span className="of-amount-unit">{suffix}</span>
+                {suffix ? <span className="of-amount-unit">{suffix}</span> : null}
             </div>
         </div>
     );
@@ -247,10 +234,7 @@ export function OrbitFieldRow({
        passed via a CSS variable so the @media (min-width: 520px) rule in
        ORBIT_FORM_STYLES can switch back to it without losing the prop. */
     return (
-        <div
-            className="of-row"
-            style={{ "--of-row-cols": cols } as React.CSSProperties}
-        >
+        <div className="of-row" style={{ "--of-row-cols": cols } as React.CSSProperties}>
             {children}
         </div>
     );
@@ -343,11 +327,7 @@ export function OrbitInfoPill({
                 border: `1px solid color-mix(in oklab, ${color} 25%, transparent)`,
             }}
         >
-            <Info
-                className="size-3.5"
-                style={{ color, flexShrink: 0, marginTop: 2 }}
-                aria-hidden
-            />
+            <Info className="size-3.5" style={{ color, flexShrink: 0, marginTop: 2 }} aria-hidden />
             <span className="of-info-pill-text">{children}</span>
         </div>
     );
@@ -587,12 +567,6 @@ const ORBIT_FORM_STYLES = `
     display: inline-flex;
     color: var(--fg-3);
 }
-.of-amount-currency {
-    font-size: 20px;
-    color: var(--fg-3);
-    font-family: "Newsreader", Georgia, serif;
-    font-weight: 400;
-}
 .of-amount-input {
     font-size: 40px;
     line-height: 1;
@@ -626,7 +600,6 @@ const ORBIT_FORM_STYLES = `
    overflow on a 320–360px viewport. */
 @media (max-width: 480px) {
     .of-amount-card { padding: 14px; }
-    .of-amount-currency { font-size: 18px; }
     .of-amount-input { font-size: 32px; }
     .of-amount-unit { font-size: 10px; }
 }
@@ -946,4 +919,170 @@ const ORBIT_FORM_STYLES = `
 }
 .of-tile:hover:not(.is-active) { border-color: var(--line-strong); }
 .of-tile.is-active { background: var(--brand-soft); border-color: var(--brand); }
+
+/* ---- Account label inside an OrbitSelect value ----
+   AccountLabel renders the account name and (when present) the
+   owner avatar+name pill side-by-side inside the select trigger.
+   Hard nowrap and ellipsis on the name keep the trigger to its
+   fixed 38px height even when the owner pill makes content wide. */
+.of-acc-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow: hidden;
+    line-height: 1;
+}
+.of-acc-name {
+    color: var(--fg);
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.of-acc-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--fg-3);
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.of-acc-meta::before {
+    content: "·";
+    margin: 0 2px;
+    color: var(--fg-4);
+}
+
+/* ---- Form shell layout (shared by every transaction form) ----
+   The .nt-form class is the outer <form> in both NewTransactionSheet
+   and EditTransactionSheet; defining the gap rule here means both
+   sheets get consistent vertical rhythm without each one redefining
+   the layout in its own <style> block. */
+.nt-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+/* ---- Inline envelope chip (expense forms) ----
+   Theme-matched to .of-input / .of-select-trigger so it sits in the
+   same vertical rhythm and doesn't visually clash with the form's
+   editorial-dark surface. */
+.of-chip-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 38px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: var(--bg-elev-2);
+    border: 1px solid var(--line-soft);
+}
+.of-chip-row-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+.of-chip-eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: var(--fg-3);
+    flex-shrink: 0;
+}
+.of-chip-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    flex-shrink: 0;
+}
+.of-chip-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* Name shrinks first so the meta signal (the new "pinned" /
+       "overridden" / "category default" word) stays fully visible on
+       narrow phones. min-width:0 is required for ellipsis inside a
+       flex parent; flex:1 takes the available slack. */
+    flex: 1;
+    min-width: 0;
+}
+.of-chip-meta {
+    font-size: 11.5px;
+    color: var(--fg-4);
+    white-space: nowrap;
+    /* Meta carries a load-bearing signal — keep it at content width. */
+    flex-shrink: 0;
+}
+.of-chip-btn {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    border-radius: 8px;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--fg-2);
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: border-color 120ms, color 120ms, background 120ms;
+}
+.of-chip-btn:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+    background: var(--bg-elev-1);
+}
+
+/* ---- Inline picker row (chip "Change" expanded mode) ----
+   A select + cancel button side-by-side, occupying the same slot
+   as the chip would. */
+.of-inline-picker-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.of-inline-picker-row > :first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+/* ---- Disclosure toggle for collapsing optional fields ---- */
+.of-disclosure-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 12px;
+    border-radius: 10px;
+    border: 1px dashed var(--line);
+    background: transparent;
+    color: var(--fg-3);
+    font-size: 12.5px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 120ms, color 120ms, background 120ms;
+}
+.of-disclosure-toggle:hover {
+    border-color: var(--line-strong);
+    color: var(--fg-2);
+    background: var(--bg-elev-1);
+}
+.of-disclosure-toggle svg {
+    flex-shrink: 0;
+    color: var(--fg-4);
+}
 `;

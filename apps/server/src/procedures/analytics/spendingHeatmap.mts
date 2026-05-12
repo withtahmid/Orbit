@@ -52,14 +52,6 @@ export const spendingHeatmap = authorizedProcedure
                           AND destination_account_id NOT IN (SELECT account_id FROM scope_accounts)
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        SELECT date_trunc('day', transaction_datetime) AS day, fee_amount AS amount
-                        FROM transactions
-                        WHERE type = 'transfer'
-                          AND fee_amount IS NOT NULL
-                          AND source_account_id IN (SELECT account_id FROM scope_accounts)
-                          AND transaction_datetime >= ${input.periodStart}
-                          AND transaction_datetime < ${input.periodEnd}
                     ) entries
                     GROUP BY day
                     ORDER BY day ASC

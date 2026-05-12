@@ -97,46 +97,26 @@ export const yearReport = authorizedProcedure
                     .execute(trx)
                     .then((r) => r.rows);
 
-                // Per-month actual spend. Includes transfer fees that
-                // route to the envelope's category, mirroring the way
-                // envelopeUtilization counts consumption.
+                // Per-month actual spend. Fees are first-class type='expense'
+                // rows with their own envelop_id, so they're included in
+                // this single aggregation alongside regular expenses.
                 const spendRows = await sql<{
                     envelop_id: string;
                     month_idx: string;
                     consumed: string;
                 }>`
                     SELECT
-                        ec.envelop_id::text AS envelop_id,
+                        t.envelop_id::text AS envelop_id,
                         EXTRACT(MONTH FROM t.transaction_datetime)::text AS month_idx,
-                        SUM(amt)::text AS consumed
-                    FROM (
-                        SELECT
-                            t.expense_category_id AS cat_id,
-                            t.amount AS amt,
-                            t.transaction_datetime
-                        FROM transactions t
-                        WHERE t.space_id = ${input.spaceId}
-                          AND t.type = 'expense'
-                          AND t.transaction_datetime >= ${yearStart}
-                          AND t.transaction_datetime < ${yearEnd}
-                        UNION ALL
-                        SELECT
-                            t.fee_expense_category_id AS cat_id,
-                            t.fee_amount AS amt,
-                            t.transaction_datetime
-                        FROM transactions t
-                        WHERE t.space_id = ${input.spaceId}
-                          AND t.type = 'transfer'
-                          AND t.fee_amount IS NOT NULL
-                          AND t.fee_expense_category_id IS NOT NULL
-                          AND t.transaction_datetime >= ${yearStart}
-                          AND t.transaction_datetime < ${yearEnd}
-                    ) t
-                    JOIN expense_categories ec ON ec.id = t.cat_id
-                    JOIN envelops e ON e.id = ec.envelop_id
-                    WHERE e.space_id = ${input.spaceId}
+                        SUM(t.amount)::text AS consumed
+                    FROM transactions t
+                    JOIN envelops e ON e.id = t.envelop_id
+                    WHERE t.space_id = ${input.spaceId}
+                      AND t.type = 'expense'
                       AND e.cadence = 'monthly'
-                    GROUP BY ec.envelop_id, month_idx
+                      AND t.transaction_datetime >= ${yearStart}
+                      AND t.transaction_datetime < ${yearEnd}
+                    GROUP BY t.envelop_id, EXTRACT(MONTH FROM t.transaction_datetime)
                 `
                     .execute(trx)
                     .then((r) => r.rows);

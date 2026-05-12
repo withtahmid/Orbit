@@ -59,8 +59,9 @@ export const priorityBreakdown = authorizedProcedure
                 //
                 // Scope matches cashFlow's account-flow rule (§12):
                 // only expenses whose source is in the space's
-                // scope_accounts count, plus transfer fees attributed
-                // to fee_expense_category_id whose source is in scope.
+                // scope_accounts count. Transfer fees are now first-
+                // class expense rows (parent_transfer_id IS NOT NULL),
+                // so they fall under the same expense rule automatically.
                 const query = sql<{
                     priority: string | null;
                     envelop_id: string | null;
@@ -76,12 +77,15 @@ export const priorityBreakdown = authorizedProcedure
                     ),
                     ancestry AS (
                         -- depth 0: each category is its own starting point.
-                        SELECT id, parent_id, priority, envelop_id, id AS origin
+                        SELECT id, parent_id, priority,
+                               default_envelop_id AS envelop_id,
+                               id AS origin
                         FROM expense_categories
                         WHERE space_id = ${input.spaceId}
                         UNION ALL
                         -- Walk up through any NULL-priority ancestors.
-                        SELECT parent.id, parent.parent_id, parent.priority, parent.envelop_id, a.origin
+                        SELECT parent.id, parent.parent_id, parent.priority,
+                               parent.default_envelop_id, a.origin
                         FROM ancestry a
                         JOIN expense_categories parent ON parent.id = a.parent_id
                         WHERE a.priority IS NULL
@@ -104,14 +108,6 @@ export const priorityBreakdown = authorizedProcedure
                         SELECT t.expense_category_id AS ec_id, t.amount AS amount
                         FROM transactions t
                         WHERE t.type = 'expense'
-                          AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                          AND t.transaction_datetime >= ${input.periodStart}
-                          AND t.transaction_datetime < ${input.periodEnd}
-                        UNION ALL
-                        SELECT t.fee_expense_category_id, t.fee_amount
-                        FROM transactions t
-                        WHERE t.type = 'transfer'
-                          AND t.fee_amount IS NOT NULL
                           AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
                           AND t.transaction_datetime >= ${input.periodStart}
                           AND t.transaction_datetime < ${input.periodEnd}

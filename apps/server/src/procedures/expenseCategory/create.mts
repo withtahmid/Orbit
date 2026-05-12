@@ -42,7 +42,7 @@ export const createExpenseCategory = authorizedProcedure
                         if (input.parentId) {
                             const parent = await trx
                                 .selectFrom("expense_categories")
-                                .select(["id", "space_id", "envelop_id"])
+                                .select(["id", "space_id"])
                                 .where("expense_categories.id", "=", input.parentId)
                                 .executeTakeFirst();
 
@@ -51,13 +51,6 @@ export const createExpenseCategory = authorizedProcedure
                                     code: "BAD_REQUEST",
                                     message:
                                         "Invalid parent category for this space",
-                                });
-                            }
-                            if (parent.envelop_id !== input.envelopId) {
-                                throw new TRPCError({
-                                    code: "BAD_REQUEST",
-                                    message:
-                                        "Sub-categories must share the parent's envelope. Move the parent first if you want a different envelope.",
                                 });
                             }
                         }
@@ -88,7 +81,7 @@ export const createExpenseCategory = authorizedProcedure
                                 space_id: input.spaceId,
                                 name: input.name,
                                 parent_id: input.parentId ?? null,
-                                envelop_id: input.envelopId,
+                                default_envelop_id: input.envelopId,
                                 color: input.color,
                                 icon: input.icon,
                                 priority: input.priority ?? null,
@@ -97,7 +90,7 @@ export const createExpenseCategory = authorizedProcedure
                                 "id",
                                 "space_id",
                                 "parent_id",
-                                "envelop_id",
+                                "default_envelop_id",
                                 "name",
                                 "color",
                                 "icon",

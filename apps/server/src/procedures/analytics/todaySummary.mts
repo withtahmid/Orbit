@@ -80,12 +80,6 @@ export const todaySummary = authorizedProcedure
                                     AND t.source_account_id IN (SELECT account_id FROM scope_accounts) THEN t.amount
                                 ELSE 0
                             END
-                            + CASE
-                                WHEN t.type = 'transfer'
-                                    AND t.source_account_id IN (SELECT account_id FROM scope_accounts)
-                                    AND t.fee_amount IS NOT NULL THEN t.fee_amount
-                                ELSE 0
-                            END
                         ), 0)::text AS out_total,
                         COUNT(*)::text AS txn_count
                     FROM transactions t
