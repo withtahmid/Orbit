@@ -191,6 +191,20 @@ export interface SpaceAccounts {
   space_id: string;
 }
 
+export interface SpaceInvites {
+  accepted_at: Timestamp | null;
+  accepted_by_user_id: string | null;
+  created_at: Generated<Timestamp>;
+  email: string;
+  expires_at: Timestamp;
+  id: Generated<string>;
+  invited_by: string;
+  revoked_at: Timestamp | null;
+  role: ArrayType<"editor" | "owner" | "viewer">;
+  space_id: string;
+  token: string;
+}
+
 export interface SpaceMembers {
   created_at: Generated<Timestamp>;
   role: ArrayType<"editor" | "owner" | "viewer">;
@@ -249,11 +263,13 @@ export interface UserAccounts {
 export interface Users {
   avatar_file_id: string | null;
   created_at: Generated<Timestamp>;
+  deleted_at: Timestamp | null;
   email: string;
   first_name: string;
   id: Generated<string>;
   last_name: string;
   password_hash: string;
+  token_version: Generated<number>;
 }
 
 export interface DB {
@@ -272,6 +288,7 @@ export interface DB {
   plans: Plans;
   reckoning_acknowledgments: ReckoningAcknowledgments;
   space_accounts: SpaceAccounts;
+  space_invites: SpaceInvites;
   space_members: SpaceMembers;
   spaces: Spaces;
   tmp_users: TmpUsers;

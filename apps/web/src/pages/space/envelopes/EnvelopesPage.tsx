@@ -951,7 +951,7 @@ function ReckoningBanner({ spaceId }: { spaceId: string }) {
                     {items.length === 1 ? "s" : ""} attention
                 </span>
                 <span className="env-reckoning-sub">
-                    Total ${total.toFixed(2)} across{" "}
+                    Total {total.toFixed(2)} across{" "}
                     {new Set(items.map((i) => i.envelopId)).size} envelope
                     {new Set(items.map((i) => i.envelopId)).size === 1
                         ? ""
@@ -1012,7 +1012,7 @@ function UnbudgetedBanner({
                                 marginLeft: 4,
                             }}
                         >
-                            $
+                            {isOverAllocated ? "−" : "+"}
                             {value.toLocaleString("en-US", {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
@@ -1025,7 +1025,7 @@ function UnbudgetedBanner({
                                 onClick={() => setShowBreakdown((v) => !v)}
                                 title="See what's drained the pool over the last 90 days"
                             >
-                                ↓ ${t.absorbedOverspend.toFixed(0)} silent
+                                ↓ {t.absorbedOverspend.toFixed(0)} silent
                                 overspend (90d)
                             </button>
                         )}
@@ -1036,7 +1036,7 @@ function UnbudgetedBanner({
                             <div className="env-unbudgeted-breakdown-row">
                                 <span>Income</span>
                                 <span className="tabular">
-                                    +${t.income.toFixed(2)}
+                                    +{t.income.toFixed(2)}
                                 </span>
                             </div>
                             <div className="env-unbudgeted-breakdown-row">
@@ -1050,7 +1050,7 @@ function UnbudgetedBanner({
                                                 : "var(--income)",
                                     }}
                                 >
-                                    {t.allocationsNet > 0 ? "−" : "+"}$
+                                    {t.allocationsNet > 0 ? "−" : "+"}
                                     {Math.abs(t.allocationsNet).toFixed(2)}
                                 </span>
                             </div>
@@ -1065,7 +1065,7 @@ function UnbudgetedBanner({
                                                 : "var(--income)",
                                     }}
                                 >
-                                    {t.planAllocationsNet > 0 ? "−" : "+"}$
+                                    {t.planAllocationsNet > 0 ? "−" : "+"}
                                     {Math.abs(t.planAllocationsNet).toFixed(2)}
                                 </span>
                             </div>
@@ -1075,7 +1075,7 @@ function UnbudgetedBanner({
                                     className="tabular"
                                     style={{ color: "var(--expense)" }}
                                 >
-                                    −${t.absorbedOverspend.toFixed(2)}
+                                    −{t.absorbedOverspend.toFixed(2)}
                                 </span>
                             </div>
                             <div className="env-unbudgeted-breakdown-hint">
@@ -1698,14 +1698,14 @@ function ArchiveEnvelopeMenuItem({
 
     const allocationNote =
         currentRemaining > 0
-            ? ` It currently has $${currentRemaining.toFixed(2)} allocated this period — that allocation stays put. Deallocate first if you want the cash back.`
+            ? ` It currently has ${currentRemaining.toFixed(2)} allocated this period — that allocation stays put. Deallocate first if you want the cash back.`
             : "";
 
     const borrows = borrowsQuery.data ?? [];
     const borrowTotal = borrows.reduce((s, b) => s + b.amount, 0);
     const borrowNote =
         borrowTotal > 0
-            ? ` It also has $${borrowTotal.toFixed(2)} borrowed against future periods (${borrows.length} link${borrows.length === 1 ? "" : "s"}) — those obligations stay put after archive and will keep reducing those periods' planning pool. Use "Cancel borrow" on the envelope detail page first if you want to unwind them.`
+            ? ` It also has ${borrowTotal.toFixed(2)} borrowed against future periods (${borrows.length} link${borrows.length === 1 ? "" : "s"}) — those obligations stay put after archive and will keep reducing those periods' planning pool. Use "Cancel borrow" on the envelope detail page first if you want to unwind them.`
             : "";
 
     return (

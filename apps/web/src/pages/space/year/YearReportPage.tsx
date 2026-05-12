@@ -183,7 +183,7 @@ export default function YearReportPage() {
                                                           ? "yr-cell-under"
                                                           : ""
                                                 }`}
-                                                title={`Planned $${c.planned.toFixed(2)} · Spent $${c.spent.toFixed(2)}${c.over > 0 ? ` · over $${c.over.toFixed(2)}` : ""}`}
+                                                title={`Planned ${c.planned.toFixed(2)} · Spent ${c.spent.toFixed(2)}${c.over > 0 ? ` · over ${c.over.toFixed(2)}` : ""}`}
                                             >
                                                 {c.planned === 0 &&
                                                 c.spent === 0 ? (
@@ -193,10 +193,10 @@ export default function YearReportPage() {
                                                 ) : (
                                                     <>
                                                         <span className="yr-cell-spent">
-                                                            ${c.spent.toFixed(0)}
+                                                            {c.spent.toFixed(0)}
                                                         </span>
                                                         <span className="yr-cell-plan">
-                                                            /$
+                                                            /
                                                             {c.planned.toFixed(0)}
                                                         </span>
                                                     </>
@@ -205,14 +205,14 @@ export default function YearReportPage() {
                                         ))}
                                         <td className="yr-td-total">
                                             <div className="yr-total-spent">
-                                                ${e.totalSpent.toFixed(0)}
+                                                {e.totalSpent.toFixed(0)}
                                             </div>
                                             <div className="yr-total-plan">
-                                                of ${e.totalPlanned.toFixed(0)}
+                                                of {e.totalPlanned.toFixed(0)}
                                             </div>
                                             {e.totalOver > 0 && (
                                                 <div className="yr-total-over">
-                                                    +${e.totalOver.toFixed(0)} over
+                                                    +{e.totalOver.toFixed(0)} over
                                                 </div>
                                             )}
                                         </td>

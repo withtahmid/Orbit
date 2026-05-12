@@ -352,7 +352,7 @@ export default function BalanceHistoryView() {
                 ? "Matches balance delta"
                 : `Drift ${
                       drift >= 0 ? "+" : "−"
-                  }$${driftAbs.toFixed(0)} vs balance`,
+                  }${driftAbs.toFixed(0)} vs balance`,
         });
     }
 

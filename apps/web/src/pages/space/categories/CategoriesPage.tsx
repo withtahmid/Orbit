@@ -1197,7 +1197,7 @@ function CreateCategoryDialog({
                                     rows={2}
                                     value={notes}
                                     onChange={(e) => setNotes(e.target.value)}
-                                    placeholder="What counts here? e.g. anything over $6 a cup…"
+                                    placeholder="What counts here? e.g. anything over 6 a cup…"
                                 />
                             </OrbitField>
 

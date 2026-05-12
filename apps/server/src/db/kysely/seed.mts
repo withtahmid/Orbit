@@ -18,12 +18,16 @@
  *
  * Data universe (locale-neutral; amounts are currency-agnostic):
  * - 8 users — primary + partner + 6 collaborators across spaces
- * - 5 spaces (Family Budget, Personal, Roommates, Side Business, Travel)
+ * - 5 spaces (Family Budget [strict mode], Personal, Roommates, Side
+ *   Business, Travel) — covers both flexible and strict budget_mode
  * - 16 accounts across asset / liability / locked
- * - 30+ envelopes with cadence + carry-over mix
+ * - 30+ envelopes with cadence + carry_policy mix
+ *   (reset / positive_only / both — incl. "honest" mode for overspend)
  * - 12 plans (house, emergency, kids' college, side-business growth, …)
  * - 120+ expense categories, most two levels deep
- * - 24 events — trips, weddings, conferences, renovations, celebrations
+ * - 24 events — trips, weddings, conferences, renovations, celebrations;
+ *   past events marked closed with closed_at; some have estimated_amount
+ * - 3 pending space invites so the invite-by-email flow has visible data
  * - ~18 months of history ending today
  * - ~8,000+ transactions, with realistic monthly bills, weekly grocery
  *   runs, daily coffee, freelance income, bonuses, tax refunds, foreign
@@ -36,6 +40,7 @@
  */
 
 import bcrypt from "bcrypt";
+import crypto from "crypto";
 import { sql } from "kysely";
 import createPGPool from "../index.mjs";
 import { createQueryBuilder } from "./index.mjs";
@@ -121,11 +126,16 @@ const USERS = [
 
 type UserKey = (typeof USERS)[number]["key"];
 
+// Per-space `budget_mode` is recorded so the seed exercises both flexible
+// and strict reckoning paths. Family is strict (overspend at month
+// rollover blocks new transactions until reckoned with); everything else
+// is flexible (the default).
 const SPACES = [
     {
         key: "family",
         name: "Family Budget",
         owner: "primary" as UserKey,
+        budget_mode: "strict" as const,
         members: [
             { user: "partner" as UserKey,  role: "editor" as const },
             { user: "sibling" as UserKey,  role: "viewer" as const },
@@ -136,12 +146,14 @@ const SPACES = [
         key: "personal",
         name: "Personal",
         owner: "primary" as UserKey,
+        budget_mode: "flexible" as const,
         members: [] as { user: UserKey; role: "editor" | "viewer" | "owner" }[],
     },
     {
         key: "roommates",
         name: "Roommates",
         owner: "primary" as UserKey,
+        budget_mode: "flexible" as const,
         members: [
             { user: "roommate" as UserKey,  role: "editor" as const },
             { user: "roommate2" as UserKey, role: "editor" as const },
@@ -151,6 +163,7 @@ const SPACES = [
         key: "side",
         name: "Side Business",
         owner: "primary" as UserKey,
+        budget_mode: "flexible" as const,
         members: [
             { user: "biz" as UserKey, role: "editor" as const },
         ],
@@ -159,6 +172,7 @@ const SPACES = [
         key: "travel",
         name: "Travel Fund",
         owner: "primary" as UserKey,
+        budget_mode: "flexible" as const,
         members: [
             { user: "partner" as UserKey, role: "editor" as const },
             { user: "travel" as UserKey,  role: "editor" as const },
@@ -285,6 +299,24 @@ const ENVELOPE_PRIORITY: Record<string, Priority> = {
 };
 
 type EnvelopeKey = (typeof ENVELOPES)[number]["key"];
+
+// Carry policy per envelope. Defaults to "positive_only" when carry=true
+// and "reset" when carry=false. A few envelopes opt into "both" — the
+// honest mode where overspend persists as debt across periods. Picked to
+// hit different spaces and different categories so analytics/reckoning
+// flows have visible data.
+const ENVELOPE_CARRY_POLICY_OVERRIDE: Partial<
+    Record<EnvelopeKey, "reset" | "positive_only" | "both">
+> = {
+    fam_eatout: "both",
+    per_coffee: "both",
+    room_groceries: "both",
+};
+const carryPolicyFor = (
+    key: EnvelopeKey,
+    carry: boolean
+): "reset" | "positive_only" | "both" =>
+    ENVELOPE_CARRY_POLICY_OVERRIDE[key] ?? (carry ? "positive_only" : "reset");
 
 const PLANS = [
     { key: "plan_house",      space: "family" as SpaceKey,    name: "House Down Payment",  target: 80000, target_date: addMonths(startOfMonthUTC(NOW),  30), color: "#6366f1", icon: "home",         description: "20% down for a 3-bedroom; target horizon ~2.5 years." },
@@ -850,6 +882,7 @@ export async function seedDatabase() {
             categories,
             events
         );
+        const inviteCount = await seedSpaceInvites(db, users, spaces);
 
         logger.info("Seed complete ✅");
         console.log("");
@@ -863,6 +896,7 @@ export async function seedDatabase() {
         console.log(`  plans:         ${Object.keys(plans).length}`);
         console.log(`  categories:    ${Object.keys(categories).length}`);
         console.log(`  events:        ${Object.keys(events).length}`);
+        console.log(`  invites:       ${inviteCount} pending`);
         console.log(`  transactions:  ${txCount}`);
         console.log("");
         console.log(" Log in with:");
@@ -890,6 +924,7 @@ async function wipe(db: ReturnType<typeof createQueryBuilder>) {
         "envelop_allocations",
         "plan_allocations",
         "transactions",
+        "reckoning_acknowledgments",
         "expense_categories",
         "events",
         "envelops",
@@ -898,8 +933,10 @@ async function wipe(db: ReturnType<typeof createQueryBuilder>) {
         "space_accounts",
         "user_accounts",
         "accounts",
+        "space_invites",
         "space_members",
         "spaces",
+        "idempotency_keys",
         "email_verification_codes",
         "tmp_users",
         "users",
@@ -950,6 +987,7 @@ async function seedSpaces(
             .insertInto("spaces")
             .values({
                 name: s.name,
+                budget_mode: s.budget_mode,
                 created_by: users[s.owner],
                 updated_by: users[s.owner],
             })
@@ -1054,6 +1092,7 @@ async function seedEnvelopes(
                 icon: e.icon,
                 cadence: e.cadence,
                 carry_over: e.carry,
+                carry_policy: carryPolicyFor(e.key, e.carry),
             })
             .returning("id")
             .executeTakeFirstOrThrow();
@@ -1149,7 +1188,30 @@ async function seedEvents(
 ) {
     logger.info("Events…");
     const byKey: Record<EventKey, string> = {} as Record<EventKey, string>;
+    // Hand-picked estimated budgets for the bigger event clusters so the
+    // "over/under estimate" UI has populated rows. Anything not listed
+    // stays without an estimate (null).
+    const ESTIMATES: Partial<Record<EventKey, number>> = {
+        e_wedding:      2500,
+        e_ski:          1600,
+        e_paint:        2200,
+        e_conf_spring:  1800,
+        e_anniv1:       1200,
+        e_biz_trip1:    1800,
+        e_summer_trip:  6500,
+        e_launch:       4500,
+        e_diwali:       1200,
+        e_renov:       12000,
+        e_xmas:         3500,
+        e_spring_break: 2200,
+        e_wed_friend:   1400,
+        e_upcoming_trip: 2800,
+    };
     for (const e of EVENTS) {
+        // An event is "closed" when its end time is fully in the past;
+        // ongoing or future events stay 'active'. closed_at mirrors end
+        // so the "Closed Mar 14" subtitles render correctly.
+        const isPast = e.end.getTime() < NOW.getTime();
         const row = await db
             .insertInto("events")
             .values({
@@ -1160,12 +1222,48 @@ async function seedEvents(
                 color: e.color,
                 icon: e.icon,
                 description: e.description,
+                status: isPast ? "closed" : "active",
+                closed_at: isPast ? e.end : null,
+                estimated_amount: ESTIMATES[e.key] ?? null,
             })
             .returning("id")
             .executeTakeFirstOrThrow();
         byKey[e.key] = row.id;
     }
     return byKey;
+}
+
+// ---------------------------------------------------------------------
+// Space invites — a handful of pending invitations to non-existent
+// emails, so the "Pending invites" UI on Space Settings has visible
+// rows. Tokens are real 64-char hex strings so the /invite/:token
+// route resolves locally during demos. Expiry is 72 hours from seed
+// time, matching the production INVITE_TTL_HOURS.
+// ---------------------------------------------------------------------
+
+const PENDING_INVITES = [
+    { space: "family" as SpaceKey,  email: "neighbor@orbit.dev",       role: "viewer" as const, invitedBy: "primary" as UserKey },
+    { space: "roommates" as SpaceKey, email: "new.roommate@orbit.dev", role: "editor" as const, invitedBy: "roommate" as UserKey },
+    { space: "travel" as SpaceKey,  email: "trip.buddy@orbit.dev",     role: "editor" as const, invitedBy: "primary" as UserKey },
+];
+
+async function seedSpaceInvites(
+    db: ReturnType<typeof createQueryBuilder>,
+    users: Record<UserKey, string>,
+    spaces: Record<SpaceKey, string>
+) {
+    logger.info("Space invites…");
+    const expiresAt = new Date(NOW.getTime() + 72 * 60 * 60 * 1000);
+    const rows = PENDING_INVITES.map((i) => ({
+        space_id: spaces[i.space],
+        email: i.email,
+        role: i.role as unknown as SpaceMembers["role"],
+        token: crypto.randomBytes(32).toString("hex"),
+        invited_by: users[i.invitedBy],
+        expires_at: expiresAt,
+    }));
+    await db.insertInto("space_invites").values(rows).execute();
+    return rows.length;
 }
 
 // ---------------------------------------------------------------------

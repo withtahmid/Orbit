@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { observer } from "mobx-react-lite";
 import { toast } from "sonner";
 import { trpc } from "@/trpc";
@@ -14,6 +14,18 @@ const DEMO_PASSWORD = "password123";
 export const LoginPage = observer(function LoginPage() {
     const { authStore } = useStore();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    // Only honor `?from=` if it's an in-app, same-origin path. Anything
+    // starting with `//` or containing a protocol could redirect a
+    // freshly-authenticated user to a phishing page.
+    const rawFrom = searchParams.get("from");
+    const from =
+        rawFrom &&
+        rawFrom.startsWith("/") &&
+        !rawFrom.startsWith("//") &&
+        !rawFrom.includes("\\")
+            ? rawFrom
+            : null;
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
@@ -28,7 +40,7 @@ export const LoginPage = observer(function LoginPage() {
                 avatarFileId: data.user.avatar_file_id ?? undefined,
             });
             toast.success("Welcome back!");
-            navigate(ROUTES.root, { replace: true });
+            navigate(from ?? ROUTES.root, { replace: true });
         },
         onError: (e) => toast.error(e.message),
     });

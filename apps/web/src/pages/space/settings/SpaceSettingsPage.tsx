@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Trash2, UserPlus } from "lucide-react";
+import { Navigate, useNavigate } from "react-router-dom";
+import { LogOut, Mail, Trash2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { PermissionGate } from "@/components/shared/PermissionGate";
@@ -33,10 +33,18 @@ import { ROUTES } from "@/router/routes";
 import type { SpaceRole } from "@/lib/permissions";
 
 export default function SpaceSettingsPage() {
-    const { space } = useCurrentSpace();
+    const { space, isPersonal } = useCurrentSpace();
     const isOwner = useIsOwner();
     const navigate = useNavigate();
     const utils = trpc.useUtils();
+
+    // The personal space is a synthesized virtual space — it has no
+    // members, no roles, no danger-zone, and any backend query that takes
+    // a real `spaceId` (memberList, listInvites, …) will reject "me" as
+    // a non-UUID. Hide the route entirely instead.
+    if (isPersonal) {
+        return <Navigate to={ROUTES.space(space.id)} replace />;
+    }
 
     const [newName, setNewName] = useState(space.name);
     const update = trpc.space.update.useMutation({
@@ -63,7 +71,7 @@ export default function SpaceSettingsPage() {
                 <TabsList>
                     <TabsTrigger value="general">General</TabsTrigger>
                     <TabsTrigger value="members">Members</TabsTrigger>
-                    {isOwner && <TabsTrigger value="danger">Danger</TabsTrigger>}
+                    <TabsTrigger value="danger">Danger</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="general">
@@ -110,21 +118,25 @@ export default function SpaceSettingsPage() {
                     </div>
                 </TabsContent>
 
-                <TabsContent value="members">
+                <TabsContent value="members" className="grid gap-4">
                     <MembersCard />
+                    <PermissionGate roles={["owner", "editor"]}>
+                        <PendingInvitesCard />
+                    </PermissionGate>
                 </TabsContent>
 
-                <TabsContent value="danger">
-                    <Card className="border-destructive/40">
-                        <CardHeader>
-                            <CardTitle className="text-destructive">Delete space</CardTitle>
-                        </CardHeader>
-                        <CardContent className="grid gap-3">
-                            <p className="text-sm text-muted-foreground">
-                                Deleting the space removes all its accounts, transactions,
-                                envelopes, plans, and categories. This cannot be undone.
-                            </p>
-                            <PermissionGate roles={["owner"]}>
+                <TabsContent value="danger" className="grid gap-4">
+                    <LeaveSpaceCard />
+                    {isOwner && (
+                        <Card className="border-destructive/40">
+                            <CardHeader>
+                                <CardTitle className="text-destructive">Delete space</CardTitle>
+                            </CardHeader>
+                            <CardContent className="grid gap-3">
+                                <p className="text-sm text-muted-foreground">
+                                    Deleting the space removes all its accounts, transactions,
+                                    envelopes, plans, and categories. This cannot be undone.
+                                </p>
                                 <ConfirmDialog
                                     trigger={
                                         <Button variant="destructive" className="w-fit">
@@ -139,9 +151,9 @@ export default function SpaceSettingsPage() {
                                     typedConfirmationText={space.name}
                                     onConfirm={() => del.mutate({ spaceId: space.id })}
                                 />
-                            </PermissionGate>
-                        </CardContent>
-                    </Card>
+                            </CardContent>
+                        </Card>
+                    )}
                 </TabsContent>
             </Tabs>
         </div>
@@ -196,7 +208,7 @@ function MembersCard() {
                 </TableBody>
             </Table>
             <PermissionGate roles={["owner", "editor"]}>
-                <AddMember />
+                <InviteMember />
             </PermissionGate>
         </Card>
     );
@@ -219,7 +231,7 @@ function RoleSelect({ userId, role }: { userId: string; role: SpaceRole }) {
                 change.mutate({
                     spaceId: space.id,
                     userId,
-                    role: v as any,
+                    role: v as SpaceRole,
                 })
             }
         >
@@ -258,24 +270,22 @@ function RemoveMember({ userId }: { userId: string }) {
     );
 }
 
-function AddMember() {
+function InviteMember() {
     const { space } = useCurrentSpace();
     const [email, setEmail] = useState("");
     const [role, setRole] = useState<SpaceRole>("editor");
     const utils = trpc.useUtils();
 
-    const findUser = trpc.auth.findUserByEmail.useQuery(
-        { email },
-        { enabled: email.length > 3 && email.includes("@") }
-    );
-    const add = trpc.space.addMembers.useMutation({
+    const invite = trpc.space.sendInvite.useMutation({
         onSuccess: async () => {
-            toast.success("Member added");
-            await utils.space.memberList.invalidate({ spaceId: space.id });
+            toast.success("Invite sent");
             setEmail("");
+            await utils.space.listInvites.invalidate({ spaceId: space.id });
         },
         onError: (e) => toast.error(e.message),
     });
+
+    const valid = /.+@.+\..+/.test(email.trim());
 
     return (
         <div className="grid gap-2 border-t border-border/60 p-4 sm:flex sm:items-end">
@@ -287,22 +297,13 @@ function AddMember() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="user@example.com"
                 />
-                {findUser.data && (
-                    <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                        Found:
-                        <UserAvatar
-                            fileId={findUser.data.avatar_file_id}
-                            firstName={findUser.data.first_name}
-                            lastName={findUser.data.last_name}
-                            size="sm"
-                        />
-                        {findUser.data.first_name} {findUser.data.last_name}
-                    </p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                    They&apos;ll get a link to accept. Invites expire in 72 hours.
+                </p>
             </div>
             <div className="grid gap-2">
                 <Label>Role</Label>
-                <Select value={role} onValueChange={(v) => setRole(v as any)}>
+                <Select value={role} onValueChange={(v) => setRole(v as SpaceRole)}>
                     <SelectTrigger className="w-28">
                         <SelectValue />
                     </SelectTrigger>
@@ -315,21 +316,195 @@ function AddMember() {
             </div>
             <Button
                 onClick={() => {
-                    if (!findUser.data) {
-                        toast.error("User not found");
+                    if (!valid) {
+                        toast.error("Enter a valid email");
                         return;
                     }
-                    add.mutate({
-                        spaceId: space.id,
-                        members: [{ userId: findUser.data.id, role }],
-                    });
+                    invite.mutate({ spaceId: space.id, email: email.trim(), role });
                 }}
-                disabled={!findUser.data || add.isPending}
+                disabled={!valid || invite.isPending}
             >
                 <UserPlus />
-                Invite
+                {invite.isPending ? "Sending…" : "Send invite"}
             </Button>
         </div>
+    );
+}
+
+function PendingInvitesCard() {
+    const { space } = useCurrentSpace();
+    const invitesQuery = trpc.space.listInvites.useQuery({ spaceId: space.id });
+    const utils = trpc.useUtils();
+    const revoke = trpc.space.revokeInvite.useMutation({
+        onSuccess: async () => {
+            toast.success("Invite revoked");
+            await utils.space.listInvites.invalidate({ spaceId: space.id });
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    const invites = invitesQuery.data ?? [];
+
+    return (
+        <Card>
+            <CardHeader className="flex-row items-center gap-2">
+                <Mail className="size-4 text-muted-foreground" />
+                <CardTitle className="text-base">Pending invites</CardTitle>
+            </CardHeader>
+            {invites.length === 0 ? (
+                <CardContent>
+                    <p className="text-sm text-muted-foreground">
+                        Sent invites will appear here until they&apos;re accepted, revoked,
+                        or expire.
+                    </p>
+                </CardContent>
+            ) : (
+                <CardContent className="p-0">
+                <div className="hidden sm:block">
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Email</TableHead>
+                                <TableHead>Role</TableHead>
+                                <TableHead>Invited by</TableHead>
+                                <TableHead>Expires</TableHead>
+                                <TableHead className="w-12" />
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {invites.map((inv) => {
+                                const expires = new Date(inv.expiresAt);
+                                return (
+                                    <TableRow key={inv.id}>
+                                        <TableCell className="font-medium break-all">
+                                            {inv.email}
+                                        </TableCell>
+                                        <TableCell>
+                                            <RoleBadge role={inv.role} />
+                                        </TableCell>
+                                        <TableCell className="text-muted-foreground">
+                                            {inv.invitedByName}
+                                        </TableCell>
+                                        <TableCell className="text-muted-foreground">
+                                            {expires.toLocaleDateString(undefined, {
+                                                month: "short",
+                                                day: "numeric",
+                                            })}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Button
+                                                size="icon"
+                                                variant="ghost"
+                                                className="size-9"
+                                                onClick={() =>
+                                                    revoke.mutate({
+                                                        spaceId: space.id,
+                                                        inviteId: inv.id,
+                                                    })
+                                                }
+                                                disabled={revoke.isPending}
+                                                aria-label={`Revoke invite for ${inv.email}`}
+                                            >
+                                                <X className="size-3.5 text-destructive" />
+                                            </Button>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </div>
+                <ul className="sm:hidden divide-y">
+                    {invites.map((inv) => {
+                        const expires = new Date(inv.expiresAt);
+                        return (
+                            <li key={inv.id} className="p-4 flex flex-col gap-2">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="font-medium break-all">
+                                            {inv.email}
+                                        </div>
+                                        <div className="mt-1 flex items-center gap-2">
+                                            <RoleBadge role={inv.role} />
+                                            <span className="text-xs text-muted-foreground">
+                                                Invited by {inv.invitedByName}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between gap-3">
+                                    <span className="text-xs text-muted-foreground">
+                                        Expires{" "}
+                                        {expires.toLocaleDateString(undefined, {
+                                            month: "short",
+                                            day: "numeric",
+                                        })}
+                                    </span>
+                                    <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="min-h-9 text-destructive"
+                                        onClick={() =>
+                                            revoke.mutate({
+                                                spaceId: space.id,
+                                                inviteId: inv.id,
+                                            })
+                                        }
+                                        disabled={revoke.isPending}
+                                        aria-label={`Revoke invite for ${inv.email}`}
+                                    >
+                                        <X className="size-3.5" />
+                                        Revoke
+                                    </Button>
+                                </div>
+                            </li>
+                        );
+                    })}
+                </ul>
+            </CardContent>
+            )}
+        </Card>
+    );
+}
+
+function LeaveSpaceCard() {
+    const { space } = useCurrentSpace();
+    const navigate = useNavigate();
+    const utils = trpc.useUtils();
+    const leave = trpc.space.leave.useMutation({
+        onSuccess: async () => {
+            toast.success("You left the space");
+            await utils.space.list.invalidate();
+            navigate(ROUTES.spaces, { replace: true });
+        },
+        onError: (e) => toast.error(e.message),
+    });
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle>Leave this space</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+                <p className="text-sm text-muted-foreground">
+                    Removes your membership. The space and its data remain available to the
+                    other members. If you&apos;re the sole owner, transfer ownership or delete
+                    the space first.
+                </p>
+                <ConfirmDialog
+                    trigger={
+                        <Button variant="outline" className="w-fit">
+                            <LogOut />
+                            Leave space
+                        </Button>
+                    }
+                    title={`Leave "${space.name}"?`}
+                    description="You can be re-invited later."
+                    confirmLabel={leave.isPending ? "Leaving…" : "Leave"}
+                    onConfirm={() => leave.mutate({ spaceId: space.id })}
+                />
+            </CardContent>
+        </Card>
     );
 }
 

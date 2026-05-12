@@ -180,7 +180,7 @@ export function OrbitAmountCard({
     value,
     onChange,
     eyebrow = "Amount",
-    suffix = "USD",
+    suffix = "",
     autoFocus,
     tone = "fg",
     leadIconBefore,
@@ -191,7 +191,7 @@ export function OrbitAmountCard({
     suffix?: ReactNode;
     autoFocus?: boolean;
     tone?: "fg" | "brand" | "expense" | "income" | "transfer" | "gold";
-    /** Optional small icon rendered before the $ glyph (e.g. arrow up/down). */
+    /** Optional small icon rendered before the input (e.g. arrow up/down). */
     leadIconBefore?: ReactNode;
 }) {
     const toneColor =
@@ -215,7 +215,6 @@ export function OrbitAmountCard({
                         {leadIconBefore}
                     </span>
                 )}
-                <span className="of-amount-currency">$</span>
                 <input
                     className="of-amount-input"
                     type="number"
@@ -228,7 +227,7 @@ export function OrbitAmountCard({
                     autoFocus={autoFocus}
                     style={{ color: toneColor }}
                 />
-                <span className="of-amount-unit">{suffix}</span>
+                {suffix ? <span className="of-amount-unit">{suffix}</span> : null}
             </div>
         </div>
     );
@@ -587,12 +586,6 @@ const ORBIT_FORM_STYLES = `
     display: inline-flex;
     color: var(--fg-3);
 }
-.of-amount-currency {
-    font-size: 20px;
-    color: var(--fg-3);
-    font-family: "Newsreader", Georgia, serif;
-    font-weight: 400;
-}
 .of-amount-input {
     font-size: 40px;
     line-height: 1;
@@ -626,7 +619,6 @@ const ORBIT_FORM_STYLES = `
    overflow on a 320–360px viewport. */
 @media (max-width: 480px) {
     .of-amount-card { padding: 14px; }
-    .of-amount-currency { font-size: 18px; }
     .of-amount-input { font-size: 32px; }
     .of-amount-unit { font-size: 10px; }
 }

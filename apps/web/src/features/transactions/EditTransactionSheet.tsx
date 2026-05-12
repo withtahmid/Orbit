@@ -472,7 +472,6 @@ function EditForm({
                                     value={feeAmount}
                                     onChange={(e) => setFeeAmount(e.target.value)}
                                     placeholder="0.00"
-                                    prefix="$"
                                 />
                             </OrbitField>
                             <OrbitField

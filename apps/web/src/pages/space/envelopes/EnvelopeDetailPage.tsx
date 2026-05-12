@@ -394,7 +394,7 @@ export default function EnvelopeDetailPage() {
                                     >
                                         <div className="ed-borrow-text">
                                             <div className="ed-borrow-amount">
-                                                ${b.amount.toFixed(2)}
+                                                {b.amount.toFixed(2)}
                                             </div>
                                             <div className="ed-borrow-meta">
                                                 Borrowed in{" "}

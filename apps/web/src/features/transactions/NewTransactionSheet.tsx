@@ -358,7 +358,7 @@ function StrictModeBanner({
                     {items.length === 1 ? "" : "s"} unresolved
                 </div>
                 <div className="nt-strict-banner-sub">
-                    Total ${total.toFixed(2)}.{" "}
+                    Total {total.toFixed(2)}.{" "}
                     {incomeOk
                         ? "Income still records — but expense / transfer / adjust will be blocked until you settle."
                         : "Expense / transfer / adjust are blocked until you settle. Income still records."}
@@ -738,7 +738,6 @@ const NT_STYLES = `
     align-items: baseline;
     gap: 4px;
 }
-.nt-drift-num .currency { font-size: 14px; color: var(--fg-3); }
 .nt-drift-actual-input {
     display: flex;
     align-items: baseline;
@@ -785,7 +784,6 @@ const NT_STYLES = `
     font-weight: 500;
     letter-spacing: -0.01em;
 }
-.nt-drift-summary-suffix { font-size: 10px; color: var(--fg-4); letter-spacing: 0.08em; text-transform: uppercase; }
 .nt-drift-chip {
     display: inline-flex;
     align-items: center;
@@ -1024,7 +1022,7 @@ function EnvelopeStatusCard({
                     {env.name}
                 </span>
                 <span className="nt-env-card-meta">
-                    Spent ${consumed.toFixed(2)} of ${allocated.toFixed(2)}
+                    Spent {consumed.toFixed(2)} of {allocated.toFixed(2)}
                     {" · "}
                     <strong
                         style={{
@@ -1034,7 +1032,7 @@ function EnvelopeStatusCard({
                                     : "var(--fg)",
                         }}
                     >
-                        ${remaining.toFixed(2)} left
+                        {remaining.toFixed(2)} left
                     </strong>
                 </span>
             </div>
@@ -1047,7 +1045,7 @@ function EnvelopeStatusCard({
                             <span className="nt-env-warn-title">
                                 Will overspend {env.name} by{" "}
                                 <span className="tabular">
-                                    ${overBy.toFixed(2)}
+                                    {overBy.toFixed(2)}
                                 </span>
                             </span>
                             <span className="nt-env-warn-sub">
@@ -1063,7 +1061,7 @@ function EnvelopeStatusCard({
                                     Pull from another envelope
                                 </span>
                                 <span className="nt-recover-card-hint">
-                                    Move ${overBy.toFixed(2)} of plan from
+                                    Move {overBy.toFixed(2)} of plan from
                                     another bucket into {env.name}.
                                 </span>
                             </div>
@@ -1083,7 +1081,7 @@ function EnvelopeStatusCard({
                                             key={c.envelopId}
                                             value={c.envelopId}
                                         >
-                                            {c.name} · $
+                                            {c.name} ·{" "}
                                             {c.remaining.toFixed(2)} left
                                         </option>
                                     ))}
@@ -1112,7 +1110,7 @@ function EnvelopeStatusCard({
                                 >
                                     {transferMutation.isPending
                                         ? "Pulling…"
-                                        : `Pull $${overBy.toFixed(2)}`}
+                                        : `Pull ${overBy.toFixed(2)}`}
                                 </button>
                             </div>
                         </div>
@@ -1125,7 +1123,7 @@ function EnvelopeStatusCard({
                                     Borrow from next month
                                 </span>
                                 <span className="nt-recover-card-hint">
-                                    Adds ${overBy.toFixed(2)} to{" "}
+                                    Adds {overBy.toFixed(2)} to{" "}
                                     {env.name} now and removes the same from
                                     next month's plan.
                                 </span>
@@ -1145,7 +1143,7 @@ function EnvelopeStatusCard({
                                 >
                                     {borrowMutation.isPending
                                         ? "Borrowing…"
-                                        : `Borrow $${overBy.toFixed(2)}`}
+                                        : `Borrow ${overBy.toFixed(2)}`}
                                 </button>
                             </div>
                         </div>
@@ -1602,7 +1600,6 @@ function TransferForm({ onDone }: { onDone: () => void }) {
                             value={feeAmount}
                             onChange={(e) => setFeeAmount(e.target.value)}
                             placeholder="0.00"
-                            prefix="$"
                         />
                     </OrbitField>
                     <OrbitField label="Fee category" hint="Where the fee is logged">
@@ -1676,13 +1673,13 @@ function FeeBreakdown({
         >
             <FeeRow
                 label="Source debited"
-                value={`−$${totalOut.toFixed(2)}`}
+                value={`−${totalOut.toFixed(2)}`}
                 strong
             />
-            <FeeRow label="Destination credited" value={`+$${delivered.toFixed(2)}`} />
+            <FeeRow label="Destination credited" value={`+${delivered.toFixed(2)}`} />
             <FeeRow
                 label="Fee (lost to provider)"
-                value={`$${fee.toFixed(2)}`}
+                value={fee.toFixed(2)}
                 tone="expense"
             />
         </div>
@@ -1816,7 +1813,6 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     <div className="nt-drift-col">
                         <span className="nt-drift-eyebrow">Orbit balance</span>
                         <div className="nt-drift-num">
-                            <span className="currency">$</span>
                             {selected
                                 ? formatNum(orbitBalance)
                                 : "0.00"}
@@ -1835,7 +1831,6 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                     <div className="nt-drift-col">
                         <span className="nt-drift-eyebrow">Actual balance</span>
                         <div className="nt-drift-actual-input">
-                            <span style={{ fontSize: 14, color: "var(--fg-3)" }}>$</span>
                             <input
                                 type="number"
                                 inputMode="decimal"
@@ -1884,7 +1879,6 @@ function AdjustmentForm({ onDone }: { onDone: () => void }) {
                                         />
                                     )}
                                     {formatNum(Math.abs(delta))}
-                                    <span className="nt-drift-summary-suffix">USD</span>
                                 </>
                             )}
                         </span>

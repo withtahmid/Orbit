@@ -175,7 +175,7 @@ const HeroPreview = () => (
                     color: "var(--fg)",
                 }}
             >
-                $1,284
+                1,284
                 <span style={{ fontSize: 16, color: "var(--fg-3)" }}>.50</span>
             </div>
             <div style={{ height: 1, background: "var(--line-soft)", margin: "12px 0" }} />
@@ -196,7 +196,7 @@ const HeroPreview = () => (
                         >
                             <span>{r.name}</span>
                             <span style={{ color: "var(--fg-3)" }}>
-                                ${r.v}/{r.max}
+                                {r.v}/{r.max}
                             </span>
                         </div>
                         <div
@@ -272,7 +272,7 @@ const HeroPreview = () => (
                     color: "var(--expense)",
                 }}
             >
-                −$48.20
+                −48.20
             </div>
         </div>
 
@@ -435,12 +435,12 @@ export default function LandingPage() {
                         </div>
 
                         <h1 className="ol-serif ol-hero-h1">
-                            Money,
+                            Plan, spend,
                             <br />
                             <em style={{ fontStyle: "italic", color: "var(--gold)" }}>
-                                in orbit
-                            </em>{" "}
-                            together.
+                                reconcile
+                            </em>
+                            .
                         </h1>
 
                         <p className="ol-hero-p">

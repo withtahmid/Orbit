@@ -1424,7 +1424,6 @@ function MoreFiltersSheet({
                             value={amountMin ?? ""}
                             onChange={(e) => setAmountMin(e.target.value || null)}
                             placeholder="0"
-                            prefix="$"
                         />
                         <OrbitInput
                             type="number"
@@ -1432,7 +1431,6 @@ function MoreFiltersSheet({
                             value={amountMax ?? ""}
                             onChange={(e) => setAmountMax(e.target.value || null)}
                             placeholder="∞"
-                            prefix="$"
                         />
                     </OrbitFieldRow>
                 </OrbitField>

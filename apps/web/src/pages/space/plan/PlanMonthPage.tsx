@@ -478,7 +478,6 @@ function SummaryStat({
                 className="tabular plan-summary-amt"
                 style={{ color }}
             >
-                $
                 {value.toLocaleString("en-US", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
@@ -528,14 +527,14 @@ function PlanRow({
                     <div className="plan-row-title">{env.name}</div>
                     <div className="plan-row-meta">
                         {readOnly
-                            ? `Spent this period: $${env.consumed.toLocaleString(
+                            ? `Spent this period: ${env.consumed.toLocaleString(
                                   "en-US",
                                   {
                                       minimumFractionDigits: 2,
                                       maximumFractionDigits: 2,
                                   }
                               )}`
-                            : `Already spent this period: $${env.consumed.toLocaleString(
+                            : `Already spent this period: ${env.consumed.toLocaleString(
                                   "en-US",
                                   {
                                       minimumFractionDigits: 2,
@@ -553,7 +552,7 @@ function PlanRow({
                                         "This period received funds borrowed from a future period."
                                     }
                                 >
-                                    +${env.borrowedIn.toFixed(2)} borrowed in
+                                    +{env.borrowedIn.toFixed(2)} borrowed in
                                 </span>
                             )}
                             {env.borrowedOut > 0 && (
@@ -564,31 +563,29 @@ function PlanRow({
                                         "A previous period borrowed from this one — its planning pool is reduced by this amount."
                                     }
                                 >
-                                    −${env.borrowedOut.toFixed(2)} borrowed out
+                                    −{env.borrowedOut.toFixed(2)} borrowed out
                                 </span>
                             )}
                         </div>
                     )}
                     {showHint && (
                         <div className="plan-row-coach">
-                            You've averaged $
+                            You've averaged{" "}
                             {avg3MonthSpend.toFixed(0)}/mo over the last 3
-                            months — $
-                            {target.toFixed(0)} will likely fall short.
+                            months — {target.toFixed(0)} will likely fall short.
                         </div>
                     )}
                 </div>
             </div>
             <div className="plan-row-prev">
                 <span className="plan-row-prev-amt">
-                    $
                     {prevConsumed.toLocaleString("en-US", {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 0,
                     })}
                 </span>
                 <span className="plan-row-prev-sub">
-                    of $
+                    of{" "}
                     {prevAllocated.toLocaleString("en-US", {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 0,
@@ -598,7 +595,7 @@ function PlanRow({
                         <>
                             {" · "}
                             <span style={{ color: "var(--fg-3)" }}>
-                                avg $
+                                avg{" "}
                                 {avg3MonthSpend.toFixed(0)}/mo
                             </span>
                         </>
@@ -608,7 +605,6 @@ function PlanRow({
             {readOnly ? (
                 <div className="plan-row-readonly">
                     <span className="plan-row-readonly-amt tabular">
-                        $
                         {planned.toLocaleString("en-US", {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 2,
@@ -628,15 +624,14 @@ function PlanRow({
                                 }}
                             >
                                 {settled < 0
-                                    ? `−$${Math.abs(settled).toFixed(2)} over`
-                                    : `$${settled.toFixed(2)} unspent`}
+                                    ? `−${Math.abs(settled).toFixed(2)} over`
+                                    : `${settled.toFixed(2)} unspent`}
                             </span>
                         );
                     })()}
                 </div>
             ) : (
                 <div className="plan-row-input-wrap">
-                    <span className="plan-row-input-prefix">$</span>
                     <input
                         type="number"
                         inputMode="decimal"
@@ -656,7 +651,7 @@ function PlanRow({
                                         : "var(--expense)",
                             }}
                         >
-                            {delta > 0 ? "+" : "−"}$
+                            {delta > 0 ? "+" : "−"}
                             {Math.abs(delta).toLocaleString("en-US", {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
@@ -864,17 +859,10 @@ const PLAN_STYLES = `
     gap: 8px;
     position: relative;
 }
-.plan-row-input-prefix {
-    position: absolute;
-    left: 10px;
-    font-size: 12px;
-    color: var(--fg-4);
-    pointer-events: none;
-}
 .plan-row-input {
     flex: 1;
     height: 34px;
-    padding: 0 10px 0 22px;
+    padding: 0 10px;
     border-radius: 8px;
     border: 1px solid var(--line);
     background: var(--bg-elev-1);

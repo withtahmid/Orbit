@@ -31,11 +31,20 @@ export const loginProcedure = publicProcedure
         const { qb } = ctx.services;
         const dbUser = await qb
             .selectFrom("users")
-            .select(["id", "email", "password_hash", "first_name", "last_name", "avatar_file_id"])
+            .select([
+                "id",
+                "email",
+                "password_hash",
+                "first_name",
+                "last_name",
+                "avatar_file_id",
+                "deleted_at",
+                "token_version",
+            ])
             .where("email", "=", email)
             .executeTakeFirst();
 
-        if (!dbUser) {
+        if (!dbUser || dbUser.deleted_at) {
             throw new TRPCError({
                 code: "BAD_REQUEST",
                 message: "Invalid email or password.",
@@ -50,7 +59,7 @@ export const loginProcedure = publicProcedure
             });
         }
 
-        const token = signJWT({ userId: dbUser.id });
+        const token = signJWT({ userId: dbUser.id, tokenVersion: dbUser.token_version });
 
         return {
             token,

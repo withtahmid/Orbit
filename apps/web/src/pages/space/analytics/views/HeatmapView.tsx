@@ -321,7 +321,7 @@ export default function HeatmapView() {
                                 with no spending
                             </span>
                             <span className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
-                                <span>$0</span>
+                                <span>0</span>
                                 {[0, 1, 2, 3, 4, 5].map((b) => {
                                     const r = ramp(b);
                                     return (
@@ -339,7 +339,7 @@ export default function HeatmapView() {
                                         />
                                     );
                                 })}
-                                <span>$600+</span>
+                                <span>600+</span>
                             </span>
                         </div>
                     )}

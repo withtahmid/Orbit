@@ -5,11 +5,20 @@
 > or running reviews. If a fact in this spec contradicts the code, **the
 > code wins** — but flag the drift so the spec gets updated.
 
-**Last rewritten:** 2026-04-21, after migrations 027–029 landed (files +
-attachments + Cloudflare R2 object storage), account-member management
-became a first-class ACL, and the public `/docs` route was added. Orbit
-is deployed to production at
-[orbit.withtahmid.com](https://orbit.withtahmid.com).
+**Last rewritten:** 2026-05-12, after migrations 030–040 landed:
+transfer fees (030), category priority tiers (031), envelope borrowing
+across months (032), envelope archival (033), generic idempotency-key
+cache (034), three-value carry policy replacing the old `carry_over`
+boolean (035), per-user reckoning acknowledgments (036), per-space
+budget mode (`flexible | strict`, 037), event lifecycle + estimated
+amounts (038), token-credentialed space invites (039), and soft-delete
++ JWT token-version invalidation on `users` (040). Also: full
+self-service account surface (`profile`, `security` pages with
+change-email / change-password / delete-account), the public
+invite-acceptance route at `/invite/:token`, the reckoning page and
+month-plan / year-report pages, and four new analytics views
+(`matrix`, `trends`, `anomalies`, `priority`). Orbit is deployed to
+production at [orbit.withtahmid.com](https://orbit.withtahmid.com).
 
 ---
 
@@ -102,15 +111,37 @@ always trust migrations + `generate-types` over ad-hoc type edits.
 
 - **`users`** — `id`, `email (unique)`, `password_hash`, `first_name`,
   `last_name`, `avatar_file_id` (nullable FK → `files.id`, SET NULL),
-  `created_at`. The old `avatar_url` column was replaced with
-  `avatar_file_id` in migration `029`; clients resolve a display URL via
-  `file.getDownloadUrl`.
+  `created_at`, plus (migration 040) `deleted_at timestamptz NULL` and
+  `token_version integer NOT NULL DEFAULT 1`. Avatar moved from
+  `avatar_url` to a `files`-backed reference in migration 029; clients
+  resolve a display URL via `file.getDownloadUrl`. **Hard delete is
+  impossible** for any user who has ever created shared data
+  (`spaces.created_by`, `transactions.created_by`, allocation
+  `created_by` all have `ON DELETE RESTRICT` per migration 027), so
+  `user.deleteAccount` tombstones the row instead: anonymizes
+  identifying fields (`deleted+<id>@orbit.local`, "Deleted User", null
+  avatar, password `"!"`), sets `deleted_at`, bumps `token_version`,
+  and drops every `space_members` row. `fetchUserFromJWT` rejects any
+  session for a row with `deleted_at IS NOT NULL`. `token_version` is
+  also bumped by `user.changePassword` so stolen JWTs stop working
+  immediately after a password change. JWTs minted before migration 040
+  have no `tokenVersion` claim; the auth layer treats a missing claim
+  as `1`, matching the default, so no force-logout was needed.
 - **`tmp_users`** — pre-verification signup shell. `is_email_verified` flag.
 - **`email_verification_codes`** — 6-digit codes for signup / password-reset /
   change-email.
-- **`spaces`** — `id`, `name`, timestamps, `created_by`, `updated_by`.
+- **`spaces`** — `id`, `name`, timestamps, `created_by`, `updated_by`,
+  plus (migration 037) `budget_mode text NOT NULL DEFAULT 'flexible'`
+  CHECK in `('flexible', 'strict')`. See §11.7.
 - **`space_members`** — composite PK `(space_id, user_id)` + `role` (owner /
   editor / viewer). Cascade delete on both sides.
+- **`space_invites`** (migration 039) — `id`, `space_id` (FK CASCADE),
+  `email varchar(255)`, `role` (enum), `token varchar(64) UNIQUE`,
+  `invited_by` (FK CASCADE), `expires_at`, `accepted_at`,
+  `accepted_by_user_id` (FK SET NULL), `revoked_at`, `created_at`.
+  Partial-unique index `(space_id, lower(email))` over still-pending
+  rows so re-inviting an address rotates the existing token rather than
+  stacking. See §6.6.
 
 ### 3.2 Accounts (horizontal resource)
 
@@ -130,13 +161,21 @@ always trust migrations + `generate-types` over ad-hoc type edits.
 ### 3.3 Envelopes (periodic budgets)
 
 - **`envelops`** — `id`, `space_id`, `name`, `color`, `icon`, `description`,
-  `cadence` ∈ `'none' | 'monthly'` (CHECK-constrained), `carry_over boolean`,
-  timestamps. Space-scoped.
+  `cadence` ∈ `'none' | 'monthly'` (CHECK-constrained), `carry_over boolean`
+  (legacy, kept for one release cycle for backwards compat — see
+  migration 035), `carry_policy text NOT NULL DEFAULT 'reset'` CHECK in
+  `('reset', 'positive_only', 'both')` (migration 035), `archived
+  boolean NOT NULL DEFAULT false` (migration 033), timestamps.
+  Space-scoped. Partial index `idx_envelops_active (space_id) WHERE
+  archived = false` keeps the hot list-query path fast.
 - **`envelop_allocations`** — append-only ledger of allocations. Signed
   `amount` (negative = deallocation). Optional `account_id` (earmark to a
   specific account; NULL = unassigned pool). Optional `period_start date`
-  (NULL = derive from `created_at` via the envelope's cadence).
-  Indexed on `(envelop_id, account_id, period_start)`.
+  (NULL = derive from `created_at` via the envelope's cadence). Optional
+  `borrowed_link_id uuid` (migration 032) — both legs of a
+  "borrow from next month" pair share the same group UUID. Indexed on
+  `(envelop_id, account_id, period_start)` and partial-indexed on
+  `borrowed_link_id WHERE borrowed_link_id IS NOT NULL`.
 
 **No `envelop_balances` table.** Retired in migration `026`. All envelope
 metrics are computed on-read (see §5).
@@ -200,8 +239,14 @@ CHECK constraints (enforced in the DB):
 
 - **`events`** — `id`, `space_id`, `name`, `start_time`, `end_time`
   (CHECK `end_time > start_time`), `color`, `icon`, `description`,
-  `created_at`. Transactions can reference an event via
-  `transactions.event_id` (ON DELETE SET NULL).
+  `created_at`, plus (migration 038) `status text NOT NULL DEFAULT
+  'active'` CHECK in `('active', 'closed')`, `estimated_amount
+  numeric(14, 2) NULL` CHECK `IS NULL OR >= 0`, `closed_at timestamptz
+  NULL`. Closed events drop out of the transaction-entry picker but
+  remain in analytics, lists, and historical filters. Partial index
+  `idx_events_space_status_active (space_id, start_time DESC) WHERE
+  status = 'active'` for the picker hot path. Transactions can
+  reference an event via `transactions.event_id` (ON DELETE SET NULL).
 
 ### 3.8 Files & attachments (object storage)
 
@@ -232,6 +277,33 @@ Per-purpose upload limits and allowed MIME types live in
 | `transaction_receipt` | 10 MB | `image/*` |
 | `event_attachment` | 10 MB | `image/*` |
 | `exported_report` | 50 MB | `application/pdf` |
+
+### 3.9 Reckoning acknowledgments
+
+- **`reckoning_acknowledgments`** (migration 036) — composite PK
+  `(space_id, envelop_id, user_id, period_start)`, plus `resolution
+  text NOT NULL` CHECK in `('pulled', 'borrowed', 'absorbed')` and
+  `acknowledged_at timestamptz`. Records "user U has resolved the
+  past-month overspend on envelope E for period P". The resolution is
+  performed via the existing transfer / borrow / no-op procedures; this
+  table only records the *acknowledgment* so the dashboard banner can
+  clear and so strict-mode budgets know which past months have been
+  reckoned with. Per-user — sharing a space doesn't force you to wait
+  on a co-owner's resolution. Indexed on `(space_id, user_id,
+  period_start)`. See §8.1.
+
+### 3.10 Idempotency keys
+
+- **`idempotency_keys`** (migration 034) — `key uuid PRIMARY KEY`,
+  `user_id` (FK CASCADE), `operation text`, `response jsonb`,
+  `created_at`, `expires_at` (default `NOW() + INTERVAL '7 days'`).
+  Generic operation-level idempotency cache. Compound write paths
+  (transfer, borrow) opt in via the `withIdempotency` helper instead of
+  carrying per-table idempotency columns. PK on `key` makes
+  claim-or-fail atomic; a second concurrent request with the same key
+  either reads the cached response or fails with CONFLICT if the first
+  is still in flight. Indexed on `expires_at` for a periodic cleanup
+  job.
 
 ---
 
@@ -271,6 +343,17 @@ Migrations are append-only; each has an `up` and `down`. Apply with
 | 027 | tightens `ON DELETE` to `RESTRICT` on `created_by` / `updated_by` FKs across ledger tables so users who created transactions/spaces/allocations can't be silently deleted. |
 | 028 | `files` table + `__type_file_purpose` / `__type_file_status` enums + `files_uploaded_by_idx`. Foundation for R2-backed object storage. |
 | 029 | swaps `users.avatar_url` for `users.avatar_file_id` (FK → `files`, SET NULL); adds `transaction_attachments`, `event_attachments`, `exported_reports`. |
+| 030 | transfer fees: `transactions.fee_amount` + `fee_expense_category_id`, CHECK gating to `type='transfer'`, balance-sync trigger updated so a fee debits source by `amount + fee_amount`. See §11.6. |
+| 031 | `expense_categories.priority` CHECK in `('essential','important','discretionary','luxury')`. NULL inherits from the nearest non-NULL ancestor via recursive CTE in `priorityBreakdown`. |
+| 032 | `envelop_allocations.borrowed_link_id uuid` — groups the two rows of a "borrow from next month" pair (+amount in current period, −amount in next period of the same envelope). Partial index on non-NULL values. |
+| 033 | `envelops.archived boolean DEFAULT false` + partial index `idx_envelops_active`. Soft-retire envelopes — they disappear from default lists / can't accept new categories / transactions, but historical data stays intact for past-period analytics. |
+| 034 | `idempotency_keys` table — generic operation-level idempotency cache (see §3.10). |
+| 035 | `envelops.carry_policy` replaces the boolean `carry_over` with a three-value enum `('reset', 'positive_only', 'both')`. Backfills `false → reset`, `true → positive_only`. Legacy column kept for one release. See §9.4. |
+| 036 | `reckoning_acknowledgments` table — per-user past-month overspend acknowledgments (see §3.9 and §8.1). |
+| 037 | `spaces.budget_mode` CHECK in `('flexible', 'strict')`. Strict mode blocks new transactions until past-month overspends are reckoned with. Default flexible. See §11.7. |
+| 038 | `events.status` (`active`/`closed`), `estimated_amount`, `closed_at`. Closed events drop out of the picker but stay in history. Partial index over active events. |
+| 039 | `space_invites` table — token-credentialed invitations with rotating partial-unique index on pending rows. See §6.6. |
+| 040 | `users.deleted_at` + `users.token_version`. Soft-delete tombstone + per-user JWT-invalidation. See §3.1 + §6.7. |
 
 **Account balance** is still maintained by the trigger from migration 018.
 Envelope and plan balances are computed on-read only.
@@ -296,12 +379,24 @@ are `transactions` with `type = 'expense'`, category rolling up to this
 envelope, `transaction_datetime` in window, and (if account-scoped)
 `source_account_id = accountId`.
 
-Carry-over: when `carry_over = true`, the helper also computes the
-**previous period's remaining**, clamps to ≥ 0, and exposes it as
-`carriedIn`. Negative overspend does **not** propagate as debt into the
-next period — drift is a display state, not accounting state.
+Carry policy (`envelops.carry_policy`, migration 035):
 
-**Known limitation:** carry-over only looks back one period. If an
+- `'reset'` — fresh slate every period. Both surplus and debt forgotten.
+  (Equivalent to the legacy `carry_over = false`.)
+- `'positive_only'` — surplus carries forward as `carriedIn`, debt
+  forgotten. The default "drift is display state" mode.
+  (Equivalent to the legacy `carry_over = true`.)
+- `'both'` — surplus AND debt carry forward. The honest mode where
+  overspend persists as a real obligation against the next period's
+  allocation.
+
+In all three modes the helper computes the **previous period's
+remaining**, then either clamps to ≥ 0 (`positive_only`), preserves the
+sign (`both`), or skips the lookup entirely (`reset`). Drift is always
+a display state inside a period; `'both'` is the only mode that makes
+last period's drift propagate.
+
+**Known limitation:** the helper only looks back one period. If an
 envelope accumulates carry-over across many months, the compounding is
 not reflected. Fixing this requires a recursive CTE walking from the
 envelope's first allocation forward. Deferred.
@@ -502,6 +597,78 @@ transaction (Splitwise-style "my share of the household rent"). That
 requires schema additions (`transaction_splits` or similar) and is
 tracked in §17.
 
+### 6.6 Space invites
+
+Space membership is gained either by an owner directly adding a known
+user (`space.addMembers` — used in the legacy member-picker) or via
+the **token-credentialed invite flow** (migration 039, used by every
+new addition in production).
+
+| Procedure | Who can call | What it does |
+|---|---|---|
+| [`space.sendInvite`](../apps/server/src/procedures/space/sendInvite.mts) | owner+ | inserts a `space_invites` row with a 64-char token, 72-hour expiry, lowercased email; re-inviting the same email **rotates** the existing token (revokes the old row, inserts a new one) so duplicates don't accumulate; emails the invitee via `SpaceInviteEmail` |
+| [`space.listInvites`](../apps/server/src/procedures/space/listInvites.mts) | owner+ | returns still-pending invites for the space settings UI |
+| [`space.revokeInvite`](../apps/server/src/procedures/space/revokeInvite.mts) | owner+ | sets `revoked_at`; the invitee's stored link becomes a "cancelled by admin" terminal page |
+| [`space.inviteInfo`](../apps/server/src/procedures/space/inviteInfo.mts) | **public** | minimal pre-auth lookup so `/invite/:token` can render space name + inviter name + role + expiry before the user has signed in. Returns the *invited email* but **never** the inviter's email or member count |
+| [`space.acceptInvite`](../apps/server/src/procedures/space/acceptInvite.mts) | authenticated | claims the token: `SELECT … FOR UPDATE` on the invite row, refuses if expired / revoked / already accepted, then upserts a `space_members` row for the caller with the invite's role. Existing-member rows are **role-upgraded only** (a viewer accepting an owner-invite becomes owner; an owner accepting a viewer-invite stays owner) |
+| [`space.leave`](../apps/server/src/procedures/space/leave.mts) | any member | self-removes from the space; refuses if the caller is the sole owner; also revokes any pending invites still outstanding to the caller's email in this space (case-insensitive) so a leaver can't be silently re-added via a stale link |
+| [`space.removeMember`](../apps/server/src/procedures/space/removeMember.mts) | owner+ | removes other members; symmetric with `leave` — also revokes any pending invites to the removed users' emails so they can't rejoin via a stale link |
+
+**Email is not pinned.** Anyone holding the token can accept with any
+Orbit account. This is deliberate: a person may have multiple addresses
+and an inviter shouldn't have to guess which one their friend uses for
+Orbit. The `AcceptInvitePage` surfaces the invited address alongside
+the signed-in user's address and warns on mismatch so a logged-in user
+doesn't accidentally join under the wrong identity.
+
+**UI surface:**
+
+- `/invite/:token` — public [`AcceptInvitePage`](../apps/web/src/pages/AcceptInvitePage.tsx).
+  Renders summary via `inviteInfo`, branches on `status`
+  (`pending`/`accepted`/`expired`/`revoked`), and either accepts
+  directly (authed) or bounces to `/login?from=…` /
+  `/signup?from=…` (guest). The signup flow threads `from=` through
+  `DetailsStep` so a freshly-created account lands back on the invite
+  page instead of root.
+- Space settings → **Members** tab — `InviteMember` form (email + role
+  picker → `sendInvite`) and `PendingInvitesCard` (lists pending
+  invites with revoke).
+
+### 6.7 User self-service (profile + security)
+
+User-managed personal-account surface lives under
+[`/settings`](../apps/web/src/pages/app/) with two pages:
+
+- [`ProfilePage`](../apps/web/src/pages/app/ProfilePage.tsx) — avatar
+  upload via the §11.4 three-step file flow, name + email edit. Email
+  change is currently a single-step swap that requires the caller's
+  password; **email-verification of the new address is not yet
+  implemented** (see §17).
+- [`SecurityPage`](../apps/web/src/pages/app/SecurityPage.tsx) — password
+  change, active-session indicator, and the delete-account confirm
+  dialog.
+
+| Procedure | What it does |
+|---|---|
+| [`user.updateProfile`](../apps/server/src/procedures/user/updateProfile.mts) | first/last name edit |
+| [`user.updateAvatar`](../apps/server/src/procedures/user/updateAvatar.mts) | swap `avatar_file_id` to a confirmed file id |
+| [`user.changeEmail`](../apps/server/src/procedures/user/changeEmail.mts) | swap `email` after re-authenticating with the current password |
+| [`user.changePassword`](../apps/server/src/procedures/user/changePassword.mts) | re-hash + bump `token_version`; returns a freshly-signed JWT so the caller's current tab stays logged in while every other session is invalidated |
+| [`user.deleteAccount`](../apps/server/src/procedures/user/deleteAccount.mts) | the tombstone flow described in §3.1 — anonymizes the row, bumps `token_version`, drops every `space_members` row, revokes pending invites the user issued. Refuses if the caller is the **sole owner** of any space (lists all blocker names in a single error message); transfer or delete those spaces first. **Does not currently delete `user_accounts` ownership** of accounts the user solely owns — those rows remain referencing the tombstone, an accepted gap tracked in §17 |
+
+**JWT token-version claim.** Every JWT minted by
+[`auth.mts`](../apps/server/src/trpc/auth.mts) embeds the user's
+current `token_version`. `fetchUserFromJWT` rejects sessions whose
+embedded version doesn't match the row (`changePassword` + `deleteAccount`
+both bump it). JWTs minted before migration 040 land carry no
+`tokenVersion` claim; the auth layer treats a missing claim as `1`,
+matching the default — no force-logout on rollout.
+
+**Open-redirect defense.** Both `LoginPage` and `GuestOnlyRoute` honor
+`?from=…` only when the value starts with `/`, doesn't start with `//`,
+and doesn't contain `\`. `DetailsStep` (signup) applies the same guard
+so the invite return-path threading can't be hijacked.
+
 ---
 
 ## 7. Allocations — the 2D matrix
@@ -573,7 +740,8 @@ are cleaned up.
 ## 8. Drift & rebalancing
 
 **Drift** is `allocated − consumed < 0` for a `(envelope, account, period)`
-partition. It is surfaced as a UI state, not an error.
+partition. It is surfaced as a UI state, not an error (the
+exception is strict-mode budgets — see §11.7).
 
 - Badge on envelope cards on the [`EnvelopesPage`](../apps/web/src/pages/space/envelopes/EnvelopesPage.tsx).
 - Drift alerts card on the [`OverviewPage`](../apps/web/src/pages/space/OverviewPage.tsx)
@@ -589,6 +757,40 @@ call: transfer allocation from a healthy partition (`E@B` with positive
 remaining) to the drifting partition (`E@A`). Same envelope, different
 account. The procedure also supports cross-envelope and envelope↔plan
 transfers.
+
+### 8.1 The reckoning — past-month overspends
+
+Once a calendar month closes, this-month drift becomes last-month
+drift. The product's stance is that ignoring it is fine for honest
+users but a one-way ratchet toward fictional budgets, so Orbit
+surfaces every past-month overspend as a **pending reckoning** and
+asks the user to choose how to settle it. The settlement choice is
+recorded so the dashboard banner can clear and so future analytics can
+distinguish silent absorption from active rebalancing.
+
+| Procedure | What it returns / does |
+|---|---|
+| [`reckoning.listPending`](../apps/server/src/procedures/reckoning/listPending.mts) | pending overspends for the caller across the last 90 days: rows of `{envelopeId, periodStart, allocated, consumed, overspend, allowedResolutions}` where allowed resolutions reflect cross-envelope availability and whether the next month exists |
+| [`reckoning.acknowledge`](../apps/server/src/procedures/reckoning/acknowledge.mts) | inserts a `reckoning_acknowledgments` row tagging which resolution the user took (`pulled` / `borrowed` / `absorbed`); the resolution itself is performed by the existing transfer / `envelop.borrowFromNextMonth` / no-op procedures, this is just the bookkeeping |
+| `personal.reckoningListPending` | cross-space view that powers the personal-space reckoning banner |
+
+The reckoning page lives at `/s/:spaceId/reckoning`
+([`ReckoningPage`](../apps/web/src/pages/space/reckoning/ReckoningPage.tsx))
+and is the canonical destination for the banner-link on the overview
+page. Each pending row offers three buttons:
+
+- **Pull cover** — opens the rebalance dialog with the drifting
+  partition pre-selected; uses `allocation.transfer`.
+- **Borrow from next month** — only if the next month exists in
+  the envelope's cadence — fires `envelop.borrowFromNextMonth`
+  (see §11.7) which writes the paired `+amount/−amount` allocation
+  rows sharing a `borrowed_link_id`.
+- **Absorb** — accepts the drift silently; records the
+  acknowledgment with `resolution = 'absorbed'`.
+
+Acknowledgment scope is `(space_id, envelop_id, user_id, period_start)`
+— each user reckons with their own view; co-owners don't block each
+other.
 
 ---
 
@@ -618,11 +820,28 @@ all propagate automatically because metrics are derived from
 `transaction_datetime` and `period_start`, not from a materialized
 snapshot. This is why the `envelop_balances` table was retired.
 
-### 9.3 Carry-over
+### 9.3 Carry policy (replaces the legacy `carry_over` boolean)
 
-When `carry_over = true`, the previous period's clamped-to-≥0 remaining is
-exposed as `carriedIn` on the current period. **Single-step look-back
-only**; multi-month compounding is a known limitation.
+Per migration 035, the boolean `carry_over` is superseded by a
+three-value enum `envelops.carry_policy ∈ ('reset', 'positive_only',
+'both')`:
+
+- **`reset`** — fresh slate; previous period's outcome is ignored.
+- **`positive_only`** — previous period's *surplus* carries forward
+  clamped to ≥ 0; drift forgotten. The behavior most users want by
+  default.
+- **`both`** — previous period's signed remaining carries forward.
+  This is the honest mode: an underspend boosts next month, an
+  overspend cuts into it. Pairs naturally with the reckoning UI for
+  users who'd rather propagate debt than acknowledge it.
+
+The helper exposes both `carriedIn` (signed under `'both'`, clamped
+under `'positive_only'`, zero under `'reset'`) and the period's
+allocated/consumed/remaining. **Single-step look-back only**;
+multi-month compounding is a known limitation. The legacy `carry_over`
+column is still populated alongside `carry_policy` for one release
+cycle in case a pre-deploy server instance runs against the new
+schema — drop in a follow-up migration once that's safe.
 
 ---
 
@@ -769,6 +988,65 @@ or other members' accounts.
 [`resolveTransactionPermission`](../apps/server/src/procedures/transaction/utils/resolveTransactionPermission.mts)
 mirrors this on the server: destination needs only space-member access.
 
+### 11.7 Borrow from next month
+
+Some overspends are timing problems, not budgeting problems — the
+phone bill landed two days early, the household ran out of detergent
+on the 31st. Rather than force the user to pull cover from a
+neighboring envelope (which muddles category accounting) or absorb the
+overspend (which fudges history), Orbit offers a third path:
+**borrow allocation from the same envelope's next period**.
+
+[`envelop.borrowFromNextMonth`](../apps/server/src/procedures/envelop/borrowFromNextMonth.mts)
+writes two paired allocation rows atomically inside a transaction:
+
+- `+amount` in the *current* period (resolving the drift),
+- `−amount` in the *next* period (creating a head-start deficit on that
+  period's allocation).
+
+Both rows share the same `borrowed_link_id` (migration 032) so the UI
+can render "borrowed from May 2026" on the next month's envelope and
+offer an Undo button.
+
+| Procedure | What it does |
+|---|---|
+| `envelop.borrowFromNextMonth` | writes the paired rows; refuses if envelope is `cadence = 'none'` or `archived`; participates in the idempotency-key cache (§3.10) so a double-click doesn't double-borrow |
+| [`envelop.listBorrows`](../apps/server/src/procedures/envelop/listBorrows.mts) | lists the borrows attached to a given envelope+period for the EnvelopeDetailPage |
+| [`envelop.undoBorrow`](../apps/server/src/procedures/envelop/undoBorrow.mts) | deletes both legs by `borrowed_link_id`; refuses if doing so would drive any partition negative |
+
+Borrowing also satisfies the reckoning flow as `resolution =
+'borrowed'` — `reckoning.acknowledge` is called alongside the borrow.
+
+### 11.8 Budget mode (flexible vs. strict)
+
+`spaces.budget_mode` (migration 037) is `'flexible'` (default) or
+`'strict'`. Mode is per-space; owners flip it on the Settings page.
+
+- **`flexible`** — Orbit's default behavior since day one: drift is a
+  display state, the reckoning is offered after the month ends but
+  skippable, transactions always record. Recommended for personal
+  spaces and casual shared spaces.
+- **`strict`** — YNAB-style accountability. Every transaction-creating
+  procedure (`transaction.expense`, `transaction.transfer`,
+  `transaction.adjust`) runs the
+  [`resolveStrictGate`](../apps/server/src/procedures/space/utils/resolveStrictGate.mts)
+  guard, which queries unresolved past-month overspends within the
+  90-day window and throws `PRECONDITION_FAILED` if any exist. The
+  caller must visit the Reckoning page and acknowledge each one before
+  new spend goes through. **Per-user gating** — your own past-month
+  unreckoned overspends block you, not anyone else's.
+
+The strict gate folds transfer-fee categories into the consumed sum so
+a fee-only overspend correctly trips the gate. The 90-day window is
+deliberate: ancient drift shouldn't hold a strict-mode user hostage
+forever.
+
+Strict mode has **no story on the personal space** (`/s/me`) — the
+personal space is a synthesized view, not a real space, and its
+`budget_mode` is not a meaningful concept. The personal space always
+behaves flexibly regardless of what mode the underlying real spaces
+are in.
+
 ---
 
 ## 12. Analytics procedures
@@ -776,20 +1054,65 @@ mirrors this on the server: destination needs only space-member access.
 All under [`apps/server/src/procedures/analytics/`](../apps/server/src/procedures/analytics/)
 and registered in [`routers/analytics.mts`](../apps/server/src/routers/analytics.mts).
 
+**Overview / cash-flow / balances**
+
 | Procedure | What it returns |
 | --- | --- |
 | `spaceSummary` | top-line net worth / spendable / locked / envelope agg / plan agg / signed unallocated / month income+expense+net |
+| `todaySummary` | "today vs typical" snapshot for the Overview hero strip |
 | `cashFlow` | income vs expense bucketed by day/week/month |
-| `categoryBreakdown` | per-category direct + subtree totals via recursive CTE |
-| `envelopeUtilization` | per-envelope totals + `breakdown[]` of per-account partitions (`allocated`, `consumed`, `remaining`, `isDrift`) |
-| `eventTotals` | per-event expense + income totals + tx count |
-| `planProgress` | per-plan allocated + pctComplete + per-account breakdown |
-| `topCategories` | top N categories by spend in the window |
-| `accountDistribution` | per-account balance with color/icon for the assets donut |
-| `accountAllocation` | for one account: envelope partitions + plan partitions + balance/allocated/unallocated (**new**, powers Account detail "Allocations" tab) |
 | `balanceHistory` | bucketed running total-balance over time |
+| `accountBalanceHistory` | same shape, narrowed to one account |
+| `netWorthHistory` | net worth (asset − liability) running total |
+| `cumulativeSpend` | running expense total in the period for the burn-down chart |
 | `spendingHeatmap` | daily expense totals for calendar heatmap |
+| `incomeBreakdown` | sources of income for the period |
+
+**Category / priority / merchants**
+
+| Procedure | What it returns |
+| --- | --- |
+| `categoryBreakdown` | per-category direct + subtree totals via recursive CTE |
+| `topCategories` | top N categories by spend in the window |
+| `topCategoriesByBucket` | top categories per time bucket (used by the period comparison chart) |
+| `topMerchants` | top expense locations/descriptions, derived from `location` and the first-line of `description` |
+| `categoryWoW` | week-over-week per-category deltas |
 | `priorityBreakdown` | expense per priority tier (essential / important / discretionary / luxury / unclassified) for the window. Tier lives on the category (§3.5); descendants inherit from the nearest non-NULL ancestor via a recursive CTE. Transfer principal excluded; transfer fees counted via `fee_expense_category_id` |
+
+**Envelopes / plans / accounts**
+
+| Procedure | What it returns |
+| --- | --- |
+| `envelopeUtilization` | per-envelope totals + `breakdown[]` of per-account partitions (`allocated`, `consumed`, `remaining`, `isDrift`) |
+| `envelopeHistory` | per-envelope allocated vs consumed across recent periods (used by EnvelopeDetailPage trend block) |
+| `envelopeRecentAverages` | trailing-N-period averages used by the envelope card "typical month" line |
+| `unbudgetedTrend` | 90-day breakdown of what drained the unbudgeted pool — income, allocations, plan allocations, **silent overspend absorption** (the surprising one) |
+| `allocations` | flat list of allocations for the AllocationsView |
+| `accountAllocation` | for one account: envelope partitions + plan partitions + balance/allocated/unallocated |
+| `accountDistribution` | per-account balance with color/icon for the assets donut |
+| `planProgress` | per-plan allocated + pctComplete + per-account breakdown |
+
+**Events**
+
+| Procedure | What it returns |
+| --- | --- |
+| `eventTotals` | per-event expense + income totals + tx count |
+| `eventCategoryBreakdown` | per-event spend broken down by category |
+
+**Trends / anomalies / yearly**
+
+| Procedure | What it returns |
+| --- | --- |
+| `trendsDailyComparison` | this-month vs typical day-of-month overlay |
+| `trendsCategoryMovers` | categories whose spend swung most vs trailing average |
+| `trendsYearOverYear` | YoY total comparison |
+| `anomaliesOutliers` | transactions ≥ N stddev above their category's recent mean |
+| `anomaliesRecurring` | inferred recurring expenses (rent, subs) + whether this month's instance has landed |
+| `anomaliesShapeStats` | distribution shape metrics for the anomaly view |
+| `anomaliesStreaks` | consecutive-day spend streaks per category |
+| `anomaliesPatternBreaks` | category-pattern breaks (sudden surge, sudden silence) |
+| `recurring` | confirmed recurring schedule rows powering the upcoming-bills card |
+| `yearReport` | annual roll-up for `/s/:spaceId/year/:year` — month×category matrix + income/expense/net + top categories of the year |
 
 All accept `spaceId` and validate membership before running.
 
@@ -875,24 +1198,52 @@ and the ROUTES constant is in [`router/routes.ts`](../apps/web/src/router/routes
 - `/docs` — **public** product guide ([`DocsPage`](../apps/web/src/pages/DocsPage.tsx)),
   reachable without login. Linked from the auth layout and the user-avatar
   menu.
+- `/invite/:token` — **public** [`AcceptInvitePage`](../apps/web/src/pages/AcceptInvitePage.tsx)
+  so the page can render space metadata pre-auth via `space.inviteInfo`.
+  Guest users are bounced to `/login?from=…` or `/signup?from=…`; both
+  flows thread the `from=` param back to the accept page on success.
+  See §6.6.
 - `/` — `RootRedirect` sends to `/spaces` or `/login`
 - `/spaces` — space picker
-- `/settings/profile`, `/settings/security` — user settings (avatar
-  upload on profile uses the three-step file flow from §11.4)
+- `/settings/profile`, `/settings/security` — user self-service (see
+  §6.7); avatar upload on profile uses the three-step file flow from
+  §11.4
 - `/accounts` — **global My Accounts** (cross-space)
 - `/me` — legacy alias, redirects to `/s/me`
 - `/s/:spaceId` — space overview (handles both real spaces and the
-  virtual `"me"` sentinel; see §6.5 for the virtual-space dispatch)
+  virtual `"me"` sentinel; see §6.5 for the virtual-space dispatch).
+  Pages that depend on real space data (`settings`, `reckoning`,
+  `plan/:month`, `year/:year`) redirect to the overview when
+  `space.isPersonal`.
   - `/accounts`, `/accounts/:accountId` — space accounts (detail has
     **Allocations / Transactions / Shared with / Members / Settings** tabs)
   - `/transactions`, `/envelopes`, `/envelopes/:envelopeId`,
-    `/plans`, `/plans/:planId`, `/categories`, `/events`, `/settings`
-  - `/analytics` — index of 7 sub-views
+    `/plans`, `/plans/:planId`, `/categories`, `/events`,
+    `/events/:eventId`, `/settings`
+  - `/plan/:month` — month-allocation editor
+    ([`PlanMonthPage`](../apps/web/src/pages/space/plan/PlanMonthPage.tsx))
+    for setting the next month's envelope budgets in one screen
+  - `/reckoning` — past-month overspend resolution
+    ([`ReckoningPage`](../apps/web/src/pages/space/reckoning/ReckoningPage.tsx))
+    (see §8.1)
+  - `/year/:year` — annual roll-up
+    ([`YearReportPage`](../apps/web/src/pages/space/year/YearReportPage.tsx))
+    powered by `analytics.yearReport`
+  - `/analytics` — index of analytics sub-views
   - `/analytics/:view` where `view` ∈ `cash-flow | categories |
-    envelopes | balance | accounts | heatmap | allocations`
+    envelopes | balance | accounts | heatmap | allocations | matrix |
+    trends | anomalies | priority`
 
 Guards in [`router/guards/`](../apps/web/src/router/guards/):
-`ProtectedRoute`, `GuestOnlyRoute`, `PublicRoute`.
+`ProtectedRoute`, `GuestOnlyRoute`, `PublicRoute`. Both `LoginPage`
+and `GuestOnlyRoute` apply an open-redirect guard on `?from=`: only
+values starting with `/` and not containing `//` or `\` are honored
+(see §6.7).
+
+The `ROUTES` constant in [`router/routes.ts`](../apps/web/src/router/routes.ts)
+also exports `spacePlanMonth(id, month)`, `spaceReckoning(id)`,
+`spaceYearReport(id, year)`, and `inviteAccept(token)`. **Never
+hardcode paths in components** — use `ROUTES.*`.
 
 ### 13.2 Component catalog (shared building blocks)
 
@@ -1098,6 +1449,34 @@ don't do it.
 17. Dates from tRPC responses are rehydrated (`new Date(resp.field)`)
     before passing to `date-fns`.
 
+**Auth & lifecycle**
+18. Every JWT-minting path (`auth.login`, `auth.signup.complete`,
+    `auth.resetPassword.complete`, `user.changePassword`) embeds the
+    user's current `token_version`. `fetchUserFromJWT` rejects any
+    token whose claim doesn't match the row.
+19. `user.deleteAccount` does **not** hard-delete; it tombstones. The
+    `users.id` row stays so historical authorship FKs remain valid. The
+    tombstone path also revokes pending invites the user issued, drops
+    every `space_members` row, and bumps `token_version` to invalidate
+    every outstanding session.
+20. `space.removeMember` and `space.leave` both revoke pending invites
+    addressed to the (case-insensitively-matched) email of the removed
+    user, so a kicked or self-removed user can't re-enter the space via
+    a stale invite link.
+21. `space.acceptInvite` upserts membership with a **role-upgrade-only**
+    rule — an existing member's role can be raised by accepting a
+    higher-role invite but never demoted.
+22. `?from=` redirect params in `LoginPage`, `GuestOnlyRoute`, and
+    `DetailsStep` are validated to start with `/`, not start with `//`,
+    and not contain `\` before being honored.
+
+**Strict mode**
+23. `transaction.expense`, `transaction.transfer`, `transaction.adjust`
+    all call `resolveStrictGate` before writing. Strict-mode spaces
+    with unresolved past-month overspends (per-user, 90-day window)
+    throw `PRECONDITION_FAILED`. Adding new transaction-creating
+    procedures requires the same guard.
+
 ---
 
 ## 16. Review & testing checklist
@@ -1181,13 +1560,17 @@ Listed here so reviewers don't file phantom bugs against them and
 implementers don't accidentally ship fixes without context.
 
 - **Multi-currency** — all amounts are `numeric(·, 2)` with no currency
-  field. Every account is implicitly the space's default currency. A
-  migration that adds `currency char(3)` on accounts is pending.
+  field. Every account is implicitly the space's default currency. The
+  `wrap` branch prepared the UI by stripping the hard-coded `$` glyph
+  from inputs and labels, but a migration adding `currency char(3)` on
+  accounts and locale-aware formatting at `MoneyDisplay` is still
+  pending.
 - **Weekly / yearly cadence** — schema is ready (just a CHECK widen), but
   the period-math helper only understands `'none' | 'monthly'`. Adding
   weekly requires extending `resolvePeriodWindow`.
 - **Compounding carry-over** — current helper looks back one period. For
-  accurate multi-month rollover, swap to a recursive CTE.
+  accurate multi-month rollover under `carry_policy ∈ ('positive_only',
+  'both')`, swap to a recursive CTE.
 - **Envelope balance table retired** — do **not** reintroduce
   `envelop_balances` / `plan_balances`. If read performance becomes an
   issue, memoize in React Query or add a view, not a materialized
@@ -1195,7 +1578,23 @@ implementers don't accidentally ship fixes without context.
 - **Kysely enum codegen quirk** — `ArrayType<...>` on enum columns forces
   `as unknown as T["col"]` casts. Replacing the codegen or hand-editing
   the types would remove ~40 casts; not yet done.
-- **No soft deletes** — everything is hard delete. Recovery is manual.
+- **Soft delete is users-only** — migration 040 added `users.deleted_at`
+  + token-version invalidation, but every other resource (spaces,
+  envelopes, plans, accounts, transactions, allocations) is still hard
+  delete. Envelopes have an `archived` boolean (migration 033) as a
+  middle ground but it's not the same as a tombstone.
+- **`user.deleteAccount` leaves `user_accounts` ownership behind** — the
+  procedure tombstones the user row and drops `space_members`, but
+  rows in `user_accounts` where the tombstoned user is the sole owner
+  remain. The account is then unmanageable (no live owner). Either
+  pre-flight by requiring the user to add a co-owner / unshare /
+  delete the account before delete, or auto-promote a viewer. Tracked
+  for a follow-up.
+- **Email-change verification** — `user.changeEmail` swaps the address
+  after current-password re-auth, but does not send a verification code
+  to the new address. Signup and password-reset both verify via the
+  existing `email_verification_codes` table; the email-change flow
+  should adopt the same pattern.
 - **No audit log** — `created_by` on transactions + allocations is the
   only trail. A proper audit table is a known future feature.
 - **Light mode** — the palette has a `:root, .dark` combined block; a
@@ -1209,6 +1608,12 @@ implementers don't accidentally ship fixes without context.
   timezone override is not yet implemented.
 - **Testing** — no automated test suite yet. Trigger correctness is
   critical and should get integration tests first.
+- **`envelops.carry_over` legacy column** — kept alongside
+  `carry_policy` for one release cycle (migration 035). A follow-up
+  migration should drop it once no running server reads it.
+- **Splitwise-style per-user splits** — a single shared-space
+  transaction has no per-member split. Tracked here for visibility;
+  requires a `transaction_splits` table or equivalent.
 
 ---
 
@@ -1217,7 +1622,7 @@ implementers don't accidentally ship fixes without context.
 ```
 apps/server/src/
 ├── db/kysely/
-│   ├── migrations/         # all schema history (0001–029)
+│   ├── migrations/         # all schema history (0001–040)
 │   ├── migrator.mts        # applies migrations on pnpm migrate
 │   └── types.mts           # kysely-codegen output — don't hand-edit
 ├── procedures/
@@ -1226,35 +1631,44 @@ apps/server/src/
 │   ├── allocation/
 │   │   ├── transfer.mts    # (envelope|plan, optional account) tuple transfer
 │   │   └── utils/resolveSpaceUnallocated.mts
-│   ├── analytics/          # all read-only read models
+│   ├── analytics/          # all read-only read models (see §12)
 │   ├── auth/               # signup, login, password reset
-│   ├── envelop/
-│   │   ├── create|update|delete|listBySpace.mts
-│   │   ├── createAllocation|deleteAllocation|listAllocationsBySpace.mts
-│   │   └── utils/
-│   │       ├── periodWindow.mts
-│   │       └── resolveEnvelopePeriodBalance.mts
-│   ├── event/              # create, update, delete, listBySpace
+│   ├── envelop/            # create|update|delete|archive|listBySpace,
+│   │                       # createAllocation|deleteAllocation|listAllocationsBySpace,
+│   │                       # borrowFromNextMonth|listBorrows|undoBorrow,
+│   │                       # utils/{periodWindow, resolveEnvelopePeriodBalance}
+│   ├── event/              # create, update, delete, listBySpace, close/reopen
 │   ├── expenseCategory/    # create, update, delete, changeParent, changeEnvelop
 │   ├── file/               # createUploadUrl, confirm, delete, getDownloadUrl,
 │   │                       # attach, listForTransaction, listForEvent,
 │   │                       # removeFromTransaction, shared.mts (limits)
+│   ├── personal/           # cross-space twins of analytics + transaction procedures
+│   │                       # (see §6.5 and §12)
 │   ├── plan/               # mirrors envelop minus cadence
+│   ├── reckoning/          # listPending, acknowledge — past-month overspend flow (§8.1)
 │   ├── space/              # create, update, delete, list, memberList,
-│   │                       # addMembers, removeMember, changeMemberRole
+│   │                       # addMembers, removeMember, changeMemberRole, leave,
+│   │                       # sendInvite, listInvites, revokeInvite,
+│   │                       # inviteInfo (public), acceptInvite (§6.6),
+│   │                       # utils/{resolveSpaceMembership, resolveStrictGate}
 │   ├── transaction/        # income, expense, transfer, adjust, update, delete, list
-│   └── user/               # updateAvatar
+│   └── user/               # updateAvatar, updateProfile, changeEmail,
+│                           # changePassword, deleteAccount (§6.7)
 ├── routers/                # one file per feature, composes procedures
-│                           # (13 routers: auth, space, account, event,
+│                           # (15 routers: auth, space, account, event,
 │                           # envelop, plan, expenseCategory, transaction,
-│                           # allocation, analytics, file, user, health)
+│                           # allocation, analytics, file, user, personal,
+│                           # reckoning, health)
 ├── services/
 │   ├── mail/
 │   │   ├── mailer.mts      # nodemailer transport
 │   │   └── templates/      # React 19 JSX email templates rendered via
 │   │                       # ReactDOMServer.renderToStaticMarkup
+│   │                       # (signup verify, password reset, change-email,
+│   │                       #  SpaceInviteEmail)
 │   └── r2/client.mts       # @aws-sdk/client-s3 client + presigned URL helpers
-├── trpc/                   # context, middlewares (public, authorized)
+├── trpc/                   # context, middlewares (public, authorized), auth.mts
+│                           # (token-version-aware JWT verify)
 ├── bootstrap.mts           # Express + tRPC mount
 └── index.mts               # entry
 
@@ -1262,20 +1676,23 @@ apps/web/src/
 ├── App.tsx, main.tsx
 ├── trpc.ts                 # cross-app type import
 ├── router/
-│   ├── index.tsx, routes.ts, guards/
+│   ├── index.tsx, routes.ts, guards/  # ProtectedRoute, GuestOnlyRoute, PublicRoute
 ├── layouts/                # Root, Auth, AppShell, SpaceLayout
 ├── pages/
+│   ├── AcceptInvitePage.tsx  # public /invite/:token
+│   ├── DocsPage.tsx           # public /docs
 │   ├── auth/               # login, signup steps, forgot-password steps
 │   ├── app/                # space selector, profile, security, MyAccounts
 │   └── space/              # overview, accounts, transactions, envelopes,
-│                           # plans, categories, events, analytics, settings
-├── features/               # composed multi-component flows (accounts, allocations, transactions, spaces)
+│                           # plans, plan/:month, reckoning, year/:year,
+│                           # categories, events, analytics, settings
+├── features/               # composed multi-component flows (accounts, allocations, transactions, spaces, invites)
 ├── components/
 │   ├── ui/                 # shadcn primitives
 │   └── shared/             # Orbit-specific shared pieces
 │                           # (MoneyDisplay, EntityAvatar, UserAvatar,
 │                           # PeriodSelector, Donut, AllocationFlowBar,
-│                           # RoleBadge, ...)
+│                           # RoleBadge, ConfirmDialog, ...)
 ├── hooks/                  # usePeriod, useCurrentSpace, useFileUpload,
 │                           # useSignedUrl, ...
 ├── lib/                    # dates, money, entityStyle, entityIcons,

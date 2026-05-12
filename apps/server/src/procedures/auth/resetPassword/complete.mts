@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import bcrypt from "bcrypt";
+import { sql } from "kysely";
 import { z } from "zod";
 import { CONFIG } from "../../../config/config.mjs";
 import publicProcedure from "../../../trpc/middlewares/public.mjs";
@@ -51,6 +52,10 @@ export const completePasswordReset = publicProcedure
                 .updateTable("users")
                 .set({
                     password_hash: passwordHash,
+                    // Bump so any stolen JWT minted before the reset
+                    // stops working — `fetchUserFromJWT` rejects tokens
+                    // whose tokenVersion doesn't match.
+                    token_version: sql`token_version + 1`,
                 })
                 .where("id", "=", dbUser.id)
                 .execute()

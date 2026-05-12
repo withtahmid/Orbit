@@ -258,7 +258,7 @@ export default function TrendsView() {
             label: `Projected ${noun}`,
             value: projected,
             money: true,
-            sub: `vs $${formatMoneyShort(lastMonthFull)} last ${noun}`,
+            sub: `vs ${formatMoneyShort(lastMonthFull)} last ${noun}`,
         },
     ];
 
@@ -437,12 +437,12 @@ export default function TrendsView() {
                     </CardHeader>
                     <CardContent className="flex flex-col gap-2.5">
                         <VelocityRow
-                            label={`$/day this ${noun}`}
+                            label={`Per day this ${noun}`}
                             value={dailyAvg / BUCKET_DAYS}
                             sub={`Across ${TODAY} ${bucketLabel.toLowerCase()}${TODAY === 1 ? "" : "s"} so far`}
                         />
                         <VelocityRow
-                            label={`$/day last ${noun}`}
+                            label={`Per day last ${noun}`}
                             value={
                                 TODAY > 0
                                     ? lastMonthSoFar / TODAY / BUCKET_DAYS
@@ -453,7 +453,7 @@ export default function TrendsView() {
                         />
                         {cumulative.avg ? (
                             <VelocityRow
-                                label={`$/day typical`}
+                                label={`Per day typical`}
                                 value={typicalDailyAvg}
                                 sub={`Avg across all prior ${noun}s`}
                                 muted
@@ -537,7 +537,7 @@ export default function TrendsView() {
                                                 ) : (
                                                     <ArrowDown className="size-3" />
                                                 )}
-                                                {up ? "+" : "−"}$
+                                                {up ? "+" : "−"}
                                                 {Math.abs(
                                                     m.deltaAmount
                                                 ).toLocaleString("en-US", {
@@ -545,7 +545,7 @@ export default function TrendsView() {
                                                 })}
                                             </span>
                                             <span className="text-[10px] text-muted-foreground tabular-nums">
-                                                ${m.previousTotal.toFixed(0)} → $
+                                                {m.previousTotal.toFixed(0)} →{" "}
                                                 {m.currentTotal.toFixed(0)}
                                             </span>
                                         </div>
@@ -893,7 +893,7 @@ export function CumulativeRaceChart({
                                 whiteSpace: "nowrap",
                             }}
                         >
-                            ${value.toFixed(1)}K
+                            {value.toFixed(1)}K
                         </span>
                     );
                 })}
@@ -990,9 +990,9 @@ function TooltipRow({
             <span className="tabular-nums font-medium">
                 {value === null
                     ? "—"
-                    : `$${value.toLocaleString("en-US", {
+                    : value.toLocaleString("en-US", {
                           maximumFractionDigits: 0,
-                      })}`}
+                      })}
             </span>
         </div>
     );
@@ -1161,7 +1161,7 @@ function YoYBars({
                             whiteSpace: "nowrap",
                         }}
                     >
-                        ${formatCompact(value)}
+                        {formatCompact(value)}
                     </span>
                 );
             })}
@@ -1240,7 +1240,7 @@ function YoyTooltipRow({
                 {label}
             </span>
             <span className="tabular-nums font-medium">
-                ${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                {value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
             </span>
         </div>
     );
@@ -1266,7 +1266,7 @@ function YoyDeltaRow({
         <div className="mt-1 flex items-center justify-between gap-3 border-t border-border/40 pt-1 text-[10.5px]">
             <span className="text-muted-foreground">Δ vs prior</span>
             <span className="tabular-nums font-medium" style={{ color: tone }}>
-                {delta >= 0 ? "+" : "−"}$
+                {delta >= 0 ? "+" : "−"}
                 {Math.abs(delta).toLocaleString("en-US", {
                     maximumFractionDigits: 0,
                 })}
@@ -1278,7 +1278,7 @@ function YoyDeltaRow({
     );
 }
 
-/** Compact number formatter for axis ticks: $4.5K / $1.2M etc. */
+/** Compact number formatter for axis ticks: 4.5K / 1.2M etc. */
 function formatCompact(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -1326,7 +1326,7 @@ function EndpointStat({
                 className="text-[15px] font-semibold tabular-nums"
                 style={{ color }}
             >
-                ${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                {value.toLocaleString("en-US", { maximumFractionDigits: 0 })}
             </span>
         </div>
     );

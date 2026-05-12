@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import {
     ArrowRight,
@@ -21,23 +21,18 @@ import {
     LineChart,
     Eye,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { DEMO_URL } from "@/config/isDemo";
 import { ROUTES } from "@/router/routes";
-import { cn } from "@/lib/utils";
 import { useStore } from "@/stores/useStore";
 import { observer } from "mobx-react-lite";
+import { OrbitLogo } from "@/components/orbit/OrbitLogo";
 
 /**
  * Public product documentation. Accessible without login so prospective
- * users can read about Orbit before signing up. The single-page design +
- * sticky table of contents keeps the surface small — if this grows past
- * ~10 screens, split into /docs/:section routes.
- *
- * Screenshots are placeholders for now. Drop a .png/.webp in
- * `public/docs/<id>.png` and replace the `<ScreenshotPlaceholder />` with
- * `<Screenshot src="/docs/<id>.png" />` at the matching slot.
+ * users can read about Orbit before signing up. Uses the editorial-dark
+ * `orbit-design` system (Newsreader serif titles, jewel-toned surfaces,
+ * od-card / od-btn primitives) so /docs visually matches the landing
+ * page and signed-in app instead of feeling like a separate microsite.
  */
 
 interface Section {
@@ -73,9 +68,6 @@ const DocsPage = observer(function DocsPage() {
     const { authStore } = useStore();
     const [active, setActive] = useState<string>(SECTIONS[0].id);
 
-    // Track which section is visible in the viewport so the TOC can
-    // highlight the current one. IntersectionObserver with a rootMargin
-    // that prefers the top of the viewport.
     useEffect(() => {
         const observer = new IntersectionObserver(
             (entries) => {
@@ -96,83 +88,66 @@ const DocsPage = observer(function DocsPage() {
     const isAuthed = authStore.isAuthenticated;
 
     return (
-        <div className="relative min-h-screen">
-            {/* Ambient gradients — same vibe as AuthLayout so the docs feel
-                like part of the product even though they're public. */}
-            <div
-                aria-hidden
-                className="pointer-events-none absolute -top-40 right-[-10rem] size-[520px] rounded-full blur-3xl"
-                style={{
-                    background: "radial-gradient(closest-side, var(--primary), transparent 70%)",
-                    opacity: 0.2,
-                }}
-            />
-            <div
-                aria-hidden
-                className="pointer-events-none absolute -bottom-40 left-[-10rem] size-[520px] rounded-full blur-3xl"
-                style={{
-                    background: "radial-gradient(closest-side, var(--accent), transparent 70%)",
-                    opacity: 0.18,
-                }}
-            />
+        <div className="orbit-design orbit-docs">
+            <style>{DOCS_STYLES}</style>
 
             <TopBar isAuthed={isAuthed} />
 
-            <div className="relative mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-8 lg:grid-cols-[220px_minmax(0,1fr)] lg:py-16">
-                {/* TOC — sticky on lg+, collapses into inline list on mobile */}
-                <aside className="hidden lg:block">
-                    <nav className="sticky top-24 grid gap-0.5">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                            On this page
-                        </p>
-                        {SECTIONS.map((s) => (
-                            <a
-                                key={s.id}
-                                href={`#${s.id}`}
-                                className={cn(
-                                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                                    active === s.id
-                                        ? "bg-accent text-foreground"
-                                        : "text-muted-foreground hover:text-foreground"
-                                )}
-                            >
-                                <s.icon className="size-3.5 shrink-0" />
-                                <span className="truncate">{s.title}</span>
-                            </a>
-                        ))}
-                    </nav>
-                </aside>
+            <div className="od-page">
+                <Hero isAuthed={isAuthed} />
 
-                <main className="min-w-0">
-                    <Hero isAuthed={isAuthed} />
+                <div className="od-grid">
+                    {/* Sticky TOC — sidebar on lg+, inline summary on mobile */}
+                    <aside className="od-toc-wrap">
+                        <nav className="od-toc">
+                            <span className="eyebrow od-toc-eyebrow">
+                                On this page
+                            </span>
+                            {SECTIONS.map((s) => (
+                                <a
+                                    key={s.id}
+                                    href={`#${s.id}`}
+                                    className={
+                                        "od-toc-link" +
+                                        (active === s.id ? " is-active" : "")
+                                    }
+                                >
+                                    <s.icon className="size-3.5 shrink-0" />
+                                    <span className="truncate">{s.title}</span>
+                                </a>
+                            ))}
+                        </nav>
+                    </aside>
 
-                    <MobileToc />
+                    <main className="od-main">
+                        <MobileToc />
 
-                    <div className="mt-10 grid gap-14">
-                        <LiveDemo />
-                        <Overview />
-                        <Concepts />
-                        <GettingStarted />
-                        <Spaces />
-                        <Accounts />
-                        <Envelopes />
-                        <Plans />
-                        <Categories />
-                        <Transactions />
-                        <Events />
-                        <Attachments />
-                        <Allocations />
-                        <Drift />
-                        <Analytics />
-                        <MyMoney />
-                        <Permissions />
-                        <Profile />
-                        <Timezone />
-                        <Faq />
-                    </div>
+                        <div className="od-sections">
+                            <LiveDemo />
+                            <Overview />
+                            <Concepts />
+                            <GettingStarted />
+                            <Spaces />
+                            <Accounts />
+                            <Envelopes />
+                            <Plans />
+                            <Categories />
+                            <Transactions />
+                            <Events />
+                            <Attachments />
+                            <Allocations />
+                            <Drift />
+                            <Analytics />
+                            <MyMoney />
+                            <Permissions />
+                            <Profile />
+                            <Timezone />
+                            <Faq />
+                        </div>
 
-                    <ClosingCta isAuthed={isAuthed} />
-                </main>
+                        <ClosingCta isAuthed={isAuthed} />
+                    </main>
+                </div>
             </div>
         </div>
     );
@@ -186,75 +161,79 @@ export default DocsPage;
 
 function TopBar({ isAuthed }: { isAuthed: boolean }) {
     return (
-        <header className="sticky top-0 z-20 border-b border-border/60 bg-background/70 backdrop-blur-md">
-            <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-8">
-                <Link to="/" className="text-lg font-bold tracking-tight text-gradient-brand">
-                    Orbit
+        <header className="od-topbar">
+            <Link to={ROUTES.root} className="od-topbar-logo">
+                <OrbitLogo size={22} />
+            </Link>
+            <nav className="od-topbar-nav">
+                <Link to={ROUTES.docs} className="od-topbar-link is-active">
+                    Docs
                 </Link>
-                <nav className="flex items-center gap-2 text-sm">
-                    <Link
-                        to="/docs"
-                        className="rounded-md px-2.5 py-1.5 text-foreground"
-                    >
-                        Docs
+                {isAuthed ? (
+                    <Link to={ROUTES.root} className="od-btn od-btn-primary od-btn-sm">
+                        Open app
+                        <ArrowRight className="size-3.5" />
                     </Link>
-                    {isAuthed ? (
-                        <Button asChild size="sm" variant="gradient">
-                            <Link to={ROUTES.root}>
-                                Open app <ArrowRight />
-                            </Link>
-                        </Button>
-                    ) : (
-                        <>
-                            <Button asChild size="sm" variant="ghost">
-                                <Link to={ROUTES.login}>Log in</Link>
-                            </Button>
-                            <Button asChild size="sm" variant="gradient">
-                                <Link to={ROUTES.signup}>Sign up</Link>
-                            </Button>
-                        </>
-                    )}
-                </nav>
-            </div>
+                ) : (
+                    <>
+                        <Link to={ROUTES.login} className="od-btn od-btn-ghost od-btn-sm">
+                            Log in
+                        </Link>
+                        <Link to={ROUTES.signup} className="od-btn od-btn-primary od-btn-sm">
+                            Sign up
+                            <ArrowRight className="size-3.5" />
+                        </Link>
+                    </>
+                )}
+            </nav>
         </header>
     );
 }
 
 function Hero({ isAuthed }: { isAuthed: boolean }) {
     return (
-        <section className="grid gap-5 py-4">
-            <span className="inline-flex w-fit items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                <Sparkles className="size-3.5" />
+        <section className="od-hero">
+            <span className="od-hero-eyebrow">
+                <Sparkles className="size-3" />
                 Product guide
             </span>
-            <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-                Everything you need to know <br className="hidden sm:block" />
-                about <span className="text-gradient-brand">Orbit</span>
+            <h1 className="serif od-hero-title">
+                Everything you need <br className="hidden sm:block" />
+                to know about{" "}
+                <em
+                    style={{
+                        color: "var(--gold)",
+                        fontStyle: "italic",
+                    }}
+                >
+                    Orbit
+                </em>
+                .
             </h1>
-            <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
-                Orbit is a collaborative personal-finance app for small groups — families,
-                couples, roommates, shared projects. It combines <b>ledger accounting</b>,{" "}
-                <b>envelope budgeting</b>, and <b>goal-based planning</b> into a single
-                coherent ledger. This guide walks through every feature so you can hit the
-                ground running.
+            <p className="od-hero-lede">
+                Orbit is a collaborative personal-finance app for small groups —
+                families, couples, roommates, shared projects. It combines{" "}
+                <strong>ledger accounting</strong>,{" "}
+                <strong>envelope budgeting</strong>, and{" "}
+                <strong>goal-based planning</strong> into a single coherent ledger.
+                This guide walks through every feature so you can hit the ground
+                running.
             </p>
-            <div className="flex flex-wrap gap-2 pt-1">
+            <div className="od-hero-cta">
                 {isAuthed ? (
-                    <Button asChild variant="gradient">
-                        <Link to={ROUTES.root}>
-                            Open my spaces <ArrowRight />
-                        </Link>
-                    </Button>
+                    <Link to={ROUTES.root} className="od-btn od-btn-primary od-btn-lg">
+                        Open my spaces
+                        <ArrowRight className="size-4" />
+                    </Link>
                 ) : (
                     <>
-                        <Button asChild variant="gradient">
-                            <Link to={ROUTES.signup}>
-                                Create an account <ArrowRight />
-                            </Link>
-                        </Button>
-                        <Button asChild variant="outline">
-                            <Link to={ROUTES.login}>I already have one</Link>
-                        </Button>
+                        <Link to={ROUTES.signup} className="od-btn od-btn-primary od-btn-lg">
+                            Create an account
+                            <ArrowRight className="size-4" />
+                        </Link>
+                        <Link to={ROUTES.login} className="od-btn od-btn-lg">
+                            I already have one
+                        </Link>
                     </>
                 )}
             </div>
@@ -264,19 +243,15 @@ function Hero({ isAuthed }: { isAuthed: boolean }) {
 
 function MobileToc() {
     return (
-        <details className="mt-8 rounded-xl border border-border bg-card p-3 lg:hidden">
-            <summary className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
-                <BookOpen className="size-4" />
-                Jump to a section
-                <ChevronRight className="ml-auto size-4 transition-transform [details[open]_&]:rotate-90" />
+        <details className="od-mobile-toc">
+            <summary>
+                <BookOpen className="size-3.5" />
+                <span>Jump to a section</span>
+                <ChevronRight className="size-3.5 ml-auto" />
             </summary>
-            <div className="mt-3 grid grid-cols-1 gap-1 sm:grid-cols-2">
+            <div className="od-mobile-toc-grid">
                 {SECTIONS.map((s) => (
-                    <a
-                        key={s.id}
-                        href={`#${s.id}`}
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
-                    >
+                    <a key={s.id} href={`#${s.id}`} className="od-mobile-toc-link">
                         <s.icon className="size-3.5 shrink-0" />
                         {s.title}
                     </a>
@@ -302,43 +277,35 @@ function SectionHeader({
     icon: React.ComponentType<{ className?: string }>;
 }) {
     return (
-        <div className="grid gap-1.5">
-            {kicker && (
-                <span className="text-xs font-semibold uppercase tracking-wider text-primary">
-                    {kicker}
+        <div className="od-section-head">
+            {kicker && <span className="eyebrow od-section-kicker">{kicker}</span>}
+            <h2 id={id} className="serif od-section-title">
+                <span className="od-section-icon" aria-hidden>
+                    <Icon className="size-4" />
                 </span>
-            )}
-            <h2
-                id={id}
-                className="flex scroll-mt-24 items-center gap-2.5 text-2xl font-bold sm:text-3xl"
-            >
-                <Icon className="size-6 text-primary" />
                 {title}
             </h2>
         </div>
     );
 }
 
-function Paragraph({ children }: { children: React.ReactNode }) {
-    return (
-        <p className="text-[15px] leading-relaxed text-muted-foreground">{children}</p>
-    );
+function Paragraph({ children }: { children: ReactNode }) {
+    return <p className="od-prose">{children}</p>;
 }
 
 function Overview() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="overview" title="What is Orbit?" icon={Sparkles} />
             <Paragraph>
-                Orbit tracks where your money <i>is</i> (accounts), what it's{" "}
+                Orbit tracks where your money <i>is</i> (accounts), what it&apos;s{" "}
                 <i>earmarked for</i> (envelopes &amp; plans), and where it{" "}
-                <i>went</i> (transactions). You and everyone you collaborate with see the
-                same up-to-the-second view of the household finances — no spreadsheets to
-                merge, no "did you pay the internet bill?" in the group chat.
+                <i>went</i> (transactions). You and everyone you collaborate with
+                see the same up-to-the-second view of the household finances — no
+                spreadsheets to merge, no &quot;did you pay the internet bill?&quot;
+                in the group chat.
             </Paragraph>
-            <ScreenshotPlaceholder
-                label="Overview dashboard — balance trend, allocation donut, recent transactions, upcoming events"
-            />
+            <ScreenshotPlaceholder label="Overview dashboard — balance trend, allocation donut, recent transactions, upcoming events" />
             <FeatureGrid
                 items={[
                     {
@@ -364,7 +331,7 @@ function Overview() {
 
 function LiveDemo() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader
                 id="live-demo"
                 title="Live demo (read-only)"
@@ -373,59 +340,48 @@ function LiveDemo() {
             />
             <Paragraph>
                 A fully seeded sandbox runs at{" "}
-                <a
-                    href={DEMO_URL}
-                    className="font-medium text-primary underline-offset-4 hover:underline"
-                >
+                <a href={DEMO_URL} className="od-link">
                     orbit-demo.withtahmid.com
                 </a>
-                . Every screen renders real data — multiple accounts, envelopes, plans,
-                months of transactions, a shared "Janina family" space — so you can
-                explore the product end-to-end without creating anything of your own.
+                . Every screen renders real data — 16 accounts, 30+ envelopes,
+                12 plans, 18 months of transactions, and five collaborating
+                spaces (Family Budget, Personal, Roommates, Side Business,
+                Travel Fund) — so you can explore the product end-to-end without
+                creating anything of your own.
             </Paragraph>
             <Paragraph>
-                The demo is <b>read-only</b>: log in, click around, open every screen
-                and form — nothing you do gets saved. That's by design, so the sandbox
-                stays the same for every visitor.
+                The demo is <strong>read-only</strong>: log in, click around,
+                open every screen and form — nothing you do gets saved.
+                That&apos;s by design, so the sandbox stays the same for every
+                visitor.
             </Paragraph>
 
-            <Card className="border-primary/30 bg-primary/5">
-                <CardContent className="grid gap-3 p-5 sm:p-6">
-                    <div className="flex items-center gap-2">
-                        <Shield className="size-4 text-primary" />
-                        <span className="text-sm font-semibold">Sign-in credentials</span>
-                    </div>
-                    <dl className="grid gap-2 font-mono text-[13px] sm:grid-cols-[auto_1fr] sm:gap-x-6">
-                        <dt className="text-muted-foreground">email</dt>
-                        <dd className="select-all">alex@orbit.dev</dd>
-                        <dt className="text-muted-foreground">password</dt>
-                        <dd className="select-all">password123</dd>
-                    </dl>
-                    <p className="text-sm text-muted-foreground">
-                        Alex is the primary demo user and owns two spaces. To see the app
-                        from a collaborator's perspective, log out and sign in as{" "}
-                        <code className="rounded bg-muted px-1 py-0.5 text-[13px]">
-                            sam@orbit.dev
-                        </code>
-                        ,{" "}
-                        <code className="rounded bg-muted px-1 py-0.5 text-[13px]">
-                            jordan@orbit.dev
-                        </code>
-                        , or{" "}
-                        <code className="rounded bg-muted px-1 py-0.5 text-[13px]">
-                            taylor@orbit.dev
-                        </code>{" "}
-                        — same password.
-                    </p>
-                </CardContent>
-            </Card>
+            <div className="od-card od-demo-card">
+                <div className="od-demo-card-head">
+                    <Shield className="size-4" style={{ color: "var(--brand)" }} />
+                    <span>Sign-in credentials</span>
+                </div>
+                <dl className="od-demo-creds">
+                    <dt>email</dt>
+                    <dd className="mono">alex@orbit.dev</dd>
+                    <dt>password</dt>
+                    <dd className="mono">password123</dd>
+                </dl>
+                <p className="od-prose-sm">
+                    Alex is the primary demo user and owns all five spaces. To see
+                    the app from a collaborator&apos;s perspective, log out and
+                    sign in as <span className="mono od-tag">sam@orbit.dev</span>,{" "}
+                    <span className="mono od-tag">jordan@orbit.dev</span>, or{" "}
+                    <span className="mono od-tag">taylor@orbit.dev</span> — same
+                    password.
+                </p>
+            </div>
 
             <div>
-                <Button asChild variant="gradient">
-                    <a href={DEMO_URL}>
-                        Open the demo <ArrowRight />
-                    </a>
-                </Button>
+                <a href={DEMO_URL} className="od-btn od-btn-primary">
+                    Open the demo
+                    <ArrowRight className="size-3.5" />
+                </a>
             </div>
         </section>
     );
@@ -433,7 +389,7 @@ function LiveDemo() {
 
 function Concepts() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader
                 id="concepts"
                 title="Core concepts, at a glance"
@@ -441,11 +397,13 @@ function Concepts() {
                 icon={BookOpen}
             />
             <Paragraph>
-                Orbit's design priority is <b>correctness → clarity → performance</b>.
-                Almost every number you see is computed on-read, so edits to a transaction
-                or an allocation propagate instantly — no manual reconciliation.
+                Orbit&apos;s design priority is{" "}
+                <strong>correctness → clarity → performance</strong>. Almost
+                every number you see is computed on-read, so edits to a
+                transaction or an allocation propagate instantly — no manual
+                reconciliation.
             </Paragraph>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="od-grid-2">
                 <ConceptCard
                     title="Account"
                     body="A place real money lives: bank account, wallet, credit card, locked deposit."
@@ -468,7 +426,7 @@ function Concepts() {
                 />
                 <ConceptCard
                     title="Allocation"
-                    body="A signed amount that says 'E has X dollars, optionally earmarked from Account A'."
+                    body="A signed amount that says 'envelope E has X earmarked this period'. Allocations live on the envelope — they don't pin to a specific account."
                 />
                 <ConceptCard
                     title="Transaction"
@@ -485,9 +443,13 @@ function Concepts() {
 
 function GettingStarted() {
     return (
-        <section className="grid gap-4">
-            <SectionHeader id="getting-started" title="Getting started" icon={ArrowRight} />
-            <ol className="grid gap-3">
+        <section className="od-section">
+            <SectionHeader
+                id="getting-started"
+                title="Getting started"
+                icon={ArrowRight}
+            />
+            <ol className="od-steps">
                 <StepCard
                     step={1}
                     title="Create an account"
@@ -526,57 +488,88 @@ function GettingStarted() {
 
 function Spaces() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="spaces" title="Spaces & collaboration" icon={Users} />
             <Paragraph>
-                A <b>space</b> is a coherent ledger: transactions, envelopes, plans,
-                categories, and events all belong to exactly one space. Accounts are
-                different — an account can be shared into many spaces (more on this below).
+                A <strong>space</strong> is a coherent ledger: transactions,
+                envelopes, plans, categories, and events all belong to exactly
+                one space. Accounts are different — an account can be shared
+                into many spaces (more on this below).
             </Paragraph>
             <Paragraph>
-                Each space has members with roles. Owners have full control, editors can
-                record transactions and allocate money but can't change membership, viewers
-                are read-only. You can be in as many spaces as you like — use the space
-                picker in the header to jump between them.
+                Each space has members with roles. Owners have full control,
+                editors can record transactions and allocate money but
+                can&apos;t change membership, viewers are read-only. You can be
+                in as many spaces as you like — use the space picker in the
+                header to jump between them.
             </Paragraph>
-            <ScreenshotPlaceholder label="Space picker + space settings" />
+            <CalloutCard title="Invite by email">
+                From <strong>Settings → Members</strong>, an owner or editor
+                enters an email address, picks a role, and sends an invite. The
+                recipient gets a link that resolves at{" "}
+                <span className="mono od-tag">/invite/&lt;token&gt;</span> — they
+                can accept with any Orbit account, not just one matching the
+                invited address. Invites expire in 72 hours; pending ones show
+                up in the same settings tab where any owner/editor can revoke
+                them.
+            </CalloutCard>
+            <CalloutCard title="Budget mode (flexible vs strict)">
+                Every space has a <strong>budget mode</strong> set by its owner.{" "}
+                <strong>Flexible</strong> (default) offers the reckoning when an
+                envelope overspends but lets you skip it — transactions always
+                record. <strong>Strict</strong> blocks new expenses, transfers,
+                and adjustments in the space until every past-month overspend
+                has been reckoned with — YNAB-style accountability. Income still
+                records in either mode so you can replenish what you owe.
+            </CalloutCard>
+            <CalloutCard title="Leaving a space">
+                Any member can self-remove via{" "}
+                <strong>Settings → Danger → Leave space</strong>. The space and
+                its data stay intact for the remaining members. The one refusal:
+                if you&apos;re the sole owner, you have to either transfer
+                ownership to another member or delete the space first.
+            </CalloutCard>
+            <ScreenshotPlaceholder label="Space picker + space settings — members table, pending invites, danger tab" />
         </section>
     );
 }
 
 function Accounts() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="accounts" title="Accounts" icon={Wallet} />
             <Paragraph>
-                Three types: <b>asset</b> (bank, wallet — money you have),{" "}
-                <b>liability</b> (credit card, loan — money you owe),{" "}
-                <b>locked</b> (FDs, DPS — money you can't spend right now but still counts
-                toward net worth). Each account has a color, icon, and balance that's
-                maintained automatically by your transactions.
+                Three types: <strong>asset</strong> (bank, wallet — money you
+                have), <strong>liability</strong> (credit card, loan — money you
+                owe), <strong>locked</strong> (FDs, DPS — money you can&apos;t
+                spend right now but still counts toward net worth). Each account
+                has a color, icon, and balance that&apos;s maintained
+                automatically by your transactions.
             </Paragraph>
             <CalloutCard title="Cross-space account sharing">
-                Got a joint account used by two households? Share it across both spaces.
-                Each space sees the same live balance, but transactions and allocations
-                remain per-space. Go to the account's detail page → <b>Shared with</b> tab
-                to manage.
+                Got a joint account used by two households? Share it across both
+                spaces. Each space sees the same live balance, but transactions
+                and allocations remain per-space. Go to the account&apos;s
+                detail page → <strong>Shared with</strong> tab to manage.
             </CalloutCard>
             <CalloutCard title="Account members — an ACL of its own">
-                Separate from space membership, each account has its own member list
-                (<b>owner</b> / <b>viewer</b>). Owners can edit the account, share it into
-                other spaces, or delete it; viewers can only see it. Manage from the
-                account detail → <b>Members</b> tab. This is what makes "my personal
-                wallet shared into the household space, visible to my partner as a
-                viewer" possible.
+                Separate from space membership, each account has its own member
+                list (<strong>owner</strong> / <strong>viewer</strong>). Owners
+                can edit the account, share it into other spaces, or delete it;
+                viewers can only see it. Manage from the account detail →{" "}
+                <strong>Members</strong> tab. This is what makes &quot;my
+                personal wallet shared into the household space, visible to my
+                partner as a viewer&quot; possible.
             </CalloutCard>
             <ScreenshotPlaceholder label="Account detail tabs: Allocations · Transactions · Shared with · Members · Settings" />
             <Paragraph>
-                The top-level <Link to={ROUTES.myAccounts} className="text-primary underline">
+                The top-level{" "}
+                <Link to={ROUTES.myAccounts} className="od-link">
                     My Accounts
                 </Link>{" "}
-                page shows every account you can access across every space you're in,
-                grouped by asset / liability / locked with links straight into each
-                space's detail view.
+                page shows every account you can access across every space
+                you&apos;re in, grouped by asset / liability / locked with links
+                straight into each space&apos;s detail view.
             </Paragraph>
         </section>
     );
@@ -584,36 +577,38 @@ function Accounts() {
 
 function Envelopes() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="envelopes" title="Envelopes" icon={Mail} />
             <Paragraph>
-                Envelopes are named budget buckets. Pick a cadence — <b>monthly</b> resets
-                on the 1st of each month, <b>none</b> stays open-ended. Allocate money into
-                them from your space's unallocated pool; as you spend money against
-                categories that roll up to an envelope, its remaining balance drops.
+                Envelopes are named budget buckets. Pick a cadence —{" "}
+                <strong>monthly</strong> resets on the 1st of each month,{" "}
+                <strong>none</strong> stays open-ended. Allocate money into them
+                from your space&apos;s unallocated pool; as you spend money
+                against categories that roll up to an envelope, its remaining
+                balance drops.
             </Paragraph>
             <CalloutCard title="Carry policy">
-                Three modes per envelope. <b>Reset</b> wipes the slate each
-                period — useful for "I want a fresh budget every month."{" "}
-                <b>Positive only</b> (the default) carries unspent remainder
-                forward but drops overspend on the floor. <b>Both</b> carries
-                signed: unspent rolls forward as headroom, overspend rolls forward
-                as debt that next period must absorb. Pair "both" with the
-                Reckoning view to settle past-month overspends explicitly instead
-                of letting them stack up silently.
+                Three modes per envelope. <strong>Reset</strong> wipes the slate
+                each period — useful for &quot;I want a fresh budget every
+                month.&quot; <strong>Positive only</strong> (the default)
+                carries unspent remainder forward but drops overspend on the
+                floor. <strong>Both</strong> carries signed: unspent rolls
+                forward as headroom, overspend rolls forward as debt that next
+                period must absorb. Pair &quot;both&quot; with the Reckoning
+                view to settle past-month overspends explicitly instead of
+                letting them stack up silently.
             </CalloutCard>
             <Paragraph>
-                Categories (not envelopes) carry a <b>priority tier</b> —{" "}
-                <i>Essential</i>, <i>Important</i>, <i>Discretionary</i>, or{" "}
+                Categories (not envelopes) carry a <strong>priority tier</strong>{" "}
+                — <i>Essential</i>, <i>Important</i>, <i>Discretionary</i>, or{" "}
                 <i>Luxury</i>. Children without a tier inherit from the nearest
                 ancestor, so you typically tag once at the top-level category
-                and only override leaves where a sub-category genuinely differs
-                (e.g. your standard Groceries roll up to Essential, but a
-                "Premium Imports" leaf is Luxury). The Analytics &rarr; By
-                priority donut rolls this up into a single "what fraction of
-                this month was must-spend vs want-spend?" view.
+                and only override leaves where a sub-category genuinely differs.
+                The Analytics → By priority donut rolls this up into a single
+                &quot;what fraction of this month was must-spend vs
+                want-spend?&quot; view.
             </Paragraph>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="od-grid-2">
                 <InfoCard
                     title="Essential"
                     body="Non-negotiables: rent, utilities, groceries, commute, debt payments. Can't cut without life disruption."
@@ -638,13 +633,14 @@ function Envelopes() {
 
 function Plans() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="plans" title="Plans" icon={Target} />
             <Paragraph>
-                Plans are long-horizon goals. They have no cadence — allocations simply
-                accumulate. Optionally set a target amount and target date; Orbit will
-                show progress and days-remaining. To spend plan money, first transfer the
-                allocation from the plan to an envelope, then record a regular expense.
+                Plans are long-horizon goals. They have no cadence — allocations
+                simply accumulate. Optionally set a target amount and target
+                date; Orbit will show progress and days-remaining. To spend plan
+                money, first transfer the allocation from the plan to an
+                envelope, then record a regular expense.
             </Paragraph>
             <ScreenshotPlaceholder label="Plans page — progress bars, target date countdown" />
         </section>
@@ -653,19 +649,20 @@ function Plans() {
 
 function Categories() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="categories" title="Categories" icon={FolderTree} />
             <Paragraph>
-                Categories are hierarchical labels that route expense transactions to
-                envelopes. Every category belongs to exactly one envelope, and all
-                categories in a subtree share the same envelope — so when you pick{" "}
-                "Restaurants &rarr; Sushi" the whole chain maps cleanly to "Food".
+                Categories are hierarchical labels that route expense
+                transactions to envelopes. Every category belongs to exactly
+                one envelope, and all categories in a subtree share the same
+                envelope — so when you pick &quot;Restaurants → Sushi&quot; the
+                whole chain maps cleanly to &quot;Food&quot;.
             </Paragraph>
             <Paragraph>
-                You can move a category to a different parent (change its place in the
-                tree) or to a different envelope (changes the whole subtree). Both
-                actions are non-destructive — historical transactions keep their category
-                reference.
+                You can move a category to a different parent (change its place
+                in the tree) or to a different envelope (changes the whole
+                subtree). Both actions are non-destructive — historical
+                transactions keep their category reference.
             </Paragraph>
             <ScreenshotPlaceholder label="Categories tree with edit / move-parent / move-envelope actions" />
         </section>
@@ -674,10 +671,14 @@ function Categories() {
 
 function Transactions() {
     return (
-        <section className="grid gap-4">
-            <SectionHeader id="transactions" title="Transactions" icon={ArrowLeftRight} />
+        <section className="od-section">
+            <SectionHeader
+                id="transactions"
+                title="Transactions"
+                icon={ArrowLeftRight}
+            />
             <Paragraph>Four types — each with its own rules:</Paragraph>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="od-grid-2">
                 <TxTypeCard
                     type="Income"
                     body="Money entering a destination account from outside the system. Salary, refunds, gifts."
@@ -696,11 +697,12 @@ function Transactions() {
                 />
             </div>
             <Paragraph>
-                Everything is editable after the fact — click the pencil icon on any row
-                in the Transactions page. Delete-permission is the creator or a space
-                editor/owner. Balance and envelope numbers recompute automatically.
+                Everything is editable after the fact — click the pencil icon on
+                any row in the Transactions page. Delete-permission is the
+                creator or a space editor/owner. Balance and envelope numbers
+                recompute automatically.
             </Paragraph>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="od-grid-2">
                 <InfoCard
                     title="From vs To"
                     body="The 'from' (source) account dropdown only lists accounts you personally own — you can only move your own money out. The 'to' (destination) dropdown lists every account in the space, so you can record income into a shared household pot or transfer money to a roommate's account."
@@ -711,16 +713,16 @@ function Transactions() {
                 />
                 <InfoCard
                     title="Contributing from outside the space"
-                    body="When you transfer money from a personal account (not shared with a space) into that space — e.g. topping up a family pot from your own checking — the space sees it as income for the period, not a mystery balance bump. Internal rebalances (both accounts already in the space) stay neutral. A transfer's fee is the source account's expense, so it only shows up in the space whose accounts actually paid it. You can record the transfer in whichever space makes sense for categorization (e.g. your personal space if you want to keep the sending account private); each space still sees what actually happened to its own accounts."
+                    body="When you transfer money from a personal account (not shared with a space) into that space — e.g. topping up a family pot from your own checking — the space sees it as income for the period, not a mystery balance bump. Internal rebalances (both accounts already in the space) stay neutral. A transfer's fee is the source account's expense, so it only shows up in the space whose accounts actually paid it."
                 />
                 <InfoCard
                     title="Cash flow follows the accounts"
-                    body="Cash flow, period net, balance trend, and the spending heatmap all read from the accounts shared into the space you're viewing. If an account is shared into two spaces, both spaces see every inflow and outflow on that account. An account you didn't share stays private — no info leaks to spaces that can't see it. This is why 'income this month' and the balance trend always agree now: both are derived from real movement on the space's accounts rather than from which space you happened to record a row in."
+                    body="Cash flow, period net, balance trend, and the spending heatmap all read from the accounts shared into the space you're viewing. If an account is shared into two spaces, both spaces see every inflow and outflow on that account. An account you didn't share stays private — no info leaks to spaces that can't see it."
                 />
             </div>
             <Paragraph>
                 You can attach image receipts to any transaction. See{" "}
-                <a href="#attachments" className="text-primary underline">
+                <a href="#attachments" className="od-link">
                     Attachments &amp; receipts
                 </a>{" "}
                 below for how the upload flow works and who can see what.
@@ -732,23 +734,50 @@ function Transactions() {
 
 function Events() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="events" title="Events" icon={CalendarDays} />
             <Paragraph>
-                Events are named time-bound groupings — a wedding, a trip, a renovation.
-                Attach any transaction to an event and later slice the ledger by it to see
-                the full cost and cashflow of the occasion. You can also attach image
-                files directly to an event (tickets, confirmations, photos) — see{" "}
-                <a href="#attachments" className="text-primary underline">Attachments</a>.
+                Events are named time-bound groupings — a wedding, a trip, a
+                renovation. Attach any transaction to an event and later slice
+                the ledger by it to see the full cost and cashflow of the
+                occasion. You can also attach image files directly to an event
+                (tickets, confirmations, photos) — see{" "}
+                <a href="#attachments" className="od-link">
+                    Attachments
+                </a>
+                .
             </Paragraph>
-            <ScreenshotPlaceholder label="Events page — card per event with expense / income / transaction count" />
+            <CalloutCard title="Lifecycle: active vs closed">
+                Every event has a <strong>status</strong>.{" "}
+                <strong>Active</strong> events show up in the
+                transaction-entry event picker; <strong>closed</strong> events
+                disappear from the picker but remain in the events list,
+                analytics, and historical filters. Close an event when the trip
+                is over so the picker stays tidy — you can reopen it later if a
+                late receipt comes in.
+            </CalloutCard>
+            <CalloutCard title="Estimated budget">
+                Optionally set an <strong>estimated amount</strong> on the
+                event. The event detail page tracks total spend vs estimate
+                with an over/under chip, so you can answer &quot;how badly did
+                we blow the wedding budget&quot; without doing arithmetic in
+                your head. Leave it blank for events you&apos;re not tracking
+                against a target.
+            </CalloutCard>
+            <Paragraph>
+                The dedicated <strong>event detail</strong> page shows every
+                transaction tagged to the event in one place, with totals broken
+                down by income / expense and a quick close / reopen toggle in
+                the corner.
+            </Paragraph>
+            <ScreenshotPlaceholder label="Events page — active and closed events with estimate chips; detail page with transaction roll-up" />
         </section>
     );
 }
 
 function Attachments() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader
                 id="attachments"
                 title="Attachments & receipts"
@@ -758,18 +787,27 @@ function Attachments() {
             <Paragraph>
                 Attach images to transactions (receipts) and to events (tickets,
                 confirmations, photos). Uploads go straight from your browser to
-                secure storage, so they don't slow the app down.
+                secure storage, so they don&apos;t slow the app down.
             </Paragraph>
-            <div className="grid gap-3 sm:grid-cols-3">
-                <InfoCard title="Transaction receipts" body="Images up to 10 MB each. Visible to any member of the transaction's space." />
-                <InfoCard title="Event attachments" body="Images up to 10 MB each. Visible to any member of the event's space." />
-                <InfoCard title="Profile avatars" body="Images up to 5 MB. Automatically optimized so they stay crisp at any size." />
+            <div className="od-grid-3">
+                <InfoCard
+                    title="Transaction receipts"
+                    body="Images up to 10 MB each. Visible to any member of the transaction's space."
+                />
+                <InfoCard
+                    title="Event attachments"
+                    body="Images up to 10 MB each. Visible to any member of the event's space."
+                />
+                <InfoCard
+                    title="Profile avatars"
+                    body="Images up to 5 MB. Automatically optimized so they stay crisp at any size."
+                />
             </div>
             <Paragraph>
                 Download links expire after a short window for safety — the app
-                refreshes them every time you view an attachment, so sharing a link
-                outside the app won't leak access. Remove an attachment and the file
-                is deleted straight away.
+                refreshes them every time you view an attachment, so sharing a
+                link outside the app won&apos;t leak access. Remove an
+                attachment and the file is deleted straight away.
             </Paragraph>
             <ScreenshotPlaceholder label="Transaction detail sheet — receipt thumbnails with add / remove controls" />
         </section>
@@ -778,7 +816,7 @@ function Attachments() {
 
 function Allocations() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader
                 id="allocations"
                 title="Envelopes are intent · accounts are the ledger"
@@ -787,9 +825,9 @@ function Allocations() {
             />
             <Paragraph>
                 Two orthogonal questions about your money — and Orbit gives each
-                one its own surface so you don't conflate them:
+                one its own surface so you don&apos;t conflate them:
             </Paragraph>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="od-grid-2">
                 <InfoCard
                     title="What is this money FOR?"
                     body="Answered by envelopes. Allocate, plan, and track intent at the space level — not pinned to any specific account."
@@ -801,19 +839,20 @@ function Allocations() {
             </div>
             <Paragraph>
                 Allocations live on the envelope, not on an account. Plan{" "}
-                <b>$300 for Groceries</b> at the start of the month — the system
-                doesn't care which checking, wallet, or card the actual purchases
-                hit. As the month progresses, transactions tagged to a Groceries
-                category drain that envelope; the accounts independently reflect
-                where the cash actually moved.
+                <strong>300 for Groceries</strong> at the start of the month —
+                the system doesn&apos;t care which checking, wallet, or card the
+                actual purchases hit. As the month progresses, transactions
+                tagged to a Groceries category drain that envelope; the
+                accounts independently reflect where the cash actually moved.
             </Paragraph>
             <Paragraph>
-                The <b>Plan this month</b> page gives you a single screen to set
-                every envelope at once — last month's actual, last month's plan,
-                and a fresh column for this month. The legacy{" "}
-                <b>Allocation matrix</b> view still exists but is reporting-only
-                now; it shows the historical envelope × account grid for
-                reconciliation, not as a flow you have to maintain.
+                The <strong>Plan this month</strong> page gives you a single
+                screen to set every envelope at once — last month&apos;s actual,
+                last month&apos;s plan, and a fresh column for this month. The
+                legacy <strong>Allocation matrix</strong> view still exists but
+                is reporting-only now; it shows the historical envelope ×
+                account grid for reconciliation, not as a flow you have to
+                maintain.
             </Paragraph>
             <ScreenshotPlaceholder label="Plan this month — bulk-edit screen with last actual / last plan / this plan columns" />
         </section>
@@ -822,33 +861,33 @@ function Allocations() {
 
 function Drift() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="drift" title="Overspend & reckoning" icon={Shield} />
             <Paragraph>
-                Envelopes are a <b>planning</b> tool, not a cash partition. When an
-                envelope spends more than it was allocated for the period, you have
-                three honest ways to settle it — pick one when the transaction
-                happens, or settle later in the <b>Reckoning</b> view at the end of
-                the month.
+                Envelopes are a <strong>planning</strong> tool, not a cash
+                partition. When an envelope spends more than it was allocated
+                for the period, you have three honest ways to settle it — pick
+                one when the transaction happens, or settle later in the{" "}
+                <strong>Reckoning</strong> view at the end of the month.
             </Paragraph>
-            <ul className="grid gap-2 sm:grid-cols-3">
-                <li className="text-sm">
-                    <b>Pull from another envelope</b> — move allocation from a
-                    less-pressed envelope to cover the gap.
-                </li>
-                <li className="text-sm">
-                    <b>Borrow from next month</b> — links a +$X / −$X allocation
-                    pair, so next month opens already short and you can't forget.
-                </li>
-                <li className="text-sm">
-                    <b>Absorb it</b> — leave the envelope negative on the record.
-                    The annual <b>Year report</b> remembers.
-                </li>
-            </ul>
+            <div className="od-grid-3">
+                <InfoCard
+                    title="Pull from another envelope"
+                    body="Move allocation from a less-pressed envelope to cover the gap."
+                />
+                <InfoCard
+                    title="Borrow from next month"
+                    body="Links a +X / −X allocation pair, so next month opens already short and you can't forget."
+                />
+                <InfoCard
+                    title="Absorb it"
+                    body="Leave the envelope negative on the record. The annual Year report remembers."
+                />
+            </div>
             <Paragraph>
-                The legacy per-account "drift" concept is retired: envelopes are
-                no longer partitioned by account. The historical Allocation matrix
-                is preserved as a reporting view only.
+                The legacy per-account &quot;drift&quot; concept is retired:
+                envelopes are no longer partitioned by account. The historical
+                Allocation matrix is preserved as a reporting view only.
             </Paragraph>
             <ScreenshotPlaceholder label="Reckoning view + borrow-from-next-month dialog" />
         </section>
@@ -857,75 +896,70 @@ function Drift() {
 
 function Analytics() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="analytics" title="Analytics" icon={BarChart3} />
             <Paragraph>
-                Seven dedicated analytics views, all period-filterable:
+                Eleven dedicated analytics views, all period-filterable:
             </Paragraph>
-            <ul className="grid gap-2 sm:grid-cols-2">
-                <li className="text-sm">
-                    <b>Cash flow</b> — income vs expense by day / week / month
-                </li>
-                <li className="text-sm">
-                    <b>Categories</b> — spend by category with subtree roll-up
-                </li>
-                <li className="text-sm">
-                    <b>Envelopes</b> — utilization + borrow obligations
-                </li>
-                <li className="text-sm">
-                    <b>Balance</b> — running total balance over time
-                </li>
-                <li className="text-sm">
-                    <b>Accounts</b> — distribution donut across accounts
-                </li>
-                <li className="text-sm">
-                    <b>Heatmap</b> — daily expense calendar
-                </li>
-                <li className="text-sm">
-                    <b>Allocations</b> — see at a glance where each envelope's money sits across your accounts
-                </li>
+            <ul className="od-list">
+                <li><strong>Cash flow</strong> — income vs expense by day / week / month</li>
+                <li><strong>Categories</strong> — spend by category with subtree roll-up</li>
+                <li><strong>Envelopes</strong> — utilization + borrow obligations</li>
+                <li><strong>Balance</strong> — running total balance over time</li>
+                <li><strong>Accounts</strong> — distribution donut across accounts</li>
+                <li><strong>Heatmap</strong> — daily expense calendar</li>
+                <li><strong>Allocations</strong> — where each envelope&apos;s money sits across accounts</li>
+                <li><strong>Matrix</strong> — historical envelope × account contributions (reporting-only)</li>
+                <li><strong>Trends</strong> — projection vs prior period, daily burn rate, YoY</li>
+                <li><strong>Anomalies</strong> — recurring-bill changes, category outliers, spending shape</li>
+                <li><strong>By priority</strong> — essential / important / discretionary / luxury split</li>
             </ul>
-            <ScreenshotPlaceholder label="Analytics index with the 7 sub-view cards" />
+            <Paragraph>
+                A standalone <strong>Year report</strong> lives outside the
+                analytics index — a 12-column envelope × month grid showing
+                planned vs spent for every envelope across the year, with the
+                over-allocation total per row.
+            </Paragraph>
+            <ScreenshotPlaceholder label="Analytics index with the 11 sub-view cards" />
         </section>
     );
 }
 
 function MyMoney() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader
                 id="my-money"
                 title="Your money across spaces"
                 icon={LineChart}
             />
             <Paragraph>
-                A Roommates space, an Office one, a Family one — each is its own
-                ledger, which is exactly what you want when you're collaborating.
-                The downside: your own financial picture gets fragmented across
-                three or four spaces. <b>My money</b> fixes that by stitching your
-                personal activity back into one place — except it's not a
-                separate page, it's a <b>virtual space</b> that shows up right
-                alongside your real spaces in the space switcher.
+                A Roommates space, an Office one, a Family one — each is its
+                own ledger, which is exactly what you want when you&apos;re
+                collaborating. The downside: your own financial picture gets
+                fragmented across three or four spaces.{" "}
+                <strong>My money</strong> fixes that by stitching your personal
+                activity back into one place — except it&apos;s not a separate
+                page, it&apos;s a <strong>virtual space</strong> that shows up
+                right alongside your real spaces in the space switcher.
             </Paragraph>
             <Paragraph>
-                The anchor is <b>accounts you personally own</b> — the ones
-                where you're listed as owner in the account's members. Your
-                salary account, your wallet, your savings. Open <b>My money</b>{" "}
-                and you get the same overview, accounts, transactions, and
-                analytics views you'd see in any real space — but unioned
-                across <i>every</i> space you're in, filtered to transactions
-                that touch your owned accounts. Every chart: cash flow,
-                balance history, category breakdown, envelope utilization,
-                account distribution, spending heatmap, allocation map. Every
-                transaction with every filter (type, category, event, space,
-                amount, date, search). Each row tagged with the real space it
-                came from, so you can drill straight back into the shared
-                ledger when you need to.
+                The anchor is{" "}
+                <strong>accounts you personally own</strong> — the ones where
+                you&apos;re listed as owner in the account&apos;s members. Your
+                salary account, your wallet, your savings. Open{" "}
+                <strong>My money</strong> and you get the same overview,
+                accounts, transactions, and analytics views you&apos;d see in
+                any real space — but unioned across <i>every</i> space
+                you&apos;re in, filtered to transactions that touch your owned
+                accounts. Each row is tagged with the real space it came from,
+                so you can drill straight back into the shared ledger when you
+                need to.
             </Paragraph>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="od-grid-2">
                 <InfoCard
                     title="What counts as personal cash flow"
-                    body="Income into an owned account is inflow. Expenses paid from an owned account are outflow. A transfer from your own account into a shared household pot counts as an outflow (you funded the shared pot); the other direction is an inflow. Transfers between two accounts you both own net to zero and are shown as rebalancing, not income or expense."
+                    body="Income into an owned account is inflow. Expenses paid from an owned account are outflow. A transfer from your own account into a shared household pot counts as an outflow (you funded the shared pot); the other direction is an inflow. Transfers between two accounts you both own net to zero."
                 />
                 <InfoCard
                     title="What doesn't show up here"
@@ -935,7 +969,7 @@ function MyMoney() {
             <Paragraph>
                 My money is read-only — every change belongs to a specific real
                 space, so to record something, jump into a real space via the
-                switcher (or click any row's space chip).
+                switcher (or click any row&apos;s space chip).
             </Paragraph>
             <ScreenshotPlaceholder label="My money virtual space — overview, analytics, and transactions unioned across every space you're in" />
         </section>
@@ -944,32 +978,33 @@ function MyMoney() {
 
 function Permissions() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="permissions" title="Roles & permissions" icon={Shield} />
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="od-grid-3">
                 <RoleCard
                     role="Owner"
-                    color="text-[color:var(--income)]"
+                    tone="income"
                     body="Full control. Invite/remove members, change roles, delete the space, plus everything editors and viewers can do."
                 />
                 <RoleCard
                     role="Editor"
-                    color="text-primary"
+                    tone="brand"
                     body="Record transactions, allocate, rebalance, create events. Cannot change membership or envelopes/plans/categories."
                 />
                 <RoleCard
                     role="Viewer"
-                    color="text-muted-foreground"
+                    tone="muted"
                     body="Read-only. See everything, change nothing."
                 />
             </div>
             <Paragraph>
-                Accounts have their own separate ACL (owner / viewer), managed from the
-                account detail → <b>Members</b> tab. Account owners can share the
-                account into spaces, add/remove account members, rename, recolor, and
-                delete; viewers can only see it. Because the account ACL is independent
-                of space membership, you can keep a private wallet visible to you only,
-                even while sharing it into a household space.
+                Accounts have their own separate ACL (owner / viewer), managed
+                from the account detail → <strong>Members</strong> tab. Account
+                owners can share the account into spaces, add/remove account
+                members, rename, recolor, and delete; viewers can only see it.
+                Because the account ACL is independent of space membership, you
+                can keep a private wallet visible to you only, even while
+                sharing it into a household space.
             </Paragraph>
         </section>
     );
@@ -977,34 +1012,49 @@ function Permissions() {
 
 function Profile() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="profile" title="Your profile" icon={UserCircle} />
             <Paragraph>
                 Your profile — name, email, avatar, password — lives in{" "}
-                <b>Settings → Profile</b> and <b>Settings → Security</b>, reachable
-                from the user avatar menu in the top-right corner. Uploading a new
-                avatar replaces your picture everywhere you appear in Orbit (space
+                <strong>Settings → Profile</strong> and{" "}
+                <strong>Settings → Security</strong>, reachable from the user
+                avatar menu in the top-right corner. Uploading a new avatar
+                replaces your picture everywhere you appear in Orbit (space
                 member list, transaction creator tags, account members).
             </Paragraph>
             <Paragraph>
-                Changing your email triggers a verification code to the new address;
-                the change takes effect once the code is confirmed. Password resets
-                follow the same "code to your inbox" flow as signup.
+                <strong>Changing your email</strong> takes effect immediately
+                once you confirm with your current password.{" "}
+                <strong>Changing your password</strong> while signed in: enter
+                current + new, both required. If you&apos;ve forgotten your
+                password, use the <strong>Forgot password</strong> link on the
+                login screen, which sends a 6-digit code to your inbox.
             </Paragraph>
-            <ScreenshotPlaceholder label="Profile settings — avatar uploader + personal info form" />
+            <CalloutCard title="Deleting your account">
+                Settings → Security → <strong>Delete my account</strong>.
+                Confirm by typing <span className="mono od-tag">DELETE</span>{" "}
+                and your current password — the action is irreversible. Your
+                user record, memberships, and personal accounts are erased.
+                The one refusal: if you&apos;re the sole owner of any space,
+                transfer ownership or delete that space first. Spaces with
+                another owner continue to exist without you.
+            </CalloutCard>
+            <ScreenshotPlaceholder label="Profile settings — avatar uploader, name/email forms, password card, delete-account flow" />
         </section>
     );
 }
 
 function Timezone() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="timezone" title="Time & timezone" icon={Clock} />
             <Paragraph>
-                Orbit currently shows all dates in <b>Asia/Dhaka (+06:00)</b> — so
-                "this month", envelope period boundaries, and displayed transaction
-                times are identical for everyone, no matter where they open the app.
-                Per-space timezone customization is on the roadmap.
+                Orbit currently shows all dates in{" "}
+                <strong>Asia/Dhaka (+06:00)</strong> — so &quot;this
+                month&quot;, envelope period boundaries, and displayed
+                transaction times are identical for everyone, no matter where
+                they open the app. Per-space timezone customization is on the
+                roadmap.
             </Paragraph>
         </section>
     );
@@ -1012,9 +1062,9 @@ function Timezone() {
 
 function Faq() {
     return (
-        <section className="grid gap-4">
+        <section className="od-section">
             <SectionHeader id="faq" title="FAQ" icon={HelpCircle} />
-            <div className="grid gap-3">
+            <div className="od-faq-list">
                 <FaqItem
                     q="Is my data private?"
                     a="Yes — each space is isolated. Only members of a space can see its transactions, envelopes, and plans. Accounts have a second permission layer on top of space membership."
@@ -1045,7 +1095,15 @@ function Faq() {
                 />
                 <FaqItem
                     q="Where do I report a bug or request a feature?"
-                    a="Use the support email or the in-app feedback form (coming soon)."
+                    a="Open an issue on the project's GitHub repo, or email the maintainer directly."
+                />
+                <FaqItem
+                    q="How do I invite someone who doesn't have an Orbit account yet?"
+                    a="Same flow — Space settings → Members → Invite by email. They'll get a link that asks them to sign up first, then drops them straight into the space once they confirm their email."
+                />
+                <FaqItem
+                    q="What happens to my data if I leave a space?"
+                    a="Your membership is removed; the space and everything in it (transactions you recorded, allocations you made, events you created) stays with the remaining members. Accounts you own are unshared from the space but still yours."
                 />
             </div>
         </section>
@@ -1054,38 +1112,34 @@ function Faq() {
 
 function ClosingCta({ isAuthed }: { isAuthed: boolean }) {
     return (
-        <section className="mt-16 mb-10 rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 to-transparent p-6 sm:p-10">
-            <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
-                <div className="grid gap-2">
-                    <h2 className="text-2xl font-bold sm:text-3xl">
-                        {isAuthed ? "Jump back in" : "Ready to try Orbit?"}
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                        {isAuthed
-                            ? "Open your spaces and keep the ledger up to date."
-                            : "Create an account, set up your first space, and start tracking in under five minutes."}
-                    </p>
-                </div>
-                <div className="flex gap-2">
-                    {isAuthed ? (
-                        <Button asChild variant="gradient" size="lg">
-                            <Link to={ROUTES.root}>
-                                Open app <ArrowRight />
-                            </Link>
-                        </Button>
-                    ) : (
-                        <>
-                            <Button asChild variant="outline" size="lg">
-                                <Link to={ROUTES.login}>Log in</Link>
-                            </Button>
-                            <Button asChild variant="gradient" size="lg">
-                                <Link to={ROUTES.signup}>
-                                    Sign up free <ArrowRight />
-                                </Link>
-                            </Button>
-                        </>
-                    )}
-                </div>
+        <section className="od-card od-closing vignette">
+            <div className="od-closing-text">
+                <h2 className="serif od-closing-title">
+                    {isAuthed ? "Jump back in" : "Ready to try Orbit?"}
+                </h2>
+                <p className="od-prose">
+                    {isAuthed
+                        ? "Open your spaces and keep the ledger up to date."
+                        : "Create an account, set up your first space, and start tracking in under five minutes."}
+                </p>
+            </div>
+            <div className="od-closing-cta">
+                {isAuthed ? (
+                    <Link to={ROUTES.root} className="od-btn od-btn-primary od-btn-lg">
+                        Open app
+                        <ArrowRight className="size-4" />
+                    </Link>
+                ) : (
+                    <>
+                        <Link to={ROUTES.login} className="od-btn od-btn-lg">
+                            Log in
+                        </Link>
+                        <Link to={ROUTES.signup} className="od-btn od-btn-primary od-btn-lg">
+                            Sign up free
+                            <ArrowRight className="size-4" />
+                        </Link>
+                    </>
+                )}
             </div>
         </section>
     );
@@ -1095,12 +1149,6 @@ function ClosingCta({ isAuthed }: { isAuthed: boolean }) {
 /*  Reusable bits                                                   */
 /* ---------------------------------------------------------------- */
 
-/**
- * Screenshot placeholder. Renders a real <img> pointing at an SVG mock of
- * the Orbit UI in `public/docs/`. To replace with a real screenshot:
- * drop `<section-id>.png` (or `.webp`) into `apps/web/public/docs/` and
- * pass `src="/docs/<section-id>.png"` on the usage.
- */
 function ScreenshotPlaceholder({
     label,
     src = "/docs/placeholder.svg",
@@ -1109,17 +1157,11 @@ function ScreenshotPlaceholder({
     src?: string;
 }) {
     return (
-        <figure className="group relative aspect-[16/9] w-full overflow-hidden rounded-xl border border-border bg-card/40">
-            <img
-                src={src}
-                alt={label}
-                loading="lazy"
-                decoding="async"
-                className="absolute inset-0 h-full w-full object-cover"
-            />
-            <figcaption className="absolute inset-x-0 bottom-0 flex items-center gap-2 border-t border-border/60 bg-background/80 px-4 py-2 backdrop-blur-sm">
-                <BookOpen className="size-3.5 shrink-0 text-primary" />
-                <span className="truncate text-xs text-muted-foreground">{label}</span>
+        <figure className="od-shot">
+            <img src={src} alt={label} loading="lazy" decoding="async" />
+            <figcaption>
+                <BookOpen className="size-3.5 shrink-0" style={{ color: "var(--brand)" }} />
+                <span>{label}</span>
             </figcaption>
         </figure>
     );
@@ -1135,17 +1177,15 @@ function FeatureGrid({
     }>;
 }) {
     return (
-        <div className="mt-2 grid gap-3 sm:grid-cols-3">
+        <div className="od-grid-3 od-feature-grid">
             {items.map((it) => (
-                <Card key={it.title} className="border-border/60">
-                    <CardContent className="grid gap-2 p-5">
-                        <div className="inline-flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                            <it.icon className="size-4" />
-                        </div>
-                        <h3 className="font-semibold">{it.title}</h3>
-                        <p className="text-xs text-muted-foreground">{it.body}</p>
-                    </CardContent>
-                </Card>
+                <div key={it.title} className="od-card od-feature-card">
+                    <span className="od-feature-icon" aria-hidden>
+                        <it.icon className="size-4" />
+                    </span>
+                    <h3 className="od-feature-title">{it.title}</h3>
+                    <p className="od-prose-sm">{it.body}</p>
+                </div>
             ))}
         </div>
     );
@@ -1153,12 +1193,10 @@ function FeatureGrid({
 
 function ConceptCard({ title, body }: { title: string; body: string }) {
     return (
-        <Card className="border-border/60">
-            <CardContent className="grid gap-1 p-4">
-                <p className="font-semibold">{title}</p>
-                <p className="text-xs text-muted-foreground">{body}</p>
-            </CardContent>
-        </Card>
+        <div className="od-card od-concept-card">
+            <p className="od-concept-title">{title}</p>
+            <p className="od-prose-sm">{body}</p>
+        </div>
     );
 }
 
@@ -1172,17 +1210,13 @@ function StepCard({
     body: string;
 }) {
     return (
-        <Card className="border-border/60">
-            <CardContent className="flex gap-4 p-4">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
-                    {step}
-                </div>
-                <div className="grid gap-1">
-                    <p className="font-semibold">{title}</p>
-                    <p className="text-sm text-muted-foreground">{body}</p>
-                </div>
-            </CardContent>
-        </Card>
+        <li className="od-card od-step">
+            <span className="od-step-num">{step}</span>
+            <div>
+                <p className="od-step-title">{title}</p>
+                <p className="od-prose-sm">{body}</p>
+            </div>
+        </li>
     );
 }
 
@@ -1191,67 +1225,636 @@ function CalloutCard({
     children,
 }: {
     title: string;
-    children: React.ReactNode;
+    children: ReactNode;
 }) {
     return (
-        <Card className="border-primary/30 bg-primary/5">
-            <CardContent className="grid gap-1 p-4">
-                <p className="text-sm font-semibold text-primary">{title}</p>
-                <p className="text-sm text-muted-foreground">{children}</p>
-            </CardContent>
-        </Card>
+        <div className="od-card od-callout">
+            <p className="od-callout-title">{title}</p>
+            <p className="od-callout-body">{children}</p>
+        </div>
     );
 }
 
 function TxTypeCard({ type, body }: { type: string; body: string }) {
     return (
-        <Card className="border-border/60">
-            <CardContent className="grid gap-1 p-4">
-                <p className="font-semibold">{type}</p>
-                <p className="text-sm text-muted-foreground">{body}</p>
-            </CardContent>
-        </Card>
+        <div className="od-card od-info-card">
+            <p className="od-info-title">{type}</p>
+            <p className="od-prose-sm">{body}</p>
+        </div>
     );
 }
 
 function InfoCard({ title, body }: { title: string; body: string }) {
     return (
-        <Card className="border-border/60">
-            <CardContent className="grid gap-1 p-4">
-                <p className="font-semibold">{title}</p>
-                <p className="text-sm text-muted-foreground">{body}</p>
-            </CardContent>
-        </Card>
+        <div className="od-card od-info-card">
+            <p className="od-info-title">{title}</p>
+            <p className="od-prose-sm">{body}</p>
+        </div>
     );
 }
 
 function RoleCard({
     role,
-    color,
+    tone,
     body,
 }: {
     role: string;
-    color: string;
+    tone: "income" | "brand" | "muted";
     body: string;
 }) {
+    const color =
+        tone === "income"
+            ? "var(--income)"
+            : tone === "brand"
+              ? "var(--brand)"
+              : "var(--fg-3)";
     return (
-        <Card className="border-border/60">
-            <CardContent className="grid gap-1 p-4">
-                <p className={cn("font-semibold", color)}>{role}</p>
-                <p className="text-xs text-muted-foreground">{body}</p>
-            </CardContent>
-        </Card>
+        <div className="od-card od-role-card">
+            <p className="od-role-title" style={{ color }}>
+                {role}
+            </p>
+            <p className="od-prose-sm">{body}</p>
+        </div>
     );
 }
 
 function FaqItem({ q, a }: { q: string; a: string }) {
     return (
-        <details className="group rounded-xl border border-border bg-card p-4">
-            <summary className="flex cursor-pointer items-center gap-2 font-medium">
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" />
-                {q}
+        <details className="od-card od-faq">
+            <summary>
+                <ChevronRight className="size-4 shrink-0" />
+                <span>{q}</span>
             </summary>
-            <p className="mt-2 pl-6 text-sm text-muted-foreground">{a}</p>
+            <p>{a}</p>
         </details>
     );
 }
+
+/* ---------------------------------------------------------------- */
+/*  Scoped styles                                                   */
+/* ---------------------------------------------------------------- */
+
+const DOCS_STYLES = `
+.orbit-docs {
+    min-height: 100dvh;
+    background: var(--bg);
+    color: var(--fg);
+    --od-px: clamp(20px, 5vw, 64px);
+}
+
+/* Top bar */
+.orbit-docs .od-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px var(--od-px);
+    background: color-mix(in oklab, var(--bg) 90%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line-soft);
+}
+.orbit-docs .od-topbar-logo {
+    display: inline-flex;
+    text-decoration: none;
+    color: inherit;
+}
+.orbit-docs .od-topbar-nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.orbit-docs .od-topbar-link {
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--fg-2);
+    text-decoration: none;
+    transition: color 140ms ease, background 140ms ease;
+}
+.orbit-docs .od-topbar-link:hover { color: var(--fg); background: var(--bg-elev-2); }
+.orbit-docs .od-topbar-link.is-active { color: var(--fg); }
+
+/* Bump topbar CTAs to a 44px tap target on touch viewports — the shared
+   .od-btn-sm height (30px) is below the WCAG minimum, but only matters
+   here where the topbar is the primary entry point on mobile. */
+@media (max-width: 640px) {
+    .orbit-docs .od-topbar .od-btn-sm {
+        height: 44px;
+        padding: 0 14px;
+        font-size: 13px;
+    }
+    .orbit-docs .od-topbar-link {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+    }
+}
+
+/* Page container */
+.orbit-docs .od-page {
+    position: relative;
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: clamp(2rem, 5vh, 4rem) var(--od-px) 6rem;
+}
+.orbit-docs .od-page::before,
+.orbit-docs .od-page::after {
+    content: "";
+    position: absolute;
+    inset: auto;
+    pointer-events: none;
+    z-index: 0;
+    width: 520px;
+    height: 520px;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.22;
+}
+.orbit-docs .od-page::before {
+    top: -80px;
+    right: -120px;
+    background: radial-gradient(closest-side, var(--brand), transparent 70%);
+}
+.orbit-docs .od-page::after {
+    bottom: -120px;
+    left: -120px;
+    background: radial-gradient(closest-side, var(--gold), transparent 70%);
+    opacity: 0.16;
+}
+.orbit-docs .od-page > * { position: relative; z-index: 1; }
+
+/* Hero */
+.orbit-docs .od-hero {
+    display: grid;
+    gap: 16px;
+    padding: 8px 0 32px;
+    max-width: 760px;
+}
+.orbit-docs .od-hero-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--brand) 35%, var(--line));
+    background: var(--brand-soft);
+    color: var(--brand);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    width: fit-content;
+    text-transform: uppercase;
+}
+.orbit-docs .od-hero-title {
+    font-size: clamp(2.5rem, 5.5vw, 4.25rem);
+    line-height: 1.02;
+    font-weight: 400;
+    letter-spacing: -0.025em;
+    color: var(--fg);
+}
+.orbit-docs .od-hero-lede {
+    font-size: clamp(1rem, 1.2vw, 1.125rem);
+    line-height: 1.65;
+    color: var(--fg-2);
+    max-width: 64ch;
+}
+.orbit-docs .od-hero-lede strong { color: var(--fg); font-weight: 500; }
+.orbit-docs .od-hero-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+/* Grid: TOC + main */
+.orbit-docs .od-grid {
+    display: grid;
+    gap: clamp(1.5rem, 3vw, 2.5rem);
+    grid-template-columns: 1fr;
+    margin-top: 24px;
+}
+@media (min-width: 1024px) {
+    .orbit-docs .od-grid {
+        grid-template-columns: 220px minmax(0, 1fr);
+    }
+}
+
+/* TOC */
+.orbit-docs .od-toc-wrap { display: none; }
+@media (min-width: 1024px) {
+    .orbit-docs .od-toc-wrap { display: block; }
+}
+.orbit-docs .od-toc {
+    position: sticky;
+    top: 88px;
+    display: grid;
+    gap: 2px;
+}
+.orbit-docs .od-toc-eyebrow {
+    margin-bottom: 8px;
+    color: var(--fg-4);
+}
+.orbit-docs .od-toc-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--fg-3);
+    text-decoration: none;
+    transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+    border-left: 1px solid transparent;
+}
+.orbit-docs .od-toc-link:hover { color: var(--fg); }
+.orbit-docs .od-toc-link.is-active {
+    color: var(--fg);
+    background: var(--bg-elev-1);
+    border-left-color: var(--brand);
+}
+
+/* Mobile TOC */
+.orbit-docs .od-mobile-toc {
+    margin-bottom: 24px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--bg-elev-1);
+    padding: 12px 14px;
+}
+@media (min-width: 1024px) {
+    .orbit-docs .od-mobile-toc { display: none; }
+}
+.orbit-docs .od-mobile-toc summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+    list-style: none;
+}
+.orbit-docs .od-mobile-toc summary::-webkit-details-marker { display: none; }
+.orbit-docs .od-mobile-toc[open] summary svg:last-child { transform: rotate(90deg); }
+.orbit-docs .od-mobile-toc summary svg:last-child { transition: transform 160ms; }
+.orbit-docs .od-mobile-toc-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2px;
+    margin-top: 12px;
+}
+@media (min-width: 480px) {
+    .orbit-docs .od-mobile-toc-grid { grid-template-columns: 1fr 1fr; }
+}
+.orbit-docs .od-mobile-toc-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    color: var(--fg-3);
+    text-decoration: none;
+}
+.orbit-docs .od-mobile-toc-link:hover { color: var(--fg); background: var(--bg-elev-2); }
+
+/* Main column + sections */
+.orbit-docs .od-main { min-width: 0; }
+.orbit-docs .od-sections {
+    display: grid;
+    gap: clamp(2.5rem, 5vw, 4rem);
+}
+.orbit-docs .od-section {
+    display: grid;
+    gap: 14px;
+}
+.orbit-docs .od-section-head {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 2px;
+}
+.orbit-docs .od-section-kicker { color: var(--brand); }
+.orbit-docs .od-section-title {
+    scroll-margin-top: 96px;
+    font-size: clamp(1.5rem, 2.5vw, 2rem);
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.orbit-docs .od-section-icon {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Prose */
+.orbit-docs .od-prose {
+    font-size: 14.5px;
+    line-height: 1.7;
+    color: var(--fg-2);
+}
+.orbit-docs .od-prose strong { color: var(--fg); font-weight: 500; }
+.orbit-docs .od-prose i { color: var(--fg); }
+.orbit-docs .od-prose-sm {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--fg-3);
+}
+.orbit-docs .od-prose-sm strong { color: var(--fg-2); font-weight: 500; }
+.orbit-docs .od-link {
+    color: var(--brand);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in oklab, var(--brand) 40%, transparent);
+    transition: border-color 140ms ease;
+}
+.orbit-docs .od-link:hover { border-bottom-color: var(--brand); }
+
+/* List */
+.orbit-docs .od-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px 24px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+    font-size: 13.5px;
+    color: var(--fg-2);
+}
+@media (min-width: 640px) {
+    .orbit-docs .od-list { grid-template-columns: 1fr 1fr; }
+}
+.orbit-docs .od-list li {
+    position: relative;
+    padding-left: 16px;
+    line-height: 1.55;
+}
+.orbit-docs .od-list li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 9px;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--brand);
+    opacity: 0.7;
+}
+.orbit-docs .od-list strong { color: var(--fg); font-weight: 500; }
+
+/* Card grids */
+.orbit-docs .od-grid-2 { display: grid; gap: 10px; grid-template-columns: 1fr; }
+.orbit-docs .od-grid-3 { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@media (min-width: 640px) {
+    .orbit-docs .od-grid-2 { grid-template-columns: 1fr 1fr; }
+    .orbit-docs .od-grid-3 { grid-template-columns: 1fr 1fr; }
+}
+@media (min-width: 900px) {
+    .orbit-docs .od-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+}
+
+/* Concept / Info / TxType cards (same shape) */
+.orbit-docs .od-concept-card,
+.orbit-docs .od-info-card,
+.orbit-docs .od-role-card {
+    padding: 14px 16px;
+    display: grid;
+    gap: 6px;
+    transition: border-color 140ms ease, transform 140ms ease;
+}
+.orbit-docs .od-concept-card:hover,
+.orbit-docs .od-info-card:hover,
+.orbit-docs .od-role-card:hover {
+    border-color: var(--line-strong);
+}
+.orbit-docs .od-concept-title,
+.orbit-docs .od-info-title {
+    font-weight: 600;
+    color: var(--fg);
+    font-size: 13.5px;
+}
+.orbit-docs .od-role-title {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+/* Feature grid */
+.orbit-docs .od-feature-grid { margin-top: 4px; }
+.orbit-docs .od-feature-card {
+    padding: 18px;
+    display: grid;
+    gap: 10px;
+}
+.orbit-docs .od-feature-icon {
+    display: inline-flex;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--brand-soft);
+    color: var(--brand);
+    align-items: center;
+    justify-content: center;
+}
+.orbit-docs .od-feature-title {
+    font-weight: 600;
+    color: var(--fg);
+    font-size: 14px;
+}
+
+/* Steps */
+.orbit-docs .od-steps {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 10px;
+}
+.orbit-docs .od-step {
+    padding: 14px 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+}
+.orbit-docs .od-step-num {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--brand-soft);
+    color: var(--brand);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    font-family: "Newsreader", Georgia, serif;
+}
+.orbit-docs .od-step-title {
+    font-weight: 600;
+    color: var(--fg);
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+/* Callout card — brand-tinted */
+.orbit-docs .od-callout {
+    padding: 16px 18px;
+    border-color: color-mix(in oklab, var(--brand) 30%, var(--line));
+    background:
+        linear-gradient(180deg, var(--brand-soft) 0%, transparent 80%),
+        var(--bg-elev-1);
+}
+.orbit-docs .od-callout-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--brand);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.orbit-docs .od-callout-body {
+    font-size: 14px;
+    line-height: 1.65;
+    color: var(--fg-2);
+}
+.orbit-docs .od-callout-body strong { color: var(--fg); font-weight: 500; }
+
+/* Inline tag (mono code-ish) */
+.orbit-docs .od-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--bg-elev-3);
+    color: var(--fg);
+    font-size: 12px;
+    border: 1px solid var(--line-soft);
+}
+
+/* Demo card */
+.orbit-docs .od-demo-card {
+    padding: 18px 20px;
+    border-color: color-mix(in oklab, var(--brand) 30%, var(--line));
+    display: grid;
+    gap: 12px;
+}
+.orbit-docs .od-demo-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg);
+}
+.orbit-docs .od-demo-creds {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 24px;
+    font-size: 13px;
+    margin: 0;
+}
+.orbit-docs .od-demo-creds dt { color: var(--fg-3); }
+.orbit-docs .od-demo-creds dd { color: var(--fg); margin: 0; user-select: all; }
+
+/* Screenshot */
+.orbit-docs .od-shot {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: var(--bg-elev-2);
+    margin: 0;
+}
+.orbit-docs .od-shot img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.orbit-docs .od-shot figcaption {
+    position: absolute;
+    inset: auto 0 0 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: color-mix(in oklab, var(--bg) 80%, transparent);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-top: 1px solid var(--line-soft);
+    font-size: 11.5px;
+    color: var(--fg-3);
+}
+
+/* FAQ */
+.orbit-docs .od-faq-list { display: grid; gap: 8px; }
+.orbit-docs .od-faq {
+    padding: 14px 16px;
+    transition: border-color 140ms ease;
+}
+.orbit-docs .od-faq:hover { border-color: var(--line-strong); }
+.orbit-docs .od-faq summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg);
+    list-style: none;
+}
+.orbit-docs .od-faq summary::-webkit-details-marker { display: none; }
+.orbit-docs .od-faq summary svg { color: var(--fg-3); transition: transform 160ms; }
+.orbit-docs .od-faq[open] summary svg { transform: rotate(90deg); color: var(--brand); }
+.orbit-docs .od-faq p {
+    margin-top: 10px;
+    padding-left: 26px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--fg-2);
+}
+
+/* Closing CTA */
+.orbit-docs .od-closing {
+    margin-top: 64px;
+    padding: clamp(24px, 4vw, 40px);
+    display: grid;
+    gap: 20px;
+    border-color: color-mix(in oklab, var(--brand) 30%, var(--line));
+    background:
+        linear-gradient(135deg, var(--brand-soft) 0%, transparent 60%),
+        var(--bg-elev-1);
+}
+@media (min-width: 768px) {
+    .orbit-docs .od-closing {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 32px;
+    }
+}
+.orbit-docs .od-closing-text { display: grid; gap: 8px; }
+.orbit-docs .od-closing-title {
+    font-size: clamp(1.5rem, 2.5vw, 2rem);
+    font-weight: 500;
+    color: var(--fg);
+    letter-spacing: -0.015em;
+}
+.orbit-docs .od-closing-cta {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+`;

@@ -184,7 +184,7 @@ export function EnvelopeMoveDialog({
                             </span>
                             {sourceRemaining !== null && (
                                 <span className="emv-pill-meta">
-                                    ${sourceRemaining.toFixed(2)} left
+                                    {sourceRemaining.toFixed(2)} left
                                 </span>
                             )}
                         </div>
@@ -224,7 +224,7 @@ export function EnvelopeMoveDialog({
                                                     {d.name}
                                                 </span>
                                                 <span className="emv-opt-meta">
-                                                    ${d.remaining.toFixed(2)}{" "}
+                                                    {d.remaining.toFixed(2)}{" "}
                                                     left
                                                 </span>
                                             </span>
@@ -258,10 +258,10 @@ export function EnvelopeMoveDialog({
                                 }}
                             >
                                 {overSource
-                                    ? `Exceeds ${sourceEnvelopeName}'s remaining ($${sourceRemaining.toFixed(
+                                    ? `Exceeds ${sourceEnvelopeName}'s remaining (${sourceRemaining.toFixed(
                                           2
                                       )}). Reduce the amount or pick a different source.`
-                                    : `Max: $${sourceRemaining.toFixed(
+                                    : `Max: ${sourceRemaining.toFixed(
                                           2
                                       )} (${sourceEnvelopeName}'s remaining)`}
                             </p>
