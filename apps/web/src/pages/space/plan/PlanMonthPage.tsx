@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Save, ArrowLeft } from "lucide-react";
+import { ChevronLeft, ChevronRight, Save, ArrowLeft, Unlock, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
@@ -98,15 +98,21 @@ export default function PlanMonthPage() {
     })();
     const isCurrentMonth = monthOrdinal === nowOrdinal;
     const isPast = monthOrdinal < nowOrdinal;
-    // Past months are review-only. Editing them silently rewrites history:
-    // changes "spent vs allocated" charts retroactively, and for carry-over
-    // envelopes can shift this month's `carryIn` because that's derived
-    // from the previous period's remaining. Lock the inputs to avoid the
-    // foot-gun. The current and future months remain editable.
+    const [unlocked, setUnlocked] = useState(false);
+    const isLocked = isPast && !unlocked;
+    // Past months are review-only by default. Editing them silently rewrites
+    // history: changes "spent vs allocated" charts retroactively, and for
+    // carry-over envelopes can shift this month's `carryIn` because that's
+    // derived from the previous period's remaining. Lock the inputs to avoid
+    // the foot-gun. The current and future months remain editable.
+    //
+    // The user can explicitly opt out of the lock via the unlock button —
+    // see the lock banner below. `isLocked` is the single source of truth
+    // downstream; `isPast` continues to govern review-vs-planning copy.
 
     // Envelopes filtered to monthly cadence — the start-of-month ritual is
     // for repeating monthly buckets. Rolling envelopes (cadence='none') are
-    // accumulators and don't reset.
+    // lifetime pools and live on the Envelopes page instead.
     //
     // Archived envelopes: excluded from current/future planning (you can't
     // allocate to them anyway — server blocks it). Past-month review keeps
@@ -142,6 +148,7 @@ export default function PlanMonthPage() {
         // up fresh data and hydrates again.
         setHydrated(false);
         setDrafts({});
+        setUnlocked(false);
     }, [monthKey]);
 
     useEffect(() => {
@@ -244,12 +251,18 @@ export default function PlanMonthPage() {
                         <ArrowLeft className="size-3.5" /> Envelopes
                     </Link>
                     <h1 className="display plan-title">
-                        {isPast ? `Review ${monthLabel}` : `Plan ${monthLabel}`}
+                        {isLocked
+                            ? `Review ${monthLabel}`
+                            : isPast
+                              ? `Reconcile ${monthLabel}`
+                              : `Plan ${monthLabel}`}
                     </h1>
                     <p className="plan-sub">
-                        {isPast
+                        {isLocked
                             ? "Past month — view only. Editing settled allocations would rewrite history and shift carry-over."
-                            : "Set what you intend to spend on each envelope. The whole month in one screen."}
+                            : isPast
+                              ? "Reconciliation mode. Saving overwrites this month's plan and shifts carry-over into every later month."
+                              : "Set what you intend to spend on each envelope. The whole month in one screen."}
                     </p>
                 </div>
                 <div className="plan-topbar-actions">
@@ -297,8 +310,21 @@ export default function PlanMonthPage() {
                         })}{" "}
                         <ChevronRight className="size-3.5" />
                     </Link>
-                    {isPast ? (
-                        <span className="plan-readonly-badge">View only</span>
+                    {isLocked ? (
+                        <>
+                            <span className="plan-readonly-badge">View only</span>
+                            {envelopes.length > 0 && (
+                                <button
+                                    type="button"
+                                    className="od-btn"
+                                    onClick={() => setUnlocked(true)}
+                                    title="Edit allocations for this past month"
+                                >
+                                    <Unlock className="size-3.5" aria-hidden />
+                                    Reconcile
+                                </button>
+                            )}
+                        </>
                     ) : (
                         <button
                             type="button"
@@ -306,20 +332,54 @@ export default function PlanMonthPage() {
                             onClick={onSave}
                             disabled={saving || !hydrated}
                         >
-                            <Save className="size-3.5" />
-                            {saving ? "Saving…" : "Save plan"}
+                            <Save className="size-3.5" aria-hidden />
+                            {saving
+                                ? "Saving…"
+                                : isPast && unlocked
+                                  ? "Save reconciliation"
+                                  : "Save plan"}
                         </button>
                     )}
                 </div>
             </header>
 
             <div className="plan-scroll">
+                {isPast && unlocked && (
+                    <div
+                        className="plan-reconcile-strip"
+                        role="note"
+                        aria-label="Reconciliation mode warning"
+                    >
+                        <AlertTriangle className="size-3.5" aria-hidden />
+                        <span>
+                            <strong>Reconciliation mode.</strong> Saving
+                            overwrites this month's plan and shifts carry-over
+                            into every later month, including the current one.
+                        </span>
+                        <button
+                            type="button"
+                            className="plan-reconcile-cancel"
+                            onClick={() => {
+                                // Leave reconcile mode and force the hydrate
+                                // effect to repopulate drafts from current
+                                // server state. Don't clear drafts directly —
+                                // a `setDrafts({})` here silently destroys
+                                // the user's typed values; the rehydrate path
+                                // resets them cleanly without that surprise.
+                                setUnlocked(false);
+                                setHydrated(false);
+                            }}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
                 {/* Summary */}
                 <div className="od-card plan-summary">
                     <SummaryStat
-                        label={isPast ? "Was planned" : "Total planned"}
+                        label={isLocked ? "Was planned" : "Total planned"}
                         value={
-                            isPast
+                            isLocked
                                 ? envelopes.reduce(
                                       (s, e) => s + e.allocated + e.carryIn,
                                       0
@@ -364,22 +424,43 @@ export default function PlanMonthPage() {
                                         value={totalSpent}
                                         sub="actual transactions in this period"
                                     />
-                                    <SummaryStat
-                                        label={
-                                            totalRem < 0
-                                                ? "Over plan"
-                                                : "Under plan"
-                                        }
-                                        value={Math.abs(totalRem)}
-                                        tone={
-                                            totalRem < 0 ? "expense" : "income"
-                                        }
-                                        sub={
-                                            totalRem < 0
-                                                ? "spent more than planned"
-                                                : "spent less than planned"
-                                        }
-                                    />
+                                    {isLocked ? (
+                                        <SummaryStat
+                                            label={
+                                                totalRem < 0
+                                                    ? "Over plan"
+                                                    : "Under plan"
+                                            }
+                                            value={Math.abs(totalRem)}
+                                            tone={
+                                                totalRem < 0
+                                                    ? "expense"
+                                                    : "income"
+                                            }
+                                            sub={
+                                                totalRem < 0
+                                                    ? "spent more than planned"
+                                                    : "spent less than planned"
+                                            }
+                                        />
+                                    ) : (
+                                        <SummaryStat
+                                            label="Net change"
+                                            value={Math.abs(netChange)}
+                                            tone={
+                                                netChange > 0
+                                                    ? "expense"
+                                                    : "income"
+                                            }
+                                            sub={
+                                                netChange > 0
+                                                    ? "more planned than before"
+                                                    : netChange < 0
+                                                      ? "less planned than before"
+                                                      : "no change yet"
+                                            }
+                                        />
+                                    )}
                                 </>
                             );
                         })()}
@@ -387,10 +468,9 @@ export default function PlanMonthPage() {
                         <>
                             <SummaryStat
                                 label="Last month spent"
-                                value={Array.from(prevById.values()).reduce(
-                                    (s, e) => s + e.consumed,
-                                    0
-                                )}
+                                value={Array.from(prevById.values())
+                                    .filter((e) => e.cadence === "monthly")
+                                    .reduce((s, e) => s + e.consumed, 0)}
                                 sub="for reference"
                             />
                             <SummaryStat
@@ -421,7 +501,11 @@ export default function PlanMonthPage() {
                     <div className="od-card plan-list">
                         <div className="plan-list-head">
                             <span>Envelope</span>
-                            <span>{prevMonthLabel} actual</span>
+                            <span>
+                                {isPast && unlocked
+                                    ? `${monthLabel.split(" ")[0]} actual`
+                                    : `${prevMonthLabel} actual`}
+                            </span>
                             <span>{monthLabel.split(" ")[0]} plan</span>
                         </div>
                         {envelopes.map((e) => {
@@ -437,7 +521,13 @@ export default function PlanMonthPage() {
                                         recent?.avg3MonthSpend ?? 0
                                     }
                                     value={drafts[e.envelopId] ?? ""}
-                                    readOnly={isPast}
+                                    readOnly={isLocked}
+                                    reconcileMode={isPast && unlocked}
+                                    midLabel={
+                                        isPast && unlocked
+                                            ? monthLabel.split(" ")[0]
+                                            : prevMonthLabel
+                                    }
                                     onChange={(v) =>
                                         setDrafts((d) => ({
                                             ...d,
@@ -495,6 +585,8 @@ function PlanRow({
     avg3MonthSpend,
     value,
     readOnly,
+    reconcileMode,
+    midLabel,
     onChange,
 }: {
     env: EnvRow;
@@ -503,8 +595,16 @@ function PlanRow({
     avg3MonthSpend: number;
     value: string;
     readOnly?: boolean;
+    reconcileMode?: boolean;
+    midLabel: string;
     onChange: (v: string) => void;
 }) {
+    // In reconciliation mode the middle column compares against THIS period's
+    // actuals (the thing the user is back-allocating against) rather than the
+    // prior period's reference numbers.
+    const midConsumed = reconcileMode ? env.consumed : prevConsumed;
+    const midAllocated = reconcileMode ? env.allocated : prevAllocated;
+    const midSubSuffix = reconcileMode ? "allocated" : "planned";
     const target = Number(value) || 0;
     const delta = target - env.allocated;
     const planned = env.allocated + env.carryIn;
@@ -526,21 +626,13 @@ function PlanRow({
                 <div>
                     <div className="plan-row-title">{env.name}</div>
                     <div className="plan-row-meta">
-                        {readOnly
-                            ? `Spent this period: ${env.consumed.toLocaleString(
-                                  "en-US",
-                                  {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                  }
-                              )}`
-                            : `Already spent this period: ${env.consumed.toLocaleString(
-                                  "en-US",
-                                  {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                  }
-                              )}`}
+                        {`Spent this period: ${env.consumed.toLocaleString(
+                            "en-US",
+                            {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            }
+                        )}`}
                     </div>
                     {(env.borrowedIn > 0 || env.borrowedOut > 0) && (
                         <div className="plan-row-borrow">
@@ -578,20 +670,26 @@ function PlanRow({
                 </div>
             </div>
             <div className="plan-row-prev">
+                <span
+                    className="plan-row-prev-mobile-label"
+                    aria-hidden
+                >
+                    {midLabel} actual
+                </span>
                 <span className="plan-row-prev-amt">
-                    {prevConsumed.toLocaleString("en-US", {
+                    {midConsumed.toLocaleString("en-US", {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 0,
                     })}
                 </span>
                 <span className="plan-row-prev-sub">
                     of{" "}
-                    {prevAllocated.toLocaleString("en-US", {
+                    {midAllocated.toLocaleString("en-US", {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 0,
                     })}{" "}
-                    planned
-                    {avg3MonthSpend > 0 && (
+                    {midSubSuffix}
+                    {avg3MonthSpend > 0 && !reconcileMode && (
                         <>
                             {" · "}
                             <span style={{ color: "var(--fg-3)" }}>
@@ -720,6 +818,8 @@ const PLAN_STYLES = `
 }
 @media (max-width: 720px) {
     .plan-topbar { padding: 16px 18px 12px; }
+    .plan-title { font-size: 20px; }
+    .plan-topbar-actions { flex-wrap: wrap; }
 }
 
 .plan-scroll {
@@ -853,6 +953,9 @@ const PLAN_STYLES = `
     font-size: 11px;
     color: var(--fg-4);
 }
+.plan-row-prev-mobile-label {
+    display: none;
+}
 .plan-row-input-wrap {
     display: inline-flex;
     align-items: center;
@@ -893,8 +996,17 @@ const PLAN_STYLES = `
     }
     .plan-row-prev {
         flex-direction: row;
+        flex-wrap: wrap;
         gap: 6px;
         align-items: baseline;
+    }
+    .plan-row-prev-mobile-label {
+        display: inline-block;
+        flex-basis: 100%;
+        font-size: 10.5px;
+        color: var(--fg-4);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
 }
 
@@ -919,6 +1031,71 @@ const PLAN_STYLES = `
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+}
+
+.plan-reconcile-strip {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: color-mix(in oklab, var(--expense) 10%, var(--bg-elev-1));
+    border: 1px solid color-mix(in oklab, var(--expense) 28%, var(--line));
+    color: var(--fg-2);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+.plan-reconcile-strip strong {
+    color: var(--fg);
+    font-weight: 600;
+}
+.plan-reconcile-strip > :first-child {
+    flex-shrink: 0;
+    color: var(--expense);
+}
+.plan-reconcile-strip > span {
+    flex: 1;
+    min-width: 0;
+}
+.plan-reconcile-cancel {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--fg-2);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.plan-reconcile-cancel:hover {
+    color: var(--fg);
+    border-color: var(--line-strong, var(--line));
+}
+.plan-reconcile-cancel:focus-visible {
+    outline: 2px solid var(--brand, var(--fg));
+    outline-offset: 2px;
+}
+@media (max-width: 720px) {
+    .plan-reconcile-strip {
+        flex-wrap: wrap;
+        align-items: flex-start;
+    }
+    .plan-reconcile-strip > :first-child {
+        align-self: flex-start;
+        line-height: 1.45;
+    }
+    .plan-reconcile-strip > span {
+        flex: 1 1 calc(100% - 28px);
+        min-width: 0;
+    }
+    .plan-reconcile-cancel {
+        margin-left: auto;
+        order: 3;
+        min-height: 36px;
+    }
+    .plan-readonly-badge {
+        display: none;
+    }
 }
 
 .plan-row-readonly {

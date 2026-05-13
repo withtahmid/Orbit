@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
     FolderTree,
     Plus,
@@ -54,7 +54,7 @@ import {
     OrbitInfoPill,
 } from "@/components/orbit/OrbitForm";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
-import { Folder, Layers, Lock, Check } from "lucide-react";
+import { Folder, Layers, Check } from "lucide-react";
 import { usePeriod } from "@/hooks/usePeriod";
 import { trpc } from "@/trpc";
 import { useInvalidateAnalytics } from "@/lib/invalidate";
@@ -129,6 +129,7 @@ interface EnvelopeLite {
     name: string;
     color: string;
     icon: string;
+    archived: boolean;
 }
 
 function buildTree(flat: CategoryUsage[]): CategoryNode[] {
@@ -969,28 +970,42 @@ function CreateCategoryDialog({
     });
 
     const parentCategory = parentId ? categories.find((c) => c.id === parentId) : null;
-    const effectiveEnvelopId = parentCategory
-        ? parentCategory.default_envelop_id
-        : envelopId;
-    const inheritedEnvelope = parentCategory
-        ? envelopes.find((e) => e.id === parentCategory.default_envelop_id)
+    // Server rejects archived envelopes; filter them out of the picker
+    // so the user can't pick one to begin with.
+    const activeEnvelopes = useMemo(
+        () => envelopes.filter((e) => !e.archived),
+        [envelopes]
+    );
+    const parentEnvelope = parentCategory
+        ? activeEnvelopes.find((e) => e.id === parentCategory.default_envelop_id)
         : null;
+    // Pre-fill the envelope when a parent is selected (acting as a sensible
+    // default), but keep the field editable — the user can override. If
+    // the parent's default points at an archived envelope, leave the field
+    // empty so the user explicitly picks an active one.
+    useEffect(() => {
+        if (!parentCategory) return;
+        if (parentEnvelope) setEnvelopId(parentEnvelope.id);
+        else setEnvelopId("");
+    }, [parentCategory, parentEnvelope]);
+    const envelopeInheritedFromParent =
+        parentEnvelope != null && envelopId === parentEnvelope.id;
 
     const submit = () => {
         if (create.isPending) return;
         if (!name.trim()) return;
-        if (!effectiveEnvelopId) {
+        if (!envelopId) {
             toast.error("Pick an envelope");
             return;
         }
-        if (envelopes.length === 0) {
+        if (activeEnvelopes.length === 0) {
             toast.error("Create an envelope first");
             return;
         }
         create.mutate({
             spaceId: space.id,
             name: name.trim(),
-            envelopId: effectiveEnvelopId,
+            envelopId,
             parentId: parentId || undefined,
             color,
             icon,
@@ -1032,7 +1047,7 @@ function CreateCategoryDialog({
                                 type="button"
                                 className="orbit-btn orbit-btn-primary"
                                 disabled={
-                                    !name.trim() || !effectiveEnvelopId || create.isPending
+                                    !name.trim() || !envelopId || create.isPending
                                 }
                                 onClick={submit}
                             >
@@ -1112,45 +1127,28 @@ function CreateCategoryDialog({
                                 label="Envelope"
                                 hint={
                                     parentCategory
-                                        ? "Inherited from parent"
-                                        : "Required for top-level categories"
+                                        ? parentEnvelope
+                                            ? envelopeInheritedFromParent
+                                                ? `Default from ${parentCategory.name} — change to override`
+                                                : "Overriding parent's default"
+                                            : `Parent's envelope is archived — pick another`
+                                        : "Required"
                                 }
-                                required={!parentCategory}
+                                required
                             >
-                                {parentCategory && inheritedEnvelope ? (
-                                    <div className="cat-mod-locked">
-                                        <Lock className="size-3" />
-                                        <span
-                                            className="cat-mod-env-chip"
-                                            style={{
-                                                background: `color-mix(in oklab, ${inheritedEnvelope.color} 12%, transparent)`,
-                                                borderColor: `color-mix(in oklab, ${inheritedEnvelope.color} 30%, transparent)`,
-                                                color: inheritedEnvelope.color,
-                                            }}
-                                        >
-                                            <Layers className="size-2.5" />
-                                            {inheritedEnvelope.name}
-                                        </span>
-                                        <span className="cat-mod-locked-hint">
-                                            · inherited from{" "}
-                                            <em>{parentCategory.name}</em>
-                                        </span>
-                                    </div>
-                                ) : (
-                                    <OrbitSelect
-                                        value={envelopId}
-                                        onValueChange={setEnvelopId}
-                                        items={envelopes.map((e) => ({
-                                            value: e.id,
-                                            label: e.name,
-                                            leadIcon: <Layers className="size-3.5" />,
-                                            leadColor: e.color || "var(--ent-2)",
-                                        }))}
-                                        placeholder="Choose envelope"
-                                        leadIcon={<Layers className="size-3.5" />}
-                                        leadColor="var(--ent-2)"
-                                    />
-                                )}
+                                <OrbitSelect
+                                    value={envelopId}
+                                    onValueChange={setEnvelopId}
+                                    items={activeEnvelopes.map((e) => ({
+                                        value: e.id,
+                                        label: e.name,
+                                        leadIcon: <Layers className="size-3.5" />,
+                                        leadColor: e.color || "var(--ent-2)",
+                                    }))}
+                                    placeholder="Choose envelope"
+                                    leadIcon={<Layers className="size-3.5" />}
+                                    leadColor="var(--ent-2)"
+                                />
                             </OrbitField>
 
                             <OrbitField

@@ -77,7 +77,7 @@ export default function EventsPage() {
     );
 
     const sorted = useMemo(
-        () => [...visibleEvents].sort((a, b) => a.startTime.getTime() - b.startTime.getTime()),
+        () => [...visibleEvents].sort((a, b) => b.startTime.getTime() - a.startTime.getTime()),
         [visibleEvents]
     );
 
@@ -262,7 +262,10 @@ function EventCard({
     const calendarState = eventCalendarState(e.startTime, e.endTime, now);
     const closed = e.status === "closed";
     const net = e.incomeTotal - e.expenseTotal;
-    const lifecycleTone = closed ? "var(--fg-3)" : "var(--brand)";
+    // For the lifecycle chip we use a brighter foreground for closed
+    // events than the generic muted gray, so the chip stays legible
+    // even after the parent's 0.72 opacity multiplies through.
+    const lifecycleTone = closed ? "var(--fg-2)" : "var(--brand)";
     const hasEstimate = e.estimatedAmount !== null && e.estimatedAmount > 0;
     const pct = hasEstimate
         ? (e.expenseTotal / (e.estimatedAmount as number)) * 100
@@ -274,7 +277,12 @@ function EventCard({
     return (
         <div
             className="od-card ev-card"
-            style={{ opacity: closed ? 0.85 : 1 }}
+            style={{
+                // Dim closed cards but leave color saturation alone — the
+                // EntityAvatar is the card's primary identity cue and
+                // desaturating it removes the per-event color recognition.
+                opacity: closed ? 0.72 : 1,
+            }}
         >
             <div className="ev-card-head">
                 <span className="ev-card-name">
@@ -295,8 +303,11 @@ function EventCard({
                     className="ev-card-state"
                     style={{
                         color: lifecycleTone,
+                        background: closed
+                            ? "color-mix(in oklab, var(--fg-3) 14%, transparent)"
+                            : "color-mix(in oklab, var(--brand) 12%, transparent)",
                         borderColor: closed
-                            ? "var(--line)"
+                            ? "color-mix(in oklab, var(--fg-3) 22%, transparent)"
                             : "color-mix(in oklab, var(--brand) 30%, transparent)",
                     }}
                 >

@@ -5,3 +5,5 @@
 - [Trend cur/prev rule for category trees](trend_subtree.md) — Parent rows display `subtree_spent` but the leaf `spent_total` is what flows into trend math. Anywhere both exist, choose one consistently for cur AND prev.
 - [Currency display correctness](currency_display.md) — Branch `wrap` strips hardcoded `$` from all views. Residual literal `$` in `.tsx` views post-merge is likely a missed-edit bug.
 - [Period preset boundaries](period_presets.md) — "Last month" relative to "this month" should be calendar-month-aligned, not span-subtracted. CategoriesPage does span subtraction.
+- [Envelope carryIn semantics](envelope_carryin_semantics.md) — `allocated` vs `allocated + carryIn` is "plan" vs "pool"; "Under plan" companion stat dictates which is shown.
+- [APP_TZ month helpers](apptz_month_helpers.md) — past/current/future classification must use `getAppTzYear/Month` + `makeAppTzDate` or it drifts for non-Dhaka users.
