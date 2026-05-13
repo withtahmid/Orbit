@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
@@ -8,25 +8,18 @@ import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { PeriodChip } from "@/components/shared/PeriodChip";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
-import { trpc } from "@/trpc";
+import { trpc, type RouterOutput } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { usePeriod } from "@/hooks/usePeriod";
 import { ROUTES } from "@/router/routes";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/money";
 
-type Envelope = {
-    envelopId: string;
-    name: string;
-    color: string;
-    icon: string;
-    cadence: "none" | "monthly";
-    allocated: number;
-    consumed: number;
-    remaining: number;
-    borrowedIn?: number;
-    borrowedOut?: number;
-    /** Present in the personal-space variant of the query. */
+// Inherits every field the server actually returns (incl. `archived`,
+// `carryIn`, `borrowedIn/Out`) so the page never drifts from the
+// procedure shape. The optional `spaceId` is only present on the
+// personal-space variant of the query.
+type Envelope = RouterOutput["analytics"]["envelopeUtilization"][number] & {
     spaceId?: string;
 };
 
@@ -54,6 +47,17 @@ export default function EnvelopesView() {
         () => (q.data ?? []) as Envelope[],
         [q.data]
     );
+    // Split active vs archived — archived envelopes sit under a
+    // collapsible section so the main view stays focused on live state.
+    const activeEnvelopes = useMemo(
+        () => envelopes.filter((e) => !e.archived),
+        [envelopes]
+    );
+    const archivedEnvelopes = useMemo(
+        () => envelopes.filter((e) => e.archived),
+        [envelopes]
+    );
+    const [showArchived, setShowArchived] = useState(false);
 
     const summary = useMemo(() => {
         let allocated = 0;
@@ -61,10 +65,15 @@ export default function EnvelopesView() {
         let overCount = 0;
         let borrowedInTotal = 0;
         let borrowedOutCount = 0;
-        for (const e of envelopes) {
+        for (const e of activeEnvelopes) {
             allocated += e.allocated;
             consumed += e.consumed;
-            if (e.allocated > 0 && e.consumed > e.allocated) overCount++;
+            // Over only fires when this-period spending exceeded the
+            // period pool (allocated + positive carry). Carry-debt alone
+            // doesn't count.
+            const cap = e.allocated + Math.max(0, e.carryIn ?? 0);
+            if (cap > 0 && e.consumed > cap) overCount++;
+            else if (cap === 0 && e.consumed > 0) overCount++;
             if ((e.borrowedIn ?? 0) > 0) borrowedInTotal += e.borrowedIn ?? 0;
             if ((e.borrowedOut ?? 0) > 0) borrowedOutCount++;
         }
@@ -78,23 +87,25 @@ export default function EnvelopesView() {
             borrowedOutCount,
             utilization,
         };
-    }, [envelopes]);
+    }, [activeEnvelopes]);
 
     const sorted = useMemo(() => {
-        return [...envelopes].sort((a, b) => {
-            const pa = a.allocated > 0 ? a.consumed / a.allocated : 0;
-            const pb = b.allocated > 0 ? b.consumed / b.allocated : 0;
+        return [...activeEnvelopes].sort((a, b) => {
+            const ca = a.allocated + Math.max(0, a.carryIn ?? 0);
+            const cb = b.allocated + Math.max(0, b.carryIn ?? 0);
+            const pa = ca > 0 ? a.consumed / ca : 0;
+            const pb = cb > 0 ? b.consumed / cb : 0;
             return pb - pa;
         });
-    }, [envelopes]);
+    }, [activeEnvelopes]);
 
     const kpiItems: KpiItem[] = [
         {
             label: "Allocated",
             value: summary.allocated,
             money: true,
-            sub: `Across ${envelopes.length} envelope${
-                envelopes.length === 1 ? "" : "s"
+            sub: `Across ${activeEnvelopes.length} envelope${
+                activeEnvelopes.length === 1 ? "" : "s"
             }`,
         },
         {
@@ -109,7 +120,7 @@ export default function EnvelopesView() {
             value: summary.overCount,
             valueFormat: "integer",
             tone: summary.overCount > 0 ? "expense" : "neutral",
-            sub: `of ${envelopes.length} envelopes`,
+            sub: `of ${activeEnvelopes.length} envelopes`,
         },
         {
             label: "Borrowed in",
@@ -126,7 +137,7 @@ export default function EnvelopesView() {
     return (
         <AnalyticsDetailLayout
             title="Envelope utilization"
-            description="How much of each envelope you've used. Bars exceeding 100% are over budget — overflow shown to the right of the cap."
+            description="How much of each envelope is left. Bars drain as you spend; envelopes you've overspent appear red with the overage to the right of the cap."
             actions={<PeriodChip />}
         >
             <KpiStrip items={kpiItems} isLoading={q.isLoading} />
@@ -144,7 +155,7 @@ export default function EnvelopesView() {
                     </div>
                 ) : sorted.length === 0 ? (
                     <p className="px-6 pb-6 text-sm text-muted-foreground">
-                        No envelopes yet.
+                        No active envelopes.
                     </p>
                 ) : (
                     <div className="flex flex-col">
@@ -164,6 +175,52 @@ export default function EnvelopesView() {
                 )}
             </Card>
 
+            {archivedEnvelopes.length > 0 && (
+                <Card className="overflow-hidden p-0">
+                    <button
+                        type="button"
+                        onClick={() => setShowArchived((v) => !v)}
+                        aria-expanded={showArchived}
+                        aria-controls="envelopes-archived-list"
+                        className="flex w-full items-center gap-2 px-6 py-4 text-left transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    >
+                        {showArchived ? (
+                            <ChevronDown className="size-3.5 text-muted-foreground" />
+                        ) : (
+                            <ChevronRight className="size-3.5 text-muted-foreground" />
+                        )}
+                        <span className="text-[13px] font-medium">
+                            Archived
+                        </span>
+                        <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[10.5px] text-muted-foreground">
+                            {archivedEnvelopes.length}
+                        </span>
+                        <span className="ml-auto text-[11px] text-muted-foreground">
+                            {showArchived ? "Hide" : "Show"}
+                        </span>
+                    </button>
+                    {showArchived && (
+                        <div
+                            id="envelopes-archived-list"
+                            className="flex flex-col border-t border-border/60 opacity-70 transition-opacity hover:opacity-100"
+                        >
+                            {archivedEnvelopes.map((e, i) => (
+                                <EnvelopeRow
+                                    key={e.envelopId}
+                                    envelope={e}
+                                    spaceIdForLink={
+                                        space.isPersonal && e.spaceId
+                                            ? e.spaceId
+                                            : space.id
+                                    }
+                                    first={i === 0}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </Card>
+            )}
+
         </AnalyticsDetailLayout>
     );
 }
@@ -179,12 +236,22 @@ function EnvelopeRow({
 }) {
     const allocated = envelope.allocated;
     const consumed = envelope.consumed;
-    const rawPct = allocated > 0 ? consumed / allocated : consumed > 0 ? Infinity : 0;
-    const isOver = rawPct > 1;
+    const carryIn = envelope.carryIn ?? 0;
+    // Period-scoped pool: only positive carry adds to what's available to
+    // spend this period. Negative carry (carry='both' debt) is *already*
+    // deducted from net worth — it doesn't reduce period spendability,
+    // and it must NOT make the "over" badge fire on envelopes that
+    // haven't actually been overspent this period.
+    const cap = allocated + Math.max(0, carryIn);
+    const remaining = cap - consumed;
+    const isOver = consumed > cap;
     const borrowedIn = envelope.borrowedIn ?? 0;
     const borrowedOut = envelope.borrowedOut ?? 0;
     const isUntouched = consumed === 0;
-    const finitePct = Number.isFinite(rawPct);
+    // Percent SPENT against cap, kept around as a muted secondary cue.
+    const pctSpent =
+        cap > 0 ? consumed / cap : consumed > 0 ? Infinity : 0;
+    const finitePct = Number.isFinite(pctSpent);
 
     return (
         <Link
@@ -232,55 +299,62 @@ function EnvelopeRow({
                 </div>
             </div>
 
-            {/* Bar with overflow */}
+            {/* Drain bar */}
             <UtilBar
+                remaining={remaining}
+                cap={cap}
                 consumed={consumed}
-                allocated={allocated}
                 color={envelope.color}
             />
 
-            {/* Spent amount */}
+            {/* Remaining (primary cue) — abs value when over, with a sign
+                cue via tone. */}
             <MoneyDisplay
-                amount={consumed}
-                variant="neutral"
+                amount={Math.abs(remaining)}
+                variant={isOver ? "expense" : "neutral"}
                 className="hidden text-right sm:inline"
             />
 
-            {/* Of allocated */}
+            {/* Of cap — show "over budget" when over, "left of {cap}"
+                otherwise. Suppressed when there's no cap to compare to. */}
             <span className="hidden text-right text-[11.5px] text-muted-foreground sm:inline">
-                of{" "}
-                <span className="tabular-nums">
-                    {formatMoney(allocated)}
-                </span>
+                {isOver ? (
+                    "over budget"
+                ) : cap > 0 ? (
+                    <>
+                        left of{" "}
+                        <span className="tabular-nums">
+                            {formatMoney(cap)}
+                        </span>
+                    </>
+                ) : (
+                    "no budget"
+                )}
             </span>
 
-            {/* Pct */}
+            {/* % spent — demoted secondary cue */}
             <span
                 className={cn(
-                    "hidden text-right text-xs font-semibold tabular-nums sm:inline",
+                    "hidden text-right text-[11px] tabular-nums sm:inline",
                     isOver
                         ? "text-[color:var(--expense)]"
-                        : rawPct > 0.85
-                          ? "text-[color:var(--warning)]"
-                          : "text-foreground"
+                        : "text-muted-foreground"
                 )}
             >
-                {finitePct ? `${Math.round(rawPct * 100)}%` : "—"}
+                {finitePct ? `${Math.round(pctSpent * 100)}% spent` : "—"}
             </span>
 
-            {/* Mobile pct + chevron */}
+            {/* Mobile: same demoted % spent */}
             <span className="flex items-center gap-2 sm:hidden">
                 <span
                     className={cn(
-                        "text-xs font-semibold tabular-nums",
+                        "text-[11px] tabular-nums",
                         isOver
                             ? "text-[color:var(--expense)]"
-                            : rawPct > 0.85
-                              ? "text-[color:var(--warning)]"
-                              : "text-foreground"
+                            : "text-muted-foreground"
                     )}
                 >
-                    {finitePct ? `${Math.round(rawPct * 100)}%` : "—"}
+                    {finitePct ? `${Math.round(pctSpent * 100)}%` : "—"}
                 </span>
             </span>
 
@@ -291,36 +365,46 @@ function EnvelopeRow({
 }
 
 /**
- * Horizontal progress bar that shows overage to the right of the cap.
- * - 0..100% renders inside `track` and uses `color`
- * - >100% shows a continuation in `--expense` to the right of the cap
+ * Drain bar — the filled portion represents how much of the envelope's
+ * budget pool is *left*, depleting left → right as the user spends.
+ *
+ * - cap > 0, remaining ≥ 0: width = remaining / cap, color = envelope color
+ * - remaining < 0: full red track + overflow tail to the right (same shape
+ *   as the prior implementation's overage cue, just inverted source)
+ * - cap ≤ 0 and nothing spent: empty rail to keep row alignment
  */
 function UtilBar({
+    remaining,
+    cap,
     consumed,
-    allocated,
     color,
 }: {
+    remaining: number;
+    cap: number;
     consumed: number;
-    allocated: number;
     color: string;
 }) {
-    if (allocated <= 0) {
-        // No allocation — render an empty rail to keep alignment.
+    if (cap <= 0 && consumed === 0) {
         return (
             <span className="block h-1.5 w-full rounded-full bg-muted/60" />
         );
     }
-    const pct = Math.min(1, consumed / allocated);
-    const overPct = Math.max(0, consumed / allocated - 1);
-    const overScaled = Math.min(0.4, overPct);
+    const isOver = remaining < 0;
+    const fillPct = isOver
+        ? 1
+        : cap > 0
+          ? Math.max(0, Math.min(1, remaining / cap))
+          : 0;
+    const overByPct = isOver && cap > 0 ? -remaining / cap : 0;
+    const overScaled = Math.min(0.4, overByPct);
     return (
         <span className="relative block h-1.5 w-full overflow-visible">
             <span className="absolute inset-y-0 left-0 right-0 rounded-full bg-muted/60" />
             <span
                 className="absolute inset-y-0 left-0 rounded-full"
                 style={{
-                    width: `${pct * 100}%`,
-                    backgroundColor: consumed > allocated ? "var(--expense)" : color,
+                    width: `${fillPct * 100}%`,
+                    backgroundColor: isOver ? "var(--expense)" : color,
                 }}
             />
             {overScaled > 0 && (

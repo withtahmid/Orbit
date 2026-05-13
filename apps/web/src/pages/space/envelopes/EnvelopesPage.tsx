@@ -684,11 +684,18 @@ function EnvelopeCard({
     env: EnvelopeRow;
     spaceId: string;
 }) {
-    const total = env.allocated + env.carryIn;
-    const v = total > 0 ? env.consumed / total : env.consumed > 0 ? Infinity : 0;
-    const drift = v > 1;
+    // Period-scoped pool: only positive carry adds to what's available
+    // this period. Negative carry (carry='both' debt) is already deducted
+    // from net worth — it must NOT trigger the "drift/over" state on
+    // envelopes that haven't actually overspent this period.
+    const total = env.allocated + Math.max(0, env.carryIn);
     const remaining = total - env.consumed;
     const overBy = env.consumed - total;
+    const drift = env.consumed > total;
+    const drainV =
+        total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
+    const pctSpent =
+        total > 0 ? env.consumed / total : env.consumed > 0 ? Infinity : 0;
 
     return (
         <Link
@@ -724,38 +731,47 @@ function EnvelopeCard({
                 <EnvelopeMenu env={env} />
             </div>
             <div className="env-card-amt-row">
-                <Money amount={env.consumed} size={26} />
+                <Money
+                    amount={Math.abs(remaining)}
+                    size={26}
+                    variant={drift ? "expense" : "neutral"}
+                />
                 <span className="env-card-of">
-                    of <Money amount={total} variant="muted" size={11} />
+                    {drift ? (
+                        "over budget"
+                    ) : total > 0 ? (
+                        <>
+                            left of{" "}
+                            <Money amount={total} variant="muted" size={11} />
+                        </>
+                    ) : (
+                        "no budget"
+                    )}
                 </span>
             </div>
-            <ProgressBar value={v} color={env.color} height={5} />
+            <ProgressBar
+                value={drift ? 1 : drainV}
+                color={drift ? "var(--expense)" : env.color}
+                height={5}
+            />
             <div className="env-card-foot">
                 <span
                     style={{
-                        color: drift ? "var(--expense)" : "var(--fg-3)",
+                        color: drift ? "var(--expense)" : "var(--fg-4)",
                     }}
                 >
-                    {drift
-                        ? `${Math.round(v * 100)}% over`
-                        : `${Math.round(v * 100)}%`}
+                    {Number.isFinite(pctSpent)
+                        ? `${Math.round(pctSpent * 100)}% spent`
+                        : "spent without budget"}
                 </span>
                 <span style={{ color: "var(--fg-4)" }}>
-                    {drift ? (
+                    {drift && (
                         <>
                             over{" "}
                             <Money
                                 amount={Math.abs(overBy)}
                                 size={11}
                                 variant="expense"
-                            />
-                        </>
-                    ) : (
-                        <>
-                            Left{" "}
-                            <Money
-                                amount={Math.max(0, remaining)}
-                                size={11}
                             />
                         </>
                     )}
@@ -774,9 +790,11 @@ function EnvelopeListRow({
     spaceId: string;
     last: boolean;
 }) {
-    const total = env.allocated + env.carryIn;
-    const v = total > 0 ? env.consumed / total : env.consumed > 0 ? Infinity : 0;
-    const drift = v > 1;
+    const total = env.allocated + Math.max(0, env.carryIn);
+    const remaining = total - env.consumed;
+    const drift = env.consumed > total;
+    const drainV =
+        total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
     return (
         <Link
             to={ROUTES.spaceEnvelopeDetail(spaceId, env.envelopId)}
@@ -802,21 +820,33 @@ function EnvelopeListRow({
                 </div>
             </div>
             <div className="env-list-row-bar">
-                <ProgressBar value={v} color={env.color} height={4} />
+                <ProgressBar
+                    value={drift ? 1 : drainV}
+                    color={drift ? "var(--expense)" : env.color}
+                    height={4}
+                />
             </div>
             <div className="env-list-row-amt">
                 <Money
-                    amount={env.consumed}
+                    amount={Math.abs(remaining)}
                     size={12.5}
                     variant={drift ? "expense" : "neutral"}
                 />{" "}
                 <span style={{ color: "var(--fg-4)" }}>
-                    /{" "}
-                    <Money
-                        amount={total}
-                        size={12.5}
-                        variant="muted"
-                    />
+                    {drift ? (
+                        "over budget"
+                    ) : total > 0 ? (
+                        <>
+                            left of{" "}
+                            <Money
+                                amount={total}
+                                size={12.5}
+                                variant="muted"
+                            />
+                        </>
+                    ) : (
+                        "no budget"
+                    )}
                 </span>
             </div>
             <ChevronRightIcon
