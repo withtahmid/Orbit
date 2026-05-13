@@ -36,7 +36,9 @@ export const personalTransactions = authorizedProcedure
             spaceId: z.string().uuid().nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
             includeDescendants: z.boolean().default(true),
-            envelopId: z.string().uuid().nullish(),
+            envelopId: z
+                .union([z.string().uuid(), z.literal("__none")])
+                .nullish(),
             eventId: z.string().uuid().nullish(),
             accountId: z.string().uuid().nullish(),
             userId: z.string().uuid().nullish(),
@@ -140,8 +142,17 @@ export const personalTransactions = authorizedProcedure
                     .$if(!!input.userId, (qb) =>
                         qb.where("transactions.created_by", "=", input.userId!)
                     )
-                    .$if(!!input.envelopId, (qb) =>
-                        qb.where("transactions.envelop_id", "=", input.envelopId!)
+                    .$if(input.envelopId === "__none", (qb) =>
+                        qb.where("transactions.envelop_id", "is", null)
+                    )
+                    .$if(
+                        !!input.envelopId && input.envelopId !== "__none",
+                        (qb) =>
+                            qb.where(
+                                "transactions.envelop_id",
+                                "=",
+                                input.envelopId as string
+                            )
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where("transactions.expense_category_id", "in", categoryIds!)

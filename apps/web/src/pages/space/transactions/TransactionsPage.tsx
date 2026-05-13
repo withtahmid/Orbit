@@ -8,6 +8,7 @@ import {
     ChevronDown,
     Wallet,
     Folder,
+    Layers,
     Calendar as CalendarIcon,
     FileText,
     ArrowDown,
@@ -30,6 +31,9 @@ import { OrbitField } from "@/components/orbit/OrbitModalShell";
 import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
 import { DateRangePicker } from "@/components/shared/DateRangePicker";
 import { PermissionGate } from "@/components/shared/PermissionGate";
+import { UserAvatar } from "@/components/shared/UserAvatar";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { Filter as FilterEmptyIcon, Receipt } from "lucide-react";
 import { trpc } from "@/trpc";
 import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
@@ -131,6 +135,12 @@ export default function TransactionsPage() {
     const type = (params.get("type") as TxType | null) ?? null;
     const accountId = params.get("account");
     const categoryId = params.get("category");
+    // Envelopes are space-scoped. If a user navigates from `?envelope=X` in
+    // a regular space into `/s/me` (the cross-space personal view), the URL
+    // param must NOT silently filter the personal list — the picker is
+    // hidden there and the user would have no UI to clear it. Treat the
+    // param as absent in personal mode.
+    const envelopeId = isPersonal ? null : params.get("envelope");
     const eventId = params.get("event");
     const userId = params.get("user");
     const searchRaw = params.get("q") ?? "";
@@ -183,8 +193,6 @@ export default function TransactionsPage() {
         { enabled: !isPersonal }
     );
 
-    const [pageCursors, setPageCursors] = useState<(string | null)[]>([null]);
-    const cursor = pageCursors[pageCursors.length - 1];
     const [selectedTx, setSelectedTx] = useState<any>(null);
     /**
      * Page-owned edit state. Previously each row mounted its own
@@ -197,12 +205,20 @@ export default function TransactionsPage() {
      */
     const [editingTx, setEditingTx] = useState<any>(null);
 
-    const listSpaceQuery = trpc.transaction.listBySpace.useQuery(
+    /**
+     * Keyset-cursor infinite list. tRPC's `useInfiniteQuery` manages the
+     * cursor itself — never pass `cursor` in the input dictionary. When
+     * filters change, the query key changes and the list resets to page 1
+     * automatically. `nextCursor` of `null` on the latest page signals
+     * the end of the dataset.
+     */
+    const listSpaceQuery = trpc.transaction.listBySpace.useInfiniteQuery(
         {
             spaceId: space.id,
             type,
             accountId: accountId || null,
             expenseCategoryId: categoryId || null,
+            envelopId: envelopeId || null,
             eventId: eventId || null,
             userId: userId || null,
             search: search || null,
@@ -210,16 +226,19 @@ export default function TransactionsPage() {
             amountMax: amountMax ? Number(amountMax) : null,
             dateFrom: period.start,
             dateTo: period.end,
-            cursor: cursor,
             limit: 50,
         },
-        { enabled: !isPersonal }
+        {
+            enabled: !isPersonal,
+            getNextPageParam: (last) => last.nextCursor,
+        }
     );
-    const listPersonalQuery = trpc.personal.transactions.useQuery(
+    const listPersonalQuery = trpc.personal.transactions.useInfiniteQuery(
         {
             type,
             accountId: accountId || null,
             expenseCategoryId: categoryId || null,
+            envelopId: envelopeId || null,
             eventId: eventId || null,
             userId: userId || null,
             search: search || null,
@@ -227,10 +246,12 @@ export default function TransactionsPage() {
             amountMax: amountMax ? Number(amountMax) : null,
             dateFrom: period.start,
             dateTo: period.end,
-            cursor: cursor,
             limit: 50,
         },
-        { enabled: isPersonal }
+        {
+            enabled: isPersonal,
+            getNextPageParam: (last) => last.nextCursor,
+        }
     );
     const listQuery = isPersonal ? listPersonalQuery : listSpaceQuery;
 
@@ -275,13 +296,22 @@ export default function TransactionsPage() {
         type,
         accountId,
         categoryId,
+        envelopeId,
         eventId,
         userId,
         amountMin,
         amountMax,
     ].filter(Boolean).length;
 
-    const items = listQuery.data?.items ?? [];
+    /* Flatten all loaded pages into a single list. Each page carries its
+       own `nextCursor`; the latest page's nextCursor === null means the
+       end. */
+    const items = useMemo(
+        () => listQuery.data?.pages.flatMap((p) => p.items) ?? [],
+        [listQuery.data]
+    );
+    const hasNextPage = listQuery.hasNextPage ?? false;
+    const isFetchingNextPage = listQuery.isFetchingNextPage ?? false;
     /* Recompute the "Today" / "Yesterday" reference keys on every render
        (cheap), then memoize the actual grouping on those keys. This way
        a page left open across midnight relabels its rows the next time
@@ -308,6 +338,7 @@ export default function TransactionsPage() {
             type,
             accountId: accountId || null,
             expenseCategoryId: categoryId || null,
+            envelopId: envelopeId || null,
             eventId: eventId || null,
             userId: userId || null,
             search: search || null,
@@ -320,6 +351,7 @@ export default function TransactionsPage() {
             type,
             accountId,
             categoryId,
+            envelopeId,
             eventId,
             userId,
             search,
@@ -381,7 +413,6 @@ export default function TransactionsPage() {
             },
             { replace: true }
         );
-        setPageCursors([null]);
     };
 
     /* Active filter chips (for the row beneath the filter dropdowns). */
@@ -413,6 +444,22 @@ export default function TransactionsPage() {
             onRemove: () => setParam("category", null),
         });
     }
+    if (envelopeId) {
+        const e =
+            envelopeId === "__none"
+                ? null
+                : envelopesById.get(envelopeId);
+        activeChips.push({
+            key: "envelope",
+            label:
+                envelopeId === "__none"
+                    ? "No envelope"
+                    : e?.name ?? "Envelope",
+            color: e?.color,
+            icon: e?.icon,
+            onRemove: () => setParam("envelope", null),
+        });
+    }
     if (eventId) {
         const ev = eventsById.get(eventId);
         activeChips.push({
@@ -431,7 +478,10 @@ export default function TransactionsPage() {
             <header className="tx-topbar">
                 <div className="tx-topbar-text">
                     <span className="eyebrow">
-                        {items.length} results · {periodLabel}
+                        {(totalsData?.count ?? items.length).toLocaleString(
+                            "en-US"
+                        )}{" "}
+                        results · {periodLabel}
                     </span>
                     <h1 className="display tx-title">Transactions</h1>
                     <p className="tx-sub">
@@ -518,15 +568,49 @@ export default function TransactionsPage() {
                                 />
                             </PopoverContent>
                         </Popover>
+                        {/* Envelopes are space-scoped; hidden on the personal
+                            cross-space view because there's no flat list of
+                            envelopes to pick from. */}
+                        {!isPersonal && (
+                            <FilterChipPicker
+                                label={
+                                    envelopeId === "__none"
+                                        ? "No envelope"
+                                        : envelopeId
+                                          ? envelopesById.get(envelopeId)?.name ??
+                                            "Envelope"
+                                          : "Any envelope"
+                                }
+                                icon={<Layers className="size-3.5" />}
+                                options={[
+                                    { value: null, label: "Any envelope" },
+                                    {
+                                        value: "__none",
+                                        label: "No envelope",
+                                    },
+                                    ...(envelopesQuery.data ?? []).map((e) => ({
+                                        value: e.id,
+                                        label: e.name,
+                                    })),
+                                ]}
+                                value={envelopeId}
+                                onChange={(v) => setParam("envelope", v)}
+                            />
+                        )}
                     </div>
 
                     <div className="tx-filter-row2">
-                        <div className="tx-typebar">
+                        <div
+                            className="tx-typebar"
+                            role="group"
+                            aria-label="Filter by transaction type"
+                        >
                             {TYPE_OPTIONS.map((o) => (
                                 <button
                                     key={String(o.value)}
                                     type="button"
                                     className={`tx-typebar-cell ${type === o.value ? "is-active" : ""}`}
+                                    aria-pressed={type === o.value}
                                     onClick={() => setParam("type", o.value)}
                                 >
                                     {o.label}
@@ -543,6 +627,7 @@ export default function TransactionsPage() {
                                 type="button"
                                 onClick={c.onRemove}
                                 className="tx-active-chip"
+                                aria-label={`Remove ${c.label} filter`}
                                 style={
                                     c.color
                                         ? {
@@ -554,16 +639,16 @@ export default function TransactionsPage() {
                                 }
                             >
                                 {c.label}
-                                <X className="size-3" />
+                                <X className="size-3" aria-hidden />
                             </button>
                         ))}
                         <MoreFiltersSheet
-                            type={type}
-                            setType={(v) => setParam("type", v)}
                             accountId={accountId}
                             setAccountId={(v) => setParam("account", v)}
                             categoryId={categoryId}
                             setCategoryId={(v) => setParam("category", v)}
+                            envelopeId={envelopeId}
+                            setEnvelopeId={(v) => setParam("envelope", v)}
                             eventId={eventId}
                             setEventId={(v) => setParam("event", v)}
                             amountMin={amountMin}
@@ -572,9 +657,11 @@ export default function TransactionsPage() {
                             setAmountMax={(v) => setParam("max", v)}
                             accounts={accountsData}
                             categories={categoriesData as any}
+                            envelopes={envelopesQuery.data ?? []}
                             events={eventsQuery.data ?? []}
                             activeFilterCount={activeFilterCount}
                             hideEvents={isPersonal}
+                            hideEnvelopes={isPersonal}
                         />
                         {activeFilterCount > 0 && (
                             <button
@@ -587,8 +674,10 @@ export default function TransactionsPage() {
                             </button>
                         )}
                         <span className="tx-filter-count">
-                            {items.length}
-                            {listQuery.data?.nextCursor ? "+" : ""} transactions
+                            {(totalsData?.count ?? items.length).toLocaleString(
+                                "en-US"
+                            )}{" "}
+                            transactions
                         </span>
                     </div>
                 </div>
@@ -620,38 +709,96 @@ export default function TransactionsPage() {
                 </div>
 
                 {/* Table */}
-                <div className="od-card tx-table-card">
+                <div className={`od-card tx-table-card${isPersonal ? " tx-table-no-event" : ""}`}>
+                    {/* Hide column headers when there's nothing to label —
+                        a row of empty headings above the EmptyState reads
+                        as broken data rather than "empty state". */}
+                    {!listQuery.isLoading && items.length > 0 && (
                     <div className="tx-table-head tx-row-grid">
-                        {[
-                            "Date",
-                            "Type",
-                            "From / To",
-                            "Category",
-                            "Envelope",
-                            "Event",
-                            "By",
-                            "Amount",
-                            "",
-                        ].map((h, i) => (
+                        {(isPersonal
+                            ? [
+                                  "Date",
+                                  "Type",
+                                  "From / To",
+                                  "Category",
+                                  "Envelope",
+                                  "By",
+                                  "Amount",
+                                  "",
+                              ]
+                            : [
+                                  "Date",
+                                  "Type",
+                                  "From / To",
+                                  "Category",
+                                  "Envelope",
+                                  "Event",
+                                  "By",
+                                  "Amount",
+                                  "",
+                              ]
+                        ).map((h, i, arr) => (
                             <span
                                 key={i}
                                 className="tx-th"
-                                style={{ textAlign: i === 7 ? "right" : "left" }}
+                                style={{
+                                    textAlign:
+                                        i === arr.length - 2 ? "right" : "left",
+                                }}
                             >
                                 {h}
                             </span>
                         ))}
                     </div>
+                    )}
                     {listQuery.isLoading ? (
                         <div className="tx-empty">
                             <Loader2 className="size-4 animate-spin" />
                             Loading…
                         </div>
                     ) : items.length === 0 ? (
-                        <div className="tx-empty">
-                            {activeFilterCount > 0
-                                ? "No transactions match your filters."
-                                : "No transactions yet."}
+                        <div style={{ padding: 24 }}>
+                            {activeFilterCount > 0 ? (
+                                <EmptyState
+                                    icon={FilterEmptyIcon}
+                                    title="No transactions match these filters"
+                                    description="Try widening the date range or clearing a filter."
+                                    action={
+                                        <button
+                                            type="button"
+                                            className="od-btn"
+                                            onClick={resetFilters}
+                                        >
+                                            <X className="size-3.5" /> Clear filters
+                                        </button>
+                                    }
+                                />
+                            ) : (
+                                <EmptyState
+                                    icon={Receipt}
+                                    title="No transactions yet"
+                                    description="Add your first transaction to start tracking this space."
+                                    action={
+                                        !isPersonal && (
+                                            <PermissionGate
+                                                roles={["owner", "editor"]}
+                                            >
+                                                <NewTransactionSheet
+                                                    trigger={
+                                                        <button
+                                                            type="button"
+                                                            className="od-btn od-btn-primary"
+                                                        >
+                                                            <Plus className="size-3.5" />{" "}
+                                                            Add transaction
+                                                        </button>
+                                                    }
+                                                />
+                                            </PermissionGate>
+                                        )
+                                    }
+                                />
+                            )}
                         </div>
                     ) : (
                         <>
@@ -740,28 +887,36 @@ export default function TransactionsPage() {
                                                     </span>
                                                 )}
                                             </span>
-                                            <span style={{ color: "var(--fg-4)" }}>
-                                                {ev ? (
-                                                    <span
-                                                        className="tx-event-chip"
-                                                        style={{
-                                                            background: `color-mix(in oklab, ${ev.color} 12%, transparent)`,
-                                                            color: ev.color,
-                                                            borderColor: `color-mix(in oklab, ${ev.color} 30%, transparent)`,
-                                                        }}
-                                                    >
-                                                        {ev.name}
-                                                    </span>
-                                                ) : (
-                                                    "—"
-                                                )}
-                                            </span>
+                                            {!isPersonal && (
+                                                <span style={{ color: "var(--fg-4)" }}>
+                                                    {ev ? (
+                                                        <span
+                                                            className="tx-event-chip"
+                                                            style={{
+                                                                background: `color-mix(in oklab, ${ev.color} 12%, transparent)`,
+                                                                color: ev.color,
+                                                                borderColor: `color-mix(in oklab, ${ev.color} 30%, transparent)`,
+                                                            }}
+                                                        >
+                                                            {ev.name}
+                                                        </span>
+                                                    ) : (
+                                                        "—"
+                                                    )}
+                                                </span>
+                                            )}
                                             <span className="tx-cell-by">
-                                                <UserBubble
-                                                    initial={
-                                                        t.created_by_first_name?.[0]?.toUpperCase() ??
-                                                        "?"
+                                                <UserAvatar
+                                                    fileId={
+                                                        t.created_by_avatar_file_id
                                                     }
+                                                    firstName={
+                                                        t.created_by_first_name
+                                                    }
+                                                    lastName={
+                                                        t.created_by_last_name
+                                                    }
+                                                    size="xs"
                                                 />
                                                 <span
                                                     style={{
@@ -875,34 +1030,32 @@ export default function TransactionsPage() {
                             <div className="tx-table-foot">
                                 <span style={{ fontSize: 12, color: "var(--fg-4)" }}>
                                     Showing {items.length}
-                                    {listQuery.data?.nextCursor ? "+" : ""}{" "}
+                                    {totalsData
+                                        ? ` of ${totalsData.count.toLocaleString("en-US")}`
+                                        : ""}{" "}
                                     transactions
                                 </span>
-                                <div style={{ display: "flex", gap: 8 }}>
+                                {hasNextPage ? (
                                     <button
                                         type="button"
                                         className="od-btn od-btn-sm"
-                                        disabled={pageCursors.length <= 1}
-                                        onClick={() =>
-                                            setPageCursors((p) => p.slice(0, -1))
-                                        }
+                                        disabled={isFetchingNextPage}
+                                        onClick={() => listQuery.fetchNextPage()}
                                     >
-                                        Previous
+                                        {isFetchingNextPage
+                                            ? "Loading…"
+                                            : "Load 50 more"}
                                     </button>
-                                    <button
-                                        type="button"
-                                        className="od-btn od-btn-sm"
-                                        disabled={!listQuery.data?.nextCursor}
-                                        onClick={() =>
-                                            setPageCursors((p) => [
-                                                ...p,
-                                                listQuery.data!.nextCursor!,
-                                            ])
-                                        }
+                                ) : (
+                                    <span
+                                        style={{
+                                            fontSize: 12,
+                                            color: "var(--fg-4)",
+                                        }}
                                     >
-                                        Load 50 more
-                                    </button>
-                                </div>
+                                        You've reached the end.
+                                    </span>
+                                )}
                             </div>
                         </>
                     )}
@@ -1098,27 +1251,6 @@ function AvatarIcon({
     );
 }
 
-function UserBubble({ initial }: { initial: string }) {
-    return (
-        <span
-            style={{
-                width: 22,
-                height: 22,
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, var(--ent-3), var(--ent-4))",
-                display: "grid",
-                placeItems: "center",
-                fontSize: 9.5,
-                fontWeight: 600,
-                color: "white",
-                flexShrink: 0,
-            }}
-        >
-            {initial}
-        </span>
-    );
-}
-
 function AccountFlow({
     spaceId,
     from,
@@ -1279,12 +1411,12 @@ function FilterChipPicker({
 }
 
 function MoreFiltersSheet({
-    type,
-    setType,
     accountId,
     setAccountId,
     categoryId,
     setCategoryId,
+    envelopeId,
+    setEnvelopeId,
     eventId,
     setEventId,
     amountMin,
@@ -1293,16 +1425,18 @@ function MoreFiltersSheet({
     setAmountMax,
     accounts,
     categories,
+    envelopes,
     events,
     activeFilterCount,
     hideEvents = false,
+    hideEnvelopes = false,
 }: {
-    type: TxType | null;
-    setType: (v: string | null) => void;
     accountId: string | null;
     setAccountId: (v: string | null) => void;
     categoryId: string | null;
     setCategoryId: (v: string | null) => void;
+    envelopeId: string | null;
+    setEnvelopeId: (v: string | null) => void;
     eventId: string | null;
     setEventId: (v: string | null) => void;
     amountMin: string | null;
@@ -1317,15 +1451,17 @@ function MoreFiltersSheet({
         color: string;
         icon: string;
     }>;
+    envelopes: Array<{ id: string; name: string }>;
     events: Array<{ id: string; name: string }>;
     activeFilterCount: number;
     hideEvents?: boolean;
+    hideEnvelopes?: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const reset = () => {
-        setType(null);
         setAccountId(null);
         setCategoryId(null);
+        setEnvelopeId(null);
         setEventId(null);
         setAmountMin(null);
         setAmountMax(null);
@@ -1360,41 +1496,8 @@ function MoreFiltersSheet({
                     </button>
                 </div>
 
-                <OrbitField label="Type">
-                    <div className="tx-filter-pop-types">
-                        {TYPE_OPTIONS.filter((o) => o.value !== null).map((o) => {
-                            const active = type === o.value;
-                            const tone =
-                                o.value === "income"
-                                    ? { c: "var(--income)", soft: "var(--income-soft)", I: ArrowDown }
-                                    : o.value === "expense"
-                                      ? { c: "var(--expense)", soft: "var(--expense-soft)", I: ArrowUp }
-                                      : o.value === "transfer"
-                                        ? { c: "var(--transfer)", soft: "var(--transfer-soft, color-mix(in oklab, var(--transfer) 14%, transparent))", I: ArrowRightLeft }
-                                        : { c: "var(--gold)", soft: "var(--gold-soft)", I: Edit3 };
-                            return (
-                                <button
-                                    key={String(o.value)}
-                                    type="button"
-                                    onClick={() => setType(active ? null : o.value)}
-                                    className="tx-filter-pop-type-chip"
-                                    style={
-                                        active
-                                            ? {
-                                                  background: tone.soft,
-                                                  borderColor: tone.c,
-                                                  color: tone.c,
-                                              }
-                                            : undefined
-                                    }
-                                >
-                                    <tone.I className="size-3" />
-                                    {o.label}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </OrbitField>
+                {/* Type filter lives in the always-visible pill bar
+                    above the filter strip — keep one source of truth. */}
 
                 <OrbitField label="Account">
                     <OrbitSelect
@@ -1425,6 +1528,30 @@ function MoreFiltersSheet({
                         placeholder="Any category"
                     />
                 </OrbitField>
+
+                {!hideEnvelopes && (
+                    <OrbitField label="Envelope">
+                        <OrbitSelect
+                            value={envelopeId ?? "__any"}
+                            onValueChange={(v) =>
+                                setEnvelopeId(v === "__any" ? null : v)
+                            }
+                            items={[
+                                { value: "__any", label: "Any envelope" },
+                                { value: "__none", label: "No envelope" },
+                                ...envelopes.map((e) => ({
+                                    value: e.id,
+                                    label: e.name,
+                                    leadIcon: <Layers className="size-3.5" />,
+                                    leadColor: "var(--ent-2)",
+                                })),
+                            ]}
+                            placeholder="Any envelope"
+                            leadIcon={<Layers className="size-3.5" />}
+                            leadColor="var(--ent-2)"
+                        />
+                    </OrbitField>
+                )}
 
                 {!hideEvents && events.length > 0 && (
                     <OrbitField label="Event">
@@ -1695,6 +1822,14 @@ const TX_STYLES = `
     cursor: pointer;
     font-family: inherit;
     transition: filter 140ms ease;
+    /* Match the top-row filter chip cap so a long envelope name in the
+       chip doesn't stretch a single pill past its siblings. The X icon
+       stays visible because it's after the text in DOM order — ellipsis
+       happens inside the label before the icon. */
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .tx-active-chip:hover { filter: brightness(1.08); }
 .tx-add-filter {
@@ -1855,6 +1990,11 @@ const TX_STYLES = `
     grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.6fr) 100px 130px 60px;
     align-items: center;
 }
+/* Personal cross-space view: drop the Event column entirely — there's
+   no scoped event picker and the column resolves to "—" for most rows. */
+.tx-table-no-event .tx-row-grid {
+    grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 100px 130px 60px;
+}
 .tx-table-head {
     padding: 12px 18px;
     border-bottom: 1px solid var(--line);
@@ -2010,6 +2150,10 @@ const TX_STYLES = `
     border-top: 1px solid var(--line-soft);
     flex-wrap: wrap;
     gap: 12px;
+    /* Lock min-height so the footer doesn't subtly resize when the
+       "Load 50 more" button is replaced by the "You've reached the
+       end." caption on the last page. */
+    min-height: 56px;
 }
 
 /* Mobile rows */
@@ -2057,14 +2201,50 @@ const TX_STYLES = `
     white-space: nowrap;
 }
 
+/* Filter chip buttons in the top row can render long envelope/account
+   names; cap their width so a single long chip doesn't push siblings to
+   wrap into orphan rows. Internal text ellipses past the cap. */
+.tx-filter-row1 .od-btn {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Mid-tablet band: between the desktop layout and the <640px mobile
+   rules, the search field's 240px floor crowds the four-chip row out of
+   one line. Collapse the search to full width earlier so the chips get
+   a clean second row. */
+@media (max-width: 768px) {
+    .tx-search { min-width: 0; width: 100%; flex: 1 1 100%; }
+}
+
+/* Footer "Load 50 more" is the primary mobile pagination interaction.
+   30px is too small for fingers; bump to 40px and span full width on
+   phones so it pairs visually with the "Showing X of Y" line above. */
+@media (max-width: 640px) {
+    .tx-table-foot .od-btn-sm {
+        height: 40px;
+        padding: 0 14px;
+        flex: 1 1 100%;
+    }
+}
+
 /* Tighter table at <1280 — drop event + by columns. Envelope (col 5)
-   stays since it's the column the user explicitly wants surfaced. */
+   stays since it's the column the user explicitly wants surfaced.
+   Personal variant already drops event globally; only the By column
+   is hidden at this breakpoint there (now at nth-child(6)). */
 @media (max-width: 1280px) and (min-width: 901px) {
     .tx-row-grid {
         grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 130px 60px;
     }
     .tx-row-grid > :nth-child(6),
     .tx-row-grid > :nth-child(7) { display: none; }
+    .tx-table-no-event .tx-row-grid {
+        grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 130px 60px;
+    }
+    .tx-table-no-event .tx-row-grid > :nth-child(6) { display: none; }
+    .tx-table-no-event .tx-row-grid > :nth-child(7) { display: revert; }
 }
 
 /* Phone (<640px) — tighten filters, search, summary tiles. */

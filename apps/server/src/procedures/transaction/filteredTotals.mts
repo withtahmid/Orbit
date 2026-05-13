@@ -25,7 +25,9 @@ export const transactionFilteredTotals = authorizedProcedure
             spaceId: z.string().uuid(),
             userId: z.string().uuid().nullish(),
             type: z.enum(["income", "expense", "transfer", "adjustment"]).nullish(),
-            envelopId: z.string().uuid().nullish(),
+            envelopId: z
+                .union([z.string().uuid(), z.literal("__none")])
+                .nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
             includeDescendants: z.boolean().default(true),
             eventId: z.string().uuid().nullish(),
@@ -81,12 +83,17 @@ export const transactionFilteredTotals = authorizedProcedure
                             input.type as unknown as Transactions["type"]
                         )
                     )
-                    .$if(!!input.envelopId, (qb) =>
-                        qb.where(
-                            "transactions.envelop_id",
-                            "=",
-                            input.envelopId!
-                        )
+                    .$if(input.envelopId === "__none", (qb) =>
+                        qb.where("transactions.envelop_id", "is", null)
+                    )
+                    .$if(
+                        !!input.envelopId && input.envelopId !== "__none",
+                        (qb) =>
+                            qb.where(
+                                "transactions.envelop_id",
+                                "=",
+                                input.envelopId as string
+                            )
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where(

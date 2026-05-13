@@ -5,6 +5,7 @@ import { useStore } from "@/stores/useStore";
 import { ROUTES } from "@/router/routes";
 import { PERSONAL_SPACE_ID, PERSONAL_SPACE_NAME } from "@/lib/personalSpace";
 import { OrbitLogo } from "@/components/orbit/OrbitLogo";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { CreateSpaceDialog } from "@/features/spaces/CreateSpaceDialog";
 import {
     DropdownMenu,
@@ -19,7 +20,10 @@ const SpaceSelectorPage = observer(function SpaceSelectorPage() {
     const navigate = useNavigate();
     const user = authStore.user;
     const userName = user?.name ?? "You";
-    const initials = getInitials(userName);
+    // Single name field → split for UserAvatar's initials fallback. Same
+    // convention as AppShellLayout and SpaceLayout.
+    const [firstName, ...rest] = userName.split(" ");
+    const lastName = rest.join(" ");
 
     const spacesQuery = trpc.space.list.useQuery();
     const personalSummary = trpc.personal.summary.useQuery({
@@ -41,7 +45,13 @@ const SpaceSelectorPage = observer(function SpaceSelectorPage() {
                 </Link>
                 <DropdownMenu>
                     <DropdownMenuTrigger className="ss-userchip" aria-label={userName}>
-                        <span className="ss-avatar">{initials}</span>
+                        <UserAvatar
+                            fileId={user?.avatarFileId}
+                            firstName={firstName}
+                            lastName={lastName}
+                            size="sm"
+                            className="ss-avatar-img"
+                        />
                         <span style={{ fontSize: 13, color: "var(--fg)" }}>
                             {userName}
                         </span>
@@ -128,7 +138,7 @@ const SpaceSelectorPage = observer(function SpaceSelectorPage() {
                                         background: "var(--ent-1)",
                                     }}
                                 >
-                                    {initials.charAt(0)}
+                                    {(firstName?.[0] ?? "?").toUpperCase()}
                                 </span>
                             </div>
                         </div>
@@ -217,13 +227,6 @@ const SpaceSelectorPage = observer(function SpaceSelectorPage() {
 });
 
 export default SpaceSelectorPage;
-
-function getInitials(name: string): string {
-    const parts = name.trim().split(/\s+/);
-    const a = parts[0]?.[0] ?? "";
-    const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
-    return (a + b).toUpperCase() || "U";
-}
 
 function titleCase(s: string): string {
     return s.charAt(0).toUpperCase() + s.slice(1);
@@ -370,18 +373,7 @@ const SS_STYLES = `
     outline-offset: 2px;
 }
 
-.ss-avatar {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--ent-3), var(--ent-4));
-    display: grid;
-    place-items: center;
-    font-size: 11px;
-    font-weight: 600;
-    color: white;
-    flex-shrink: 0;
-}
+.ss-avatar-img { flex-shrink: 0; }
 
 .ss-body {
     flex: 1;

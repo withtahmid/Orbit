@@ -102,6 +102,7 @@ export const borrowFromNextMonth = authorizedProcedure
                                 account_id: null,
                                 period_start: currentPeriodStart,
                                 borrowed_link_id: linkId,
+                                kind: "borrow",
                             })
                             .returning([
                                 "id",
@@ -120,6 +121,7 @@ export const borrowFromNextMonth = authorizedProcedure
                                 account_id: null,
                                 period_start: nextPeriodStart,
                                 borrowed_link_id: linkId,
+                                kind: "borrow",
                             })
                             .returning([
                                 "id",

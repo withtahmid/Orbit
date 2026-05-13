@@ -94,8 +94,13 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
                 pctOf(a.consumed, a.allocated + a.carryIn)
         );
     else
+        // Default "cadence" sort: monthly group first, then rolling.
+        // Within each group, preserve the server's natural order
+        // (created_at ASC from analytics.envelopeUtilization). Array.sort
+        // is spec-stable (ES2019+), so returning 0 keeps the input order
+        // — editing an envelope's name no longer relocates its row.
         arr.sort((a, b) => {
-            if (a.cadence === b.cadence) return a.name.localeCompare(b.name);
+            if (a.cadence === b.cadence) return 0;
             return a.cadence === "monthly" ? -1 : 1;
         });
     return arr;
@@ -715,13 +720,36 @@ function EnvelopeCard({
                             )}
                         </span>
                         <span className="env-card-cadence">
-                            {env.cadence === "monthly" ? "Monthly" : "Rolling"}
+                            <span>
+                                {env.cadence === "monthly"
+                                    ? "Monthly"
+                                    : "Rolling"}
+                            </span>
                             {drift && (
                                 <>
-                                    {" "}
-                                    ·{" "}
+                                    <span aria-hidden>·</span>
                                     <span style={{ color: "var(--expense)" }}>
                                         drift
+                                    </span>
+                                </>
+                            )}
+                            {(env.lifetimeOverrun ?? 0) > 0 && (
+                                <>
+                                    <span aria-hidden>·</span>
+                                    {/* LEDGER-REPLACEABLE: drops when the
+                                        envelop_allocations ledger expresses
+                                        overspend via 'reckon' rows. */}
+                                    <span
+                                        style={{ color: "var(--expense)" }}
+                                        title={`This rolling envelope has spent ${(env.lifetimeOverrun ?? 0).toFixed(2)} more than allocated across all time.`}
+                                        aria-label={`Net overspent across all time by ${(env.lifetimeOverrun ?? 0).toFixed(2)}`}
+                                    >
+                                        net overspent (lifetime){" "}
+                                        <Money
+                                            amount={env.lifetimeOverrun ?? 0}
+                                            size={11}
+                                            variant="expense"
+                                        />
                                     </span>
                                 </>
                             )}
@@ -814,6 +842,25 @@ function EnvelopeListRow({
                                 {" "}
                                 ·{" "}
                                 <span style={{ color: "var(--expense)" }}>drift</span>
+                            </>
+                        )}
+                        {/* LEDGER-REPLACEABLE: drops when the
+                            envelop_allocations ledger expresses overspend
+                            via 'reckon' rows. */}
+                        {(env.lifetimeOverrun ?? 0) > 0 && (
+                            <>
+                                {" · "}
+                                <span
+                                    style={{ color: "var(--expense)" }}
+                                    title={`Net overspent across all time by ${(env.lifetimeOverrun ?? 0).toFixed(2)}.`}
+                                    aria-label={`Net overspent across all time by ${(env.lifetimeOverrun ?? 0).toFixed(2)}`}
+                                >
+                                    net −
+                                    {(env.lifetimeOverrun ?? 0).toLocaleString(
+                                        "en-US",
+                                        { maximumFractionDigits: 0 }
+                                    )}
+                                </span>
                             </>
                         )}
                     </div>
@@ -2237,6 +2284,11 @@ const ENV_STYLES = `
 .env-card-cadence {
     font-size: 11px;
     color: var(--fg-4);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 4px;
+    row-gap: 2px;
 }
 .env-card-amt-row {
     display: flex;

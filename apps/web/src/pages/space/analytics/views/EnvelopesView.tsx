@@ -275,6 +275,19 @@ function EnvelopeRow({
                                 over
                             </span>
                         )}
+                        {/* LEDGER-REPLACEABLE: drops when the
+                            envelop_allocations ledger expresses overspend
+                            via 'reckon' rows. Kept adjacent to "over" so
+                            related expense-toned signals visually cluster. */}
+                        {(envelope.lifetimeOverrun ?? 0) > 0 && (
+                            <span
+                                className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-sm border border-[color:var(--expense)]/30 bg-[color:var(--expense)]/10 px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wider text-[color:var(--expense)]"
+                                title={`Across all time, ${envelope.name} has consumed ${formatMoney(envelope.lifetimeOverrun ?? 0)} more than it's been allocated.`}
+                                aria-label={`Net overspent across all time by ${formatMoney(envelope.lifetimeOverrun ?? 0)}`}
+                            >
+                                net −{formatMoney(envelope.lifetimeOverrun ?? 0)} (lifetime)
+                            </span>
+                        )}
                         {isUntouched && (
                             <span className="rounded-sm bg-secondary px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wider text-muted-foreground">
                                 untouched

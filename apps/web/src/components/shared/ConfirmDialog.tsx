@@ -44,16 +44,22 @@ export function ConfirmDialog({
     outcomes?: Array<{ kind: "ok" | "irreversible"; text: ReactNode }>;
 }) {
     const [typed, setTyped] = useState("");
+    // Controlled when the parent passes `open`; uncontrolled when only a
+    // `trigger` is supplied. Internal state covers the uncontrolled case so
+    // Cancel / close / Confirm actually close the dialog — without it the
+    // buttons fall through `onOpenChange?.(false)` as no-ops.
+    const [internalOpen, setInternalOpen] = useState(false);
+    const isControlled = open !== undefined;
+    const actualOpen = isControlled ? open : internalOpen;
+    const setActualOpen = (v: boolean) => {
+        if (!isControlled) setInternalOpen(v);
+        if (!v) setTyped("");
+        onOpenChange?.(v);
+    };
     const canConfirm = !typedConfirmationText || typed === typedConfirmationText;
 
     return (
-        <AlertDialog
-            open={open}
-            onOpenChange={(v) => {
-                if (!v) setTyped("");
-                onOpenChange?.(v);
-            }}
-        >
+        <AlertDialog open={actualOpen} onOpenChange={setActualOpen}>
             {trigger && <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>}
             <AlertDialogContent className="orbit-shell-host">
                 <OrbitModalShell
@@ -61,13 +67,13 @@ export function ConfirmDialog({
                     eyebrow={destructive ? "Destructive action" : "Confirm"}
                     title={title}
                     subtitle={typeof description === "string" ? description : undefined}
-                    onClose={() => onOpenChange?.(false)}
+                    onClose={() => setActualOpen(false)}
                     footer={
                         <>
                             <button
                                 type="button"
                                 className="cd-btn"
-                                onClick={() => onOpenChange?.(false)}
+                                onClick={() => setActualOpen(false)}
                             >
                                 {cancelLabel}
                             </button>
@@ -76,7 +82,11 @@ export function ConfirmDialog({
                                 disabled={!canConfirm}
                                 onClick={async () => {
                                     await onConfirm();
-                                    setTyped("");
+                                    // Auto-close once the confirm action
+                                    // resolves. Errors thrown from
+                                    // onConfirm skip this and leave the
+                                    // dialog open so the user can react.
+                                    setActualOpen(false);
                                 }}
                                 className={`cd-btn ${
                                     destructive ? "cd-btn-danger" : "cd-btn-primary"
