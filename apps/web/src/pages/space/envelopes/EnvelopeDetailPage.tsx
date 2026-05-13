@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     AlertTriangle,
@@ -341,10 +341,23 @@ export default function EnvelopeDetailPage() {
                             label="Position"
                             amount={envelope.remaining}
                             tone="gold"
+                            /* Signed `Position` already shows overspend
+                               directly when negative — the explicit note
+                               was redundant once the rolling-lifetime
+                               fix made `remaining` honest, so it's been
+                               removed here. List/card/analytics pills
+                               still surface the lifetime overrun where
+                               there's no signed amount visible. */
                         />
                         <div className="ed-hero-progress">
+                            {/* Rolling envelopes have no monthly reset
+                                so "This month" + "days left" framing
+                                lies to the user. Show a lifetime label
+                                instead and drop the countdown there. */}
                             <span className="eyebrow">
-                                This month · {monthLabel}
+                                {envelope.cadence === "none"
+                                    ? "Lifetime"
+                                    : `This month · ${monthLabel}`}
                             </span>
                             <div style={{ marginTop: 12 }}>
                                 <ProgressBar
@@ -363,7 +376,9 @@ export default function EnvelopeDetailPage() {
                                             : `${Math.round(100 - pctSpent)}% left`
                                         : "Spent without allocation"}
                                 </span>
-                                <span>{daysLeft} days left</span>
+                                {envelope.cadence !== "none" && (
+                                    <span>{daysLeft} days left</span>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -641,10 +656,12 @@ function HeroStat({
     label,
     amount,
     tone,
+    note,
 }: {
     label: string;
     amount: number;
     tone: "fg" | "brand" | "gold";
+    note?: string;
 }) {
     const color =
         tone === "brand"
@@ -662,7 +679,6 @@ function HeroStat({
                     fontWeight: 500,
                     color,
                     letterSpacing: "-0.04em",
-                    marginTop: 6,
                 }}
             >
                 {amount.toLocaleString("en-US", {
@@ -670,6 +686,20 @@ function HeroStat({
                     maximumFractionDigits: 2,
                 })}
             </span>
+            {/* LEDGER-REPLACEABLE: the lifetime-overrun note is a
+                stop-gap until the envelop_allocations ledger expresses
+                overspend via 'reckon' rows. Icon paired with the red
+                text so colorblind users get a non-color cue too. */}
+            {note && (
+                <span className="ed-hero-note">
+                    <AlertTriangle
+                        className="size-3"
+                        aria-hidden
+                        style={{ flexShrink: 0 }}
+                    />
+                    <span>{note}</span>
+                </span>
+            )}
         </div>
     );
 }
@@ -884,10 +914,6 @@ function Skeleton({ height = 16 }: { height?: number }) {
     );
 }
 
-void AlertTriangle;
-
-void function HeroStatNode(node: ReactNode) { return node; };
-
 const ED_STYLES = `
 .ed-root {
     margin: -1.5rem -1rem;
@@ -981,6 +1007,21 @@ const ED_STYLES = `
     .orbit-design .od-card.ed-hero { grid-template-columns: 1fr; }
 }
 .ed-hero-cell { display: flex; flex-direction: column; gap: 6px; }
+.ed-hero-note {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--expense);
+    line-height: 1.35;
+}
+@media (max-width: 600px) {
+    .ed-hero-note {
+        border-top: 1px solid var(--line-soft);
+        padding-top: 6px;
+        margin-top: 2px;
+    }
+}
 .ed-hero-progress { display: flex; flex-direction: column; }
 .ed-hero-progress-foot {
     display: flex;

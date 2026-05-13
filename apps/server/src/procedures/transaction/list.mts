@@ -16,7 +16,13 @@ export const listTransactionsBySpace = authorizedProcedure
             spaceId: z.string().uuid(),
             userId: z.string().uuid().nullish(),
             type: z.enum(["income", "expense", "transfer", "adjustment"]).nullish(),
-            envelopId: z.string().uuid().nullish(),
+            /* `__none` sentinel surfaces "No envelope" as a pickable
+               filter alongside "Any envelope" (null/undefined) and the
+               normal uuid case. The UI maps the picker's `__none` item
+               here and the where clause branches to IS NULL below. */
+            envelopId: z
+                .union([z.string().uuid(), z.literal("__none")])
+                .nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
             /** If true (default), a category filter matches descendants too. */
             includeDescendants: z.boolean().default(true),
@@ -98,8 +104,17 @@ export const listTransactionsBySpace = authorizedProcedure
                             input.type as unknown as Transactions["type"]
                         )
                     )
-                    .$if(!!input.envelopId, (qb) =>
-                        qb.where("transactions.envelop_id", "=", input.envelopId!)
+                    .$if(input.envelopId === "__none", (qb) =>
+                        qb.where("transactions.envelop_id", "is", null)
+                    )
+                    .$if(
+                        !!input.envelopId && input.envelopId !== "__none",
+                        (qb) =>
+                            qb.where(
+                                "transactions.envelop_id",
+                                "=",
+                                input.envelopId as string
+                            )
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where("transactions.expense_category_id", "in", categoryIds!)

@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { OrbitLogo } from "@/components/orbit/OrbitLogo";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { CommandPalette } from "@/components/orbit/CommandPalette";
 import { CreateSpaceDialog } from "@/features/spaces/CreateSpaceDialog";
 import { trpc } from "@/trpc";
@@ -360,13 +361,22 @@ function UserChip({ onNavigate }: { onNavigate: () => void }) {
     const { authStore } = useStore();
     const navigate = useNavigate();
     const user = authStore.user;
-    const initials = getInitials(user?.name ?? "U");
+    // Split the single display-name field into first/last for UserAvatar's
+    // initials fallback — same convention used by AppShellLayout.
+    const [firstName, ...rest] = (user?.name ?? "").split(" ");
+    const lastName = rest.join(" ");
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
                 <button type="button" className="sl-user">
-                    <span className="sl-user-avatar">{initials}</span>
+                    <UserAvatar
+                        fileId={user?.avatarFileId}
+                        firstName={firstName}
+                        lastName={lastName}
+                        size="sm"
+                        className="sl-user-avatar-img"
+                    />
                     <span className="sl-user-text">
                         <span className="sl-user-name">{user?.name ?? "Guest"}</span>
                         <span className="sl-user-email">{user?.email ?? ""}</span>
@@ -444,13 +454,6 @@ function UserChip({ onNavigate }: { onNavigate: () => void }) {
             </DropdownMenuContent>
         </DropdownMenu>
     );
-}
-
-function getInitials(name: string): string {
-    const parts = name.trim().split(/\s+/);
-    const a = parts[0]?.[0] ?? "";
-    const b = parts.length > 1 ? parts[parts.length - 1][0] : "";
-    return (a + b).toUpperCase() || "U";
 }
 
 const SL_STYLES = `
@@ -695,18 +698,7 @@ const SL_STYLES = `
     text-align: left;
 }
 .sl-user:hover { background: var(--bg-elev-1); }
-.sl-user-avatar {
-    width: 30px;
-    height: 30px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--ent-3), var(--ent-4));
-    display: grid;
-    place-items: center;
-    font-size: 11px;
-    font-weight: 600;
-    color: white;
-    flex-shrink: 0;
-}
+.sl-user-avatar-img { flex-shrink: 0; }
 .sl-user-text {
     display: flex;
     flex-direction: column;

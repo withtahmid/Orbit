@@ -22,7 +22,9 @@ export const personalTransactionFilteredTotals = authorizedProcedure
             spaceId: z.string().uuid().nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
             includeDescendants: z.boolean().default(true),
-            envelopId: z.string().uuid().nullish(),
+            envelopId: z
+                .union([z.string().uuid(), z.literal("__none")])
+                .nullish(),
             eventId: z.string().uuid().nullish(),
             accountId: z.string().uuid().nullish(),
             userId: z.string().uuid().nullish(),
@@ -122,7 +124,13 @@ export const personalTransactionFilteredTotals = authorizedProcedure
                       )
                       ${input.type ? sql`AND t.type = ${input.type as unknown as Transactions["type"]}` : sql``}
                       ${input.userId ? sql`AND t.created_by = ${input.userId}` : sql``}
-                      ${input.envelopId ? sql`AND t.envelop_id = ${input.envelopId}` : sql``}
+                      ${
+                          input.envelopId === "__none"
+                              ? sql`AND t.envelop_id IS NULL`
+                              : input.envelopId
+                                ? sql`AND t.envelop_id = ${input.envelopId}`
+                                : sql``
+                      }
                       ${categoryIds ? sql`AND t.expense_category_id = ANY(${categoryIds})` : sql``}
                       ${input.eventId ? sql`AND t.event_id = ${input.eventId}` : sql``}
                       ${input.accountId ? sql`AND (t.source_account_id = ${input.accountId} OR t.destination_account_id = ${input.accountId})` : sql``}

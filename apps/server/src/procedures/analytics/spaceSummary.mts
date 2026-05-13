@@ -69,8 +69,23 @@ export const spaceSummary = authorizedProcedure
                     ])
                     .executeTakeFirst();
 
-                // On-read envelope aggregates (lifetime allocated + consumed
-                // + current-period-remaining-clamped via a CTE).
+                // On-read envelope aggregates.
+                //
+                // `allocated` and `consumed` stay scoped to the envelope's
+                // own window (monthly → current calendar month; rolling →
+                // lifetime). The displayed "Allocated / Spent" totals depend
+                // on that shape.
+                //
+                // `remaining` is the source of `unallocated` downstream, so
+                // it needs to honor a subtle property: for a `cadence='none'`
+                // (rolling) envelope that has been historically overspent,
+                // the lifetime clamp `max(0, alloc − consumed)` evaluates to
+                // 0 and a fresh in-period allocation surplus would silently
+                // surface as untraceable "Unbudgeted" cash. To prevent
+                // that, rolling envelopes also compute a period-scoped
+                // overlay using the request's `periodStart`/`periodEnd`,
+                // and the held value is the MAX of the lifetime-clamped and
+                // period-clamped values. Monthly envelopes are unchanged.
                 const envelopeRow = await sql<{
                     allocated: string;
                     consumed: string;
@@ -87,13 +102,20 @@ export const spaceSummary = authorizedProcedure
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '9999-12-31'
                                 WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
-                            END AS p_end
+                            END AS p_end,
+                            -- Period overlay window for rolling envelopes —
+                            -- the dashboard's selected period. Ignored for
+                            -- monthly envelopes since their p_start/p_end is
+                            -- already the relevant scope.
+                            ${input.periodStart}::date AS overlay_start,
+                            ${input.periodEnd}::date AS overlay_end
                         FROM envelops e
                         WHERE e.space_id = ${input.spaceId}
                     ),
                     per_env AS (
                         SELECT
                             p.envelop_id,
+                            p.cadence,
                             COALESCE((
                                 SELECT SUM(a.amount)
                                 FROM envelop_allocations a
@@ -113,13 +135,61 @@ export const spaceSummary = authorizedProcedure
                                   AND t.type = 'expense'
                                   AND t.transaction_datetime >= p.p_start
                                   AND t.transaction_datetime < p.p_end
-                            ), 0) AS p_consumed
+                            ), 0) AS p_consumed,
+                            -- Period-scoped overlay; only meaningful when
+                            -- cadence='none'. For monthly envelopes the
+                            -- main p_allocated/p_consumed already match this
+                            -- window so the overlay would be redundant.
+                            CASE WHEN p.cadence = 'none' THEN
+                                COALESCE((
+                                    SELECT SUM(a.amount)
+                                    FROM envelop_allocations a
+                                    WHERE a.envelop_id = p.envelop_id
+                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.overlay_start
+                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.overlay_end
+                                ), 0)
+                            ELSE 0 END AS overlay_allocated,
+                            CASE WHEN p.cadence = 'none' THEN
+                                COALESCE((
+                                    SELECT SUM(t.amount)
+                                    FROM transactions t
+                                    WHERE t.envelop_id = p.envelop_id
+                                      AND t.type = 'expense'
+                                      AND t.transaction_datetime >= p.overlay_start
+                                      AND t.transaction_datetime < p.overlay_end
+                                ), 0)
+                            ELSE 0 END AS overlay_consumed
                         FROM period p
                     )
                     SELECT
                         COALESCE(SUM(p_allocated), 0)::text AS allocated,
                         COALESCE(SUM(p_consumed), 0)::text AS consumed,
-                        COALESCE(SUM(GREATEST(0, p_allocated - p_consumed)), 0)::text AS remaining
+                        -- Rolling-envelope held: deliberate one-sided MAX.
+                        -- Lifetime cushion absorbs a single-period overspend
+                        -- silently — that's the rolling envelope contract.
+                        -- A user who overspends Eid 26 by 14 in May while
+                        -- still holding 1000 of lifetime intent does NOT
+                        -- see Unbudgeted react; the dashboard treats the
+                        -- envelope's bottomless-pool as the source of truth
+                        -- and the period dip stays inside the envelope.
+                        -- The reverse case (Eid 26 lifetime overspent, May
+                        -- intent positive) is the bug this fix was for:
+                        -- period-positive recovers held from the lifetime
+                        -- clamp via the overlay branch.
+                        -- If we ever want period overspend to surface for
+                        -- rolling envelopes, replace with:
+                        --   GREATEST(0, p_alloc - p_consumed
+                        --     - MAX(0, overlay_consumed - overlay_alloc))
+                        COALESCE(SUM(
+                            CASE WHEN cadence = 'none' THEN
+                                GREATEST(
+                                    GREATEST(0, p_allocated - p_consumed),
+                                    GREATEST(0, overlay_allocated - overlay_consumed)
+                                )
+                            ELSE
+                                GREATEST(0, p_allocated - p_consumed)
+                            END
+                        ), 0)::text AS remaining
                     FROM per_env
                 `
                     .execute(trx)

@@ -69,8 +69,10 @@ export interface EnvelopAllocations {
   borrowed_link_id: string | null;
   created_at: Generated<Timestamp>;
   created_by: string;
+  effective_at: Timestamp | null;
   envelop_id: string;
   id: Generated<string>;
+  kind: Generated<string>;
   period_start: Timestamp | null;
 }
 

@@ -70,6 +70,7 @@ export const personalEnvelopeUtilization = authorizedProcedure
                     carry_in: string;
                     borrowed_in: string;
                     borrowed_out: string;
+                    lifetime_overrun: string;
                 }>`
                     SELECT
                         e.id::text AS envelop_id,
@@ -121,14 +122,23 @@ export const personalEnvelopeUtilization = authorizedProcedure
                                   )
                               )
                         ), 0)::text AS allocated,
+                        /* For cadence='none' (rolling) envelopes, consumed
+                           is LIFETIME — see analytics/envelopeUtilization.mts
+                           for rationale. Owned-account scoping is preserved
+                           via source_account_id = ANY(ownedParam). */
                         COALESCE((
                             SELECT SUM(t.amount)
                             FROM transactions t
                             WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
                               AND t.source_account_id = ANY(${ownedParam})
-                              AND t.transaction_datetime >= ${periodStart}
-                              AND t.transaction_datetime < ${periodEnd}
+                              AND (
+                                  e.cadence = 'none'
+                                  OR (
+                                      t.transaction_datetime >= ${periodStart}
+                                      AND t.transaction_datetime < ${periodEnd}
+                                  )
+                              )
                         ), 0)::text AS consumed,
                         -- carry_in honors the three-mode carry_policy:
                         --   'reset'         → 0
@@ -176,7 +186,41 @@ export const personalEnvelopeUtilization = authorizedProcedure
                                       AND t.transaction_datetime < ${prevEnd}
                                 ), 0)
                             ))
-                        END::text AS carry_in
+                        END::text AS carry_in,
+                        -- Lifetime overrun on rolling envelopes — see
+                        -- analytics/envelopeUtilization.mts for rationale.
+                        -- LEDGER-REPLACEABLE: once the envelop_allocations
+                        -- ledger gains first-class 'reckon' kinds, this
+                        -- field can be derived (or retired) — see the
+                        -- product plan saved in agent memory.
+                        --
+                        -- Scoping: every other column on this row is
+                        -- owned-account-scoped via ownedParam. Mirror that
+                        -- here so a personal viewer of a shared rolling
+                        -- envelope doesn't see other members' spend
+                        -- attributed to them. Space-wide allocations
+                        -- (account_id IS NULL) belong to the personal
+                        -- slice — same convention as the period allocated
+                        -- subquery above.
+                        CASE WHEN e.cadence = 'none' THEN
+                            GREATEST(
+                                0,
+                                COALESCE((
+                                    SELECT SUM(t.amount)
+                                    FROM transactions t
+                                    WHERE t.envelop_id = e.id
+                                      AND t.type = 'expense'
+                                      AND t.source_account_id = ANY(${ownedParam})
+                                ), 0)
+                                -
+                                COALESCE((
+                                    SELECT SUM(a.amount)
+                                    FROM envelop_allocations a
+                                    WHERE a.envelop_id = e.id
+                                      AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
+                                ), 0)
+                            )
+                        ELSE 0 END::text AS lifetime_overrun
                     FROM envelops e
                     JOIN spaces s ON s.id = e.space_id
                     WHERE e.space_id = ANY(${memberSpaces})
@@ -213,13 +257,22 @@ export const personalEnvelopeUtilization = authorizedProcedure
                         GROUP BY a.envelop_id, a.account_id
                     ),
                     spend AS (
+                        /* Lifetime spend for rolling envelopes; period-
+                           scoped for monthly — matches the top-level
+                           aggregate's rule. */
                         SELECT t.envelop_id, t.source_account_id AS account_id, SUM(t.amount) AS amount
                         FROM transactions t
+                        JOIN envelops e ON e.id = t.envelop_id
                         WHERE t.space_id = ANY(${memberSpaces})
                           AND t.type = 'expense'
                           AND t.source_account_id = ANY(${ownedParam})
-                          AND t.transaction_datetime >= ${periodStart}
-                          AND t.transaction_datetime < ${periodEnd}
+                          AND (
+                              e.cadence = 'none'
+                              OR (
+                                  t.transaction_datetime >= ${periodStart}
+                                  AND t.transaction_datetime < ${periodEnd}
+                              )
+                          )
                         GROUP BY t.envelop_id, t.source_account_id
                     ),
                     prev_alloc AS (
@@ -350,6 +403,7 @@ export const personalEnvelopeUtilization = authorizedProcedure
                         remaining,
                         borrowedIn: Number(t.borrowed_in),
                         borrowedOut: Number(t.borrowed_out),
+                        lifetimeOverrun: Number(t.lifetime_overrun),
                         isDrift: remaining < 0,
                         breakdown: breakdownByEnvelope.get(t.envelop_id) ?? [],
                     };

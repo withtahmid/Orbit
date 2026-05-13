@@ -2,3 +2,6 @@
 - [Tap target sizes in Orbit](tap-target-sizes.md) — default button heights (shadcn `h-9` 36px, `.od-btn` 36px, `.od-btn-sm` 30px, `.ai-btn` 40px) are below 44px. Flag only in sticky bars, destructive controls, or dense rows.
 - [Transaction sheet architecture](transaction-sheet-architecture.md) — How New/Edit tx sheets, OrbitDrawerShell, NT_STYLES sharing, TransactionDatePicker popover styles, and FieldPin compose.
 - [Money variant="muted" contrast trap](money-variant-muted-contrast.md) — `variant="muted"` uses Tailwind `text-muted-foreground` (global theme), not orbit-design tokens — fails on brand/light surfaces.
+- [Envelope UI terminology (Position vs Remaining)](project_envelope_ui_terminology.md) — Hero stat label renamed for cumulative-vs-period clarity; don't revert without checking semantics.
+- [Envelope lifetime-overrun surfaces](project_envelope_lifetime_overrun_surfaces.md) — Four UI sites display rolling-envelope lifetime overspend; keep them in sync.
+- [Cadence-row wrap bug pattern](feedback_recurring_cadence_row_wrap_bug.md) — Envelope card cadence spans don't flex-wrap; flag any 3rd segment added there.

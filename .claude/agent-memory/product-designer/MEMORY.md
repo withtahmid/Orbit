@@ -2,3 +2,5 @@
 - [Envelope/category coupling decision](envelope_category_coupling_decision.md) — Strict N:1 conflicts with spec's orthogonality; recommend soft-decouple via transactions.envelop_id.
 - [Transaction-entry Pins spec](transaction_entry_pins_spec.md) — v3: Account per-user-per-space, Envelope/Event space-wide; two-table schema; editor+ sets space pins; silent on cross-user changes.
 - [Carry-both Absorb gap anomaly](carry_both_absorb_gap_anomaly.md) — `carry='both'` + reckoning `absorbed` are non-canceling; produces invisible carried-debt gap between net worth and envelope remaining.
+- [Rolling envelope lifetime semantics](rolling_envelope_lifetime_semantics.md) — cadence='none' uses lifetime-scope everywhere; signed `remaining`; no `lifetimeOverrun` pill; period concepts gated to monthly.
+- [Concept critique 2026-05-13](concept_critique_2026_05_13.md) — Verdict: model is muddled, not dirty; collapse Plan into Envelope; promote a typed envelope-ledger as the missing primitive.

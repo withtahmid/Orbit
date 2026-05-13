@@ -8,6 +8,7 @@ import { useStore } from "@/stores/useStore";
 import { CreateAccountDialog } from "@/features/accounts/CreateAccountDialog";
 import { AddExistingAccountDialog } from "@/features/accounts/AddExistingAccountDialog";
 import { PermissionGate } from "@/components/shared/PermissionGate";
+import { UserAvatar } from "@/components/shared/UserAvatar";
 import { ROUTES } from "@/router/routes";
 
 type NormalizedOwner = {
@@ -254,7 +255,7 @@ const AccountsPage = observer(function AccountsPage() {
                                 : isMe
                                   ? `${(owner?.first_name ?? "You").toUpperCase()} (YOU)`
                                   : (owner?.first_name ?? "Unknown").toUpperCase();
-                        const ownerInitial = (owner?.first_name?.[0] ?? "?").toUpperCase();
+                        const isUnassigned = key === UNASSIGNED_OWNER_ID;
                         const total = group.reduce(
                             (acc, a) => acc + Number(a.balance),
                             0
@@ -263,15 +264,25 @@ const AccountsPage = observer(function AccountsPage() {
                             <div key={key} className="ac-group">
                                 <div className="ac-group-head">
                                     <span className="ac-group-name">
-                                        <span
-                                            className="ac-owner-bubble"
-                                            style={{
-                                                background:
-                                                    "linear-gradient(135deg, var(--ent-1), var(--ent-2))",
-                                            }}
-                                        >
-                                            {ownerInitial}
-                                        </span>
+                                        {isUnassigned ? (
+                                            <span
+                                                className="ac-owner-bubble"
+                                                style={{
+                                                    background:
+                                                        "linear-gradient(135deg, var(--ent-1), var(--ent-2))",
+                                                }}
+                                                aria-hidden
+                                            >
+                                                ?
+                                            </span>
+                                        ) : (
+                                            <UserAvatar
+                                                fileId={owner?.avatar_file_id}
+                                                firstName={owner?.first_name}
+                                                size="xs"
+                                                className="ac-owner-avatar-img"
+                                            />
+                                        )}
                                         <span className="ac-owner-label">
                                             {ownerLabel}
                                         </span>
@@ -612,6 +623,7 @@ const AC_STYLES = `
     font-weight: 600;
     flex-shrink: 0;
 }
+.ac-owner-avatar-img { flex-shrink: 0; }
 .ac-owner-label {
     font-size: 11px;
     color: var(--fg-3);
