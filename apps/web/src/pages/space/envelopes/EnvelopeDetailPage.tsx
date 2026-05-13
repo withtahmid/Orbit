@@ -57,15 +57,25 @@ export default function EnvelopeDetailPage() {
         return m;
     }, [accountsQuery.data]);
 
-    const total = envelope ? envelope.allocated + envelope.carryIn : 0;
-    const rawPct =
+    // Period-scoped pool: this-period allocation + positive carry only.
+    // Negative carry (carry='both' debt) is already deducted from net
+    // worth — it doesn't reduce period spendability and shouldn't trip
+    // the "over" state for envelopes that haven't overspent this period.
+    // The hero "Remaining" stat below uses cumulative `envelope.remaining`,
+    // which is the separate concept.
+    const total = envelope ? envelope.allocated + Math.max(0, envelope.carryIn) : 0;
+    const periodRemaining = envelope ? total - envelope.consumed : 0;
+    const over = !!envelope && envelope.consumed > total;
+    const drainPct =
+        envelope && total > 0
+            ? Math.max(0, Math.min(1, periodRemaining / total))
+            : 0;
+    const pctSpent =
         envelope && total > 0
             ? (envelope.consumed / total) * 100
             : envelope && envelope.consumed > 0
               ? Infinity
               : 0;
-    const periodPct = Math.min(100, rawPct);
-    const over = rawPct > 100;
 
     const monthLabel = formatInAppTz(new Date(), "MMM yyyy");
     const daysLeft = useMemo(() => {
@@ -328,7 +338,7 @@ export default function EnvelopeDetailPage() {
                             tone="brand"
                         />
                         <HeroStat
-                            label="Remaining"
+                            label="Position"
                             amount={envelope.remaining}
                             tone="gold"
                         />
@@ -338,7 +348,7 @@ export default function EnvelopeDetailPage() {
                             </span>
                             <div style={{ marginTop: 12 }}>
                                 <ProgressBar
-                                    value={periodPct / 100}
+                                    value={over ? 1 : drainPct}
                                     color={
                                         over ? "var(--expense)" : envelope.color
                                     }
@@ -347,8 +357,10 @@ export default function EnvelopeDetailPage() {
                             </div>
                             <div className="ed-hero-progress-foot">
                                 <span>
-                                    {Number.isFinite(rawPct)
-                                        ? `${rawPct.toFixed(0)}% used`
+                                    {Number.isFinite(pctSpent)
+                                        ? over
+                                            ? `${(pctSpent - 100).toFixed(0)}% over`
+                                            : `${Math.round(100 - pctSpent)}% left`
                                         : "Spent without allocation"}
                                 </span>
                                 <span>{daysLeft} days left</span>
