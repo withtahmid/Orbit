@@ -3,3 +3,4 @@
 - [Token-credentialed invites](invite_token_design.md) — Space invites are intentionally accept-by-anyone-with-link, not pinned to the invited email; anyone with a leaked URL can claim the role, including owner.
 - [Role-cast pattern](role_cast_pattern.md) — Kysely generates `ArrayType<"editor"|"owner"|"viewer">` for enum role columns; code routinely uses `"owner" as unknown as SpaceMembers["role"]`. Always check the cast is consistent with how the value is later compared (`===`).
 - [resolveSpaceMembership helper](resolve_space_membership.md) — Standard guard for "is the caller a member with one of these roles?". Editor permissions sometimes grant powers that addMembers/removeMember restrict to owners — watch for permission-drift between siblings.
+- [event-list-status-filter](event-list-status-filter.md) — `event.listBySpace` does not filter by status; closed events leak into transaction-entry pickers and look like "close didn't persist."

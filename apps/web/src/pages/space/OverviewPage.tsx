@@ -432,12 +432,79 @@ export default observer(function OverviewPage() {
                         <FilterIcon />
                         This month
                     </button>
+                    {!isPersonal &&
+                        (() => {
+                            // Monthly-plan entry point. State-aware: when
+                            // there's money to budget, goes primary with a
+                            // "·Money free" chip; otherwise stays ghost.
+                            // Label is stable as "Plan {Month}" to avoid a
+                            // perceptible flicker between loading and loaded
+                            // states — the style + chip carry the urgency
+                            // signal. "New transaction" demotes to ghost
+                            // only after the summary loads AND there's money
+                            // to budget, so single-primary is preserved
+                            // without flickering on first paint.
+                            const planMonthSlug = formatInAppTz(now, "yyyy-MM");
+                            const planMonthName = formatInAppTz(now, "MMMM");
+                            const hasMoneyToBudget =
+                                summary.data !== undefined &&
+                                summary.data.unallocated > 0;
+                            return (
+                                <Link
+                                    to={ROUTES.spacePlanMonth(
+                                        space.id,
+                                        planMonthSlug
+                                    )}
+                                    className={
+                                        hasMoneyToBudget
+                                            ? "od-btn od-btn-primary ov-link-btn"
+                                            : "od-btn ov-link-btn"
+                                    }
+                                    aria-label={
+                                        hasMoneyToBudget && summary.data
+                                            ? `Plan ${planMonthName}, ${summary.data.unallocated.toFixed(2)} free to budget`
+                                            : `Open the ${planMonthName} plan`
+                                    }
+                                >
+                                    <DesignIcon
+                                        name="calendar"
+                                        size={13}
+                                        color={
+                                            hasMoneyToBudget
+                                                ? "var(--brand-fg)"
+                                                : "var(--fg-3)"
+                                        }
+                                    />
+                                    {`Plan ${planMonthName}`}
+                                    {hasMoneyToBudget && summary.data && (
+                                        <span className="ov-plan-free">
+                                            ·{" "}
+                                            <Money
+                                                amount={
+                                                    summary.data.unallocated
+                                                }
+                                                size={11.5}
+                                            />{" "}
+                                            free
+                                        </span>
+                                    )}
+                                </Link>
+                            );
+                        })()}
                     <Link to={ROUTES.spaceAnalytics(space.id)} className="od-btn ov-link-btn">
                         <ChartIcon />
                         All analytics
                     </Link>
                     {!isPersonal && (
-                        <Link to={ROUTES.spaceTransactions(space.id)} className="od-btn od-btn-primary ov-link-btn">
+                        <Link
+                            to={ROUTES.spaceTransactions(space.id)}
+                            className={
+                                summary.data !== undefined &&
+                                summary.data.unallocated > 0
+                                    ? "od-btn ov-link-btn"
+                                    : "od-btn od-btn-primary ov-link-btn"
+                            }
+                        >
                             <PlusIcon />
                             New transaction
                         </Link>
@@ -3252,6 +3319,22 @@ const OV_STYLES = `
     display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
 }
 .ov-link-btn { text-decoration: none; }
+.ov-plan-free {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 3px;
+    color: var(--fg-3);
+    font-size: 11.5px;
+    margin-left: 2px;
+}
+/* When the chip sits inside the primary state of the Plan button the
+   button background is --brand; the default --fg-3 muted gray is too
+   low-contrast on that tint. Pull the chip into the brand foreground
+   palette so the number stays legible. */
+.od-btn-primary .ov-plan-free,
+.od-btn-primary .ov-plan-free > * {
+    color: color-mix(in oklab, var(--brand-fg) 82%, transparent);
+}
 
 /* Scroll body */
 .ov-scroll {
