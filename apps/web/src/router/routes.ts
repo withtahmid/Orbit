@@ -26,5 +26,7 @@ export const ROUTES = {
     spaceAnalytics: (id: string) => `/s/${id}/analytics`,
     spaceAnalyticsDetail: (id: string, view: string) => `/s/${id}/analytics/${view}`,
     spaceSettings: (id: string) => `/s/${id}/settings`,
+    spaceDps: (id: string) => `/s/${id}/dps`,
+    spaceDpsDetail: (id: string, schemeId: string) => `/s/${id}/dps/${schemeId}`,
     inviteAccept: (token: string) => `/invite/${token}`,
 } as const;

@@ -36,6 +36,7 @@ export const createTransferTransaction = authorizedProcedure
             feeAmount: z.number().positive().optional(),
             feeExpenseCategoryId: z.string().uuid().optional(),
             feeEnvelopId: z.string().uuid().optional(),
+            dpsSchemeId: z.string().uuid().optional(),
             idempotencyKey: z.string().uuid().optional(),
         })
     )
@@ -125,6 +126,7 @@ export const createTransferTransaction = authorizedProcedure
                                 location: input.location || null,
                                 transaction_datetime: datetime,
                                 event_id: input.eventId ?? null,
+                                dps_scheme_id: input.dpsSchemeId ?? null,
                             })
                             .returning(["id"])
                             .executeTakeFirstOrThrow();

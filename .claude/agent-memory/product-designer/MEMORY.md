@@ -4,3 +4,5 @@
 - [Carry-both Absorb gap anomaly](carry_both_absorb_gap_anomaly.md) — `carry='both'` + reckoning `absorbed` are non-canceling; produces invisible carried-debt gap between net worth and envelope remaining.
 - [Rolling envelope lifetime semantics](rolling_envelope_lifetime_semantics.md) — cadence='none' uses lifetime-scope everywhere; signed `remaining`; no `lifetimeOverrun` pill; period concepts gated to monthly.
 - [Concept critique 2026-05-13](concept_critique_2026_05_13.md) — Verdict: model is muddled, not dirty; collapse Plan into Envelope; promote a typed envelope-ledger as the missing primitive.
+- [Locked-account substrate](locked_account_substrate.md) — `account_type='locked'` is the right substrate for "money that exists but isn't spendable" (DPS principal, FDR, etc.).
+- [DPS product plan](dps_product_plan.md) — DPS modeled as locked account + `dps_schemes` side-table; installment = normal transfer; interest projection-only.

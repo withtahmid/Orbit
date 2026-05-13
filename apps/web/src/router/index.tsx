@@ -72,6 +72,8 @@ const AnalyticsPriorityView = lazy(
     () => import("@/pages/space/analytics/views/PriorityView")
 );
 const SpaceSettingsPage = lazy(() => import("@/pages/space/settings/SpaceSettingsPage"));
+const DpsListPage = lazy(() => import("@/pages/space/dps/DpsListPage"));
+const DpsDetailPage = lazy(() => import("@/pages/space/dps/DpsDetailPage"));
 
 const withSuspense = (children: React.ReactNode) => (
     <Suspense fallback={<FullPageSpinner />}>{children}</Suspense>
@@ -257,6 +259,14 @@ export const router = createBrowserRouter([
                                     {
                                         path: "settings",
                                         element: withSuspense(<SpaceSettingsPage />),
+                                    },
+                                    {
+                                        path: "dps",
+                                        element: withSuspense(<DpsListPage />),
+                                    },
+                                    {
+                                        path: "dps/:schemeId",
+                                        element: withSuspense(<DpsDetailPage />),
                                     },
                                 ],
                             },

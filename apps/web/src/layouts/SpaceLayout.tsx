@@ -21,6 +21,7 @@ import {
     ChevronsUpDown,
     Plus,
     Check,
+    PiggyBank,
     type LucideIcon,
 } from "lucide-react";
 import {
@@ -65,6 +66,7 @@ const FULL_NAV: NavItem[] = [
     { label: "Transactions", icon: ArrowLeftRight, path: "transactions" },
     { label: "Envelopes", icon: Mail, path: "envelopes" },
     { label: "Plans", icon: Target, path: "plans" },
+    { label: "DPS", icon: PiggyBank, path: "dps" },
     { label: "Categories", icon: FolderTree, path: "categories" },
     { label: "Events", icon: CalendarDays, path: "events" },
     { label: "Analytics", icon: BarChart3, path: "analytics" },
@@ -74,7 +76,7 @@ const FULL_NAV: NavItem[] = [
 // Virtual "My money" space: strip mutation-oriented tabs that are
 // space-local concepts (envelopes, plans, categories, events, settings).
 const PERSONAL_NAV: NavItem[] = FULL_NAV.filter((n) =>
-    ["", "accounts", "transactions", "analytics"].includes(n.path)
+    ["", "accounts", "transactions", "dps", "analytics"].includes(n.path)
 );
 
 export const SpaceLayout = observer(function SpaceLayout() {

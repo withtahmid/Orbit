@@ -33,6 +33,9 @@ import { personalTrendsDailyComparison } from "../procedures/personal/trendsDail
 import { personalTrendsYearOverYear } from "../procedures/personal/trendsYearOverYear.mjs";
 import { personalUnbudgetedTrend } from "../procedures/personal/unbudgetedTrend.mjs";
 import { personalYearReport } from "../procedures/personal/yearReport.mjs";
+import { personalDpsList } from "../procedures/personal/dpsList.mjs";
+import { personalDpsTotals } from "../procedures/personal/dpsTotals.mjs";
+import { personalDpsUpcomingInstallments } from "../procedures/personal/dpsUpcomingInstallments.mjs";
 import { router } from "../trpc/index.mjs";
 
 /**
@@ -83,6 +86,12 @@ export const personalRouter = router({
        pending items because the resolution touches a specific space. */
     reckoning: router({
         listPending: personalReckoningListPending,
+    }),
+    /* DPS — Bangladeshi recurring deposit scheme tracking. */
+    dps: router({
+        list: personalDpsList,
+        totals: personalDpsTotals,
+        upcomingInstallments: personalDpsUpcomingInstallments,
     }),
     /* Anomalies view. */
     anomalies: router({

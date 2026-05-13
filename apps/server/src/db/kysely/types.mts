@@ -53,6 +53,43 @@ export interface Accounts {
   updated_at: Generated<Timestamp | null>;
 }
 
+export interface DpsPayouts {
+  cash_amount: Numeric | null;
+  created_at: Generated<Timestamp>;
+  dps_scheme_id: string;
+  id: Generated<string>;
+  kind: string;
+  linked_transaction_id: string | null;
+  note: string | null;
+  occurred_at: Timestamp;
+}
+
+export interface DpsSchemes {
+  account_id: string;
+  account_number: string | null;
+  annual_rate_bps: number;
+  bank_name: string;
+  closed_at: Timestamp | null;
+  compounding: Generated<string>;
+  created_at: Generated<Timestamp>;
+  created_by: string;
+  early_encashment_rate_bps: number | null;
+  final_payout_amount: Numeric | null;
+  id: Generated<string>;
+  installment_amount: Numeric;
+  installment_day: number;
+  matured_at: Timestamp | null;
+  notes: string | null;
+  scheme_name: string | null;
+  source_account_id: string | null;
+  space_id: string;
+  start_date: Timestamp;
+  status: Generated<string>;
+  term_months: number;
+  updated_at: Generated<Timestamp>;
+  withholding_tax_bps: Generated<number>;
+}
+
 export interface EmailVerificationCodes {
   code: string;
   created_at: Generated<Timestamp>;
@@ -253,6 +290,7 @@ export interface Transactions {
   created_by: string;
   description: string | null;
   destination_account_id: string | null;
+  dps_scheme_id: string | null;
   envelop_id: string | null;
   event_id: string | null;
   expense_category_id: string | null;
@@ -296,6 +334,8 @@ export interface UserSpacePin {
 export interface DB {
   account_balances: AccountBalances;
   accounts: Accounts;
+  dps_payouts: DpsPayouts;
+  dps_schemes: DpsSchemes;
   email_verification_codes: EmailVerificationCodes;
   envelop_allocations: EnvelopAllocations;
   envelops: Envelops;
