@@ -9,7 +9,6 @@ import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/r
 import { resolveEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
 import { resolveStrictGate } from "../space/utils/resolveStrictGate.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
-import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
 
@@ -75,12 +74,6 @@ export const createExpenseTransaction = authorizedProcedure
                                 requireActive: true,
                             });
                         }
-
-                        await resolveAvailableBalance({
-                            trx,
-                            accountId: input.sourceAccountId,
-                            requiredBalance: input.amount,
-                        });
 
                         const transaction = await trx
                             .insertInto("transactions")

@@ -5,7 +5,6 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
 import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
-import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
 import { resolveEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
@@ -226,36 +225,6 @@ export const updateTransaction = authorizedProcedure
                         eventId: merged.eventId,
                         spaceId: existing.space_id,
                     });
-                }
-
-                // Balance pre-check. Both the transfer row and any
-                // linked-fee row debit the same source account, so we
-                // pre-check the combined delta. Existing transfer +
-                // existing fee already debited the source; we only need
-                // to clear the *increase*.
-                if (merged.sourceAccountId) {
-                    const existingFeeAmount = linkedFee?.amount ?? 0;
-                    const newFeeAmount = desiredFee
-                        ? desiredFee.amount
-                        : clearFee
-                          ? 0
-                          : existingFeeAmount;
-                    const newTotalOut = merged.amount + newFeeAmount;
-                    const previousTotalOutOnSource =
-                        existing.source_account_id === merged.sourceAccountId
-                            ? Number(existing.amount) + existingFeeAmount
-                            : 0;
-                    const required = Math.max(
-                        0,
-                        newTotalOut - previousTotalOutOnSource
-                    );
-                    if (required > 0) {
-                        await resolveAvailableBalance({
-                            trx,
-                            accountId: merged.sourceAccountId,
-                            requiredBalance: required,
-                        });
-                    }
                 }
 
                 await trx

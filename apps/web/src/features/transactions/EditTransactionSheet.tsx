@@ -30,7 +30,7 @@ import { useInvalidateAnalytics } from "@/lib/invalidate";
 import type { RouterOutput } from "@/trpc";
 import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
 import { getIcon } from "@/lib/entityIcons";
-import { NT_STYLES } from "./NewTransactionSheet";
+import { NT_STYLES, SourceOverspendHint } from "./NewTransactionSheet";
 import { TransactionDatePicker, TDP_POPOVER_STYLES } from "./TransactionDatePicker";
 
 type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
@@ -343,6 +343,23 @@ function EditForm({
         onPendingChange(mutate.isPending);
     }, [mutate.isPending, onPendingChange]);
 
+    /* Net new debit applied to the (possibly newly-picked) source. When
+       the source is unchanged, only the delta vs. the existing amount
+       counts; reducing the amount won't make the source any more
+       negative, so the hint stays silent. When the source changes, the
+       entire new amount lands on the new source. Fee changes aren't
+       editable from this sheet, so they cancel out either way. */
+    const newAmountForHint = Number(amount) || 0;
+    const existingAmountForHint = Number(transaction.amount) || 0;
+    const sourceChangedForHint =
+        sourceAccountId !== (transaction.source_account_id ?? "");
+    const editAdditionalDebit = sourceChangedForHint
+        ? newAmountForHint
+        : newAmountForHint - existingAmountForHint;
+    const sourceAccountForHint = (accountsQuery.data ?? []).find(
+        (a) => a.id === sourceAccountId
+    );
+
     const submit = (e: FormEvent) => {
         e.preventDefault();
         const parsed = Number(amount);
@@ -453,6 +470,12 @@ function EditForm({
                             disabled={isFeeExpense}
                         />
                     </OrbitField>
+                    {!isFeeExpense && (
+                        <SourceOverspendHint
+                            account={sourceAccountForHint}
+                            additionalDebit={editAdditionalDebit}
+                        />
+                    )}
                     <OrbitField label="Category" hint="Tag for what the spend was" required>
                         <CategoryTreeSelect
                             categories={categoriesForEdit as any}
@@ -527,6 +550,10 @@ function EditForm({
                             leadColor="var(--ent-1)"
                         />
                     </OrbitField>
+                    <SourceOverspendHint
+                        account={sourceAccountForHint}
+                        additionalDebit={editAdditionalDebit}
+                    />
                     <div className="nt-swap" aria-hidden>
                         <span>
                             <ArrowDown className="size-3.5" />

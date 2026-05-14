@@ -678,6 +678,40 @@ export const NT_STYLES = `
     color: var(--fg-3);
 }
 
+.nt-source-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    background: color-mix(in oklab, var(--expense) 7%, transparent);
+    border: 1px solid color-mix(in oklab, var(--expense) 22%, transparent);
+    border-radius: 10px;
+}
+.nt-source-warn-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--expense);
+    flex-shrink: 0;
+    margin-top: 6px;
+}
+.nt-source-warn-text {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.nt-source-warn-title {
+    font-size: 13px;
+    color: var(--fg);
+    font-weight: 500;
+    line-height: 1.35;
+}
+.nt-source-warn-sub {
+    font-size: 11.5px;
+    color: var(--fg-3);
+}
+
 .nt-recover-card {
     background: var(--bg-elev-1);
     border: 1px solid var(--line);
@@ -1313,6 +1347,38 @@ function EnvelopeStatusCard({
     );
 }
 
+/** Inline overspend hint that sits under the source-account picker.
+ *  Mirrors the envelope-overspend warning: informational, never blocking.
+ *  Suppressed for liability accounts — those naturally go more negative
+ *  to mean "more owed" and the running balance display already says so. */
+export function SourceOverspendHint({
+    account,
+    additionalDebit,
+}: {
+    account: SpaceAccount | undefined;
+    additionalDebit: number;
+}) {
+    if (!account) return null;
+    if (account.account_type === "liability") return null;
+    if (!(additionalDebit > 0)) return null;
+    const resulting = account.balance - additionalDebit;
+    if (resulting >= 0) return null;
+    return (
+        <div className="nt-source-warn" role="status">
+            <span className="nt-source-warn-dot" />
+            <div className="nt-source-warn-text">
+                <span className="nt-source-warn-title">
+                    Heads up — this will take <strong>{account.name}</strong> to{" "}
+                    <span className="tabular">{resulting.toFixed(2)}</span>.
+                </span>
+                <span className="nt-source-warn-sub">
+                    Save anyway, or pick a different source.
+                </span>
+            </div>
+        </div>
+    );
+}
+
 /* ============================================================
    INCOME FORM
    ============================================================ */
@@ -1850,6 +1916,11 @@ function ExpenseForm({
                 </OrbitField>
             </OrbitFieldRow>
 
+            <SourceOverspendHint
+                account={(accountsQuery.data ?? []).find((a) => a.id === sourceAccountId)}
+                additionalDebit={Number(amount) || 0}
+            />
+
             <OrbitField label="Payee" hint="Optional · helps recognize this entry later">
                 <OrbitInput
                     value={description}
@@ -2099,6 +2170,11 @@ function TransferForm({
                     leadColor="var(--ent-1)"
                 />
             </OrbitField>
+
+            <SourceOverspendHint
+                account={(accountsQuery.data ?? []).find((a) => a.id === sourceAccountId)}
+                additionalDebit={totalOut}
+            />
 
             <div className="nt-swap" aria-hidden>
                 <span>
