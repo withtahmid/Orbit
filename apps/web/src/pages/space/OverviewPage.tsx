@@ -578,7 +578,7 @@ export default observer(function OverviewPage() {
                 )}
 
                 {/* Over-allocation banner */}
-                {overAllocated && summary.data && (
+                {!isPersonal && overAllocated && summary.data && (
                     <div className="od-card ov-over">
                         <div className="ov-drift-headline">
                             <span className="ov-drift-icon ov-over-icon">
@@ -670,20 +670,22 @@ export default observer(function OverviewPage() {
                             lastMonthLabel
                         )}
                     />
-                    <StatTile
-                        label="Unallocated"
-                        amount={summary.data?.unallocated ?? 0}
-                        loading={summary.isLoading}
-                        variant={overAllocated ? "expense" : "fg"}
-                        icon={<WalletIcon />}
-                        delta={
-                            overAllocated
-                                ? "Over-allocated"
-                                : summary.data && summary.data.lockedBalance > 0
-                                  ? "Locked excluded"
-                                  : "Free to allocate"
-                        }
-                    />
+                    {!isPersonal && (
+                        <StatTile
+                            label="Unallocated"
+                            amount={summary.data?.unallocated ?? 0}
+                            loading={summary.isLoading}
+                            variant={overAllocated ? "expense" : "fg"}
+                            icon={<WalletIcon />}
+                            delta={
+                                overAllocated
+                                    ? "Over-allocated"
+                                    : summary.data && summary.data.lockedBalance > 0
+                                      ? "Locked excluded"
+                                      : "Free to allocate"
+                            }
+                        />
+                    )}
                 </div>
 
                 {/* Balance trend */}
