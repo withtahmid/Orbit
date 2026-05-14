@@ -5,7 +5,6 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveTransactionPermission } from "./utils/resolveTransactionPermission.mjs";
 import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpaceIntegrity.mjs";
 import { TRPCError } from "@trpc/server";
-import { resolveAvailableBalance } from "./utils/resolveAvailableBalance.mjs";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
 import { resolveEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
@@ -98,16 +97,6 @@ export const createTransferTransaction = authorizedProcedure
                                 spaceId: input.spaceId,
                             });
                         }
-
-                        // Source must cover amount + fee. The fee shows
-                        // up as its own expense row that also debits the
-                        // source — both deductions hit the same account.
-                        const totalOut = input.amount + (input.feeAmount ?? 0);
-                        await resolveAvailableBalance({
-                            trx,
-                            accountId: input.sourceAccountId,
-                            requiredBalance: totalOut,
-                        });
 
                         const datetime = input.datetime || new Date();
                         const desc = input.description || null;
