@@ -4,3 +4,5 @@
 - [Carry-both Absorb gap anomaly](carry_both_absorb_gap_anomaly.md) — `carry='both'` + reckoning `absorbed` are non-canceling; produces invisible carried-debt gap between net worth and envelope remaining.
 - [Rolling envelope lifetime semantics](rolling_envelope_lifetime_semantics.md) — cadence='none' uses lifetime-scope everywhere; signed `remaining`; no `lifetimeOverrun` pill; period concepts gated to monthly.
 - [Concept critique 2026-05-13](concept_critique_2026_05_13.md) — Verdict: model is muddled, not dirty; collapse Plan into Envelope; promote a typed envelope-ledger as the missing primitive.
+- [Overview reconciliation identity](overview_reconciliation_identity.md) — Canonical 4-slot bar (Envelopes/Plans/Unbudgeted/Locked); user's "Remaining+Unbudgeted=NetWorth" is the simplified case.
+- [Personal-space Unallocated misframe](personal_space_unallocated_misframe.md) — `unallocated` exists on personal but no action surface; replace tile with "Across N spaces", suppress over-allocated banner on /s/me.
