@@ -11,9 +11,9 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
  *
  * A hard `DELETE FROM users` is impossible for anyone who has ever
  * created shared data — `spaces.created_by`, `spaces.updated_by`,
- * `transactions.created_by`, `envelop_allocations.created_by`, and
- * `plan_allocations.created_by` are all `ON DELETE RESTRICT` (see
- * migration 027), so the FKs block the delete and Postgres surfaces it
+ * `transactions.created_by`, and `envelop_allocations.created_by` are all
+ * `ON DELETE RESTRICT` (see migration 027), so the FKs block the delete
+ * and Postgres surfaces it
  * as a generic 500. Instead, we tombstone the user: anonymize their
  * identifying fields, set `deleted_at`, bump `token_version` (which
  * invalidates every outstanding JWT via `fetchUserFromJWT`), and drop

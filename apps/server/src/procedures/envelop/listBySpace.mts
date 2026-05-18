@@ -33,6 +33,8 @@ export const listEnvelopsBySpace = authorizedProcedure
                         "cadence",
                         "carry_over",
                         "carry_policy",
+                        "target_amount",
+                        "target_date",
                         "archived",
                         "created_at",
                         "updated_at",

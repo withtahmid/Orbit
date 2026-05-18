@@ -49,7 +49,6 @@ const SECTIONS: Section[] = [
     { id: "spaces", title: "Spaces & collaboration", icon: Users },
     { id: "accounts", title: "Accounts", icon: Wallet },
     { id: "envelopes", title: "Envelopes", icon: Mail },
-    { id: "plans", title: "Plans", icon: Target },
     { id: "categories", title: "Categories", icon: FolderTree },
     { id: "transactions", title: "Transactions", icon: ArrowLeftRight },
     { id: "events", title: "Events", icon: CalendarDays },
@@ -130,7 +129,6 @@ const DocsPage = observer(function DocsPage() {
                             <Spaces />
                             <Accounts />
                             <Envelopes />
-                            <Plans />
                             <Categories />
                             <Transactions />
                             <Events />
@@ -299,7 +297,7 @@ function Overview() {
             <SectionHeader id="overview" title="What is Orbit?" icon={Sparkles} />
             <Paragraph>
                 Orbit tracks where your money <i>is</i> (accounts), what it&apos;s{" "}
-                <i>earmarked for</i> (envelopes &amp; plans), and where it{" "}
+                <i>earmarked for</i> (envelopes &amp; goals), and where it{" "}
                 <i>went</i> (transactions). You and everyone you collaborate with
                 see the same up-to-the-second view of the household finances — no
                 spreadsheets to merge, no &quot;did you pay the internet bill?&quot;
@@ -320,8 +318,8 @@ function Overview() {
                     },
                     {
                         icon: Target,
-                        title: "Goal-based planning",
-                        body: "Plans hold money earmarked for long-horizon targets — house down-payment, vacation, new laptop.",
+                        title: "Goal envelopes",
+                        body: "Rolling envelopes with a target amount + date — house down-payment, vacation, new laptop. Same envelope ledger as a monthly bucket, just with a long-horizon goal attached.",
                     },
                 ]}
             />
@@ -343,8 +341,9 @@ function LiveDemo() {
                 <a href={DEMO_URL} className="od-link">
                     orbit-demo.withtahmid.com
                 </a>
-                . Every screen renders real data — 16 accounts, 30+ envelopes,
-                12 plans, 18 months of transactions, and five collaborating
+                . Every screen renders real data — 16 accounts, 30+ envelopes
+                (including a handful of goal envelopes), 18 months of
+                transactions, and five collaborating
                 spaces (Family Budget, Personal, Roommates, Side Business,
                 Travel Fund) — so you can explore the product end-to-end without
                 creating anything of your own.
@@ -410,15 +409,11 @@ function Concepts() {
                 />
                 <ConceptCard
                     title="Space"
-                    body="The collaboration boundary. Every space has its own envelopes, plans, categories, events, and members."
+                    body="The collaboration boundary. Every space has its own envelopes, categories, events, and members."
                 />
                 <ConceptCard
                     title="Envelope"
-                    body="A named bucket within a space. Holds an allocation of money — doesn't hold the money itself."
-                />
-                <ConceptCard
-                    title="Plan"
-                    body="A rolling goal bucket. Like an envelope, but with no period reset — it accumulates over time."
+                    body="A named bucket within a space. Monthly envelopes reset on the 1st; rolling envelopes accumulate. Attach a target amount + date and a rolling envelope becomes a goal."
                 />
                 <ConceptCard
                     title="Category"
@@ -492,7 +487,7 @@ function Spaces() {
             <SectionHeader id="spaces" title="Spaces & collaboration" icon={Users} />
             <Paragraph>
                 A <strong>space</strong> is a coherent ledger: transactions,
-                envelopes, plans, categories, and events all belong to exactly
+                envelopes, categories, and events all belong to exactly
                 one space. Accounts are different — an account can be shared
                 into many spaces (more on this below).
             </Paragraph>
@@ -587,6 +582,20 @@ function Envelopes() {
                 against categories that roll up to an envelope, its remaining
                 balance drops.
             </Paragraph>
+            <CalloutCard title="Goal envelopes">
+                Attach a <strong>target amount</strong> and (optionally) a{" "}
+                <strong>target date</strong> to a rolling (cadence: none)
+                envelope, and Orbit treats it as a goal. Same envelope
+                ledger — your contributions accrue, your spending draws
+                down — plus a goal progress bar on the card, a deadline
+                pill, and a Goals card on the Overview. Progress is
+                measured against cumulative positive contributions, so
+                completing a goal stays complete even after you spend the
+                money you saved. To create one, open the Budgets page,
+                hit <strong>New envelope</strong>, leave cadence on{" "}
+                <em>Rolling</em>, and fill in the target fields that
+                appear.
+            </CalloutCard>
             <CalloutCard title="Carry policy">
                 Three modes per envelope. <strong>Reset</strong> wipes the slate
                 each period — useful for &quot;I want a fresh budget every
@@ -627,22 +636,6 @@ function Envelopes() {
                 />
             </div>
             <ScreenshotPlaceholder label="Envelopes page — cards showing utilization, cadence, remaining" />
-        </section>
-    );
-}
-
-function Plans() {
-    return (
-        <section className="od-section">
-            <SectionHeader id="plans" title="Plans" icon={Target} />
-            <Paragraph>
-                Plans are long-horizon goals. They have no cadence — allocations
-                simply accumulate. Optionally set a target amount and target
-                date; Orbit will show progress and days-remaining. To spend plan
-                money, first transfer the allocation from the plan to an
-                envelope, then record a regular expense.
-            </Paragraph>
-            <ScreenshotPlaceholder label="Plans page — progress bars, target date countdown" />
         </section>
     );
 }
@@ -846,15 +839,15 @@ function Allocations() {
                 accounts independently reflect where the cash actually moved.
             </Paragraph>
             <Paragraph>
-                The <strong>Plan this month</strong> page gives you a single
+                The <strong>Budget this month</strong> page gives you a single
                 screen to set every envelope at once — last month&apos;s actual,
-                last month&apos;s plan, and a fresh column for this month. The
+                last month&apos;s budget, and a fresh column for this month. The
                 legacy <strong>Allocation matrix</strong> view still exists but
                 is reporting-only now; it shows the historical envelope ×
                 account grid for reconciliation, not as a flow you have to
                 maintain.
             </Paragraph>
-            <ScreenshotPlaceholder label="Plan this month — bulk-edit screen with last actual / last plan / this plan columns" />
+            <ScreenshotPlaceholder label="Budget this month — bulk-edit screen with last actual / last budget / this budget columns" />
         </section>
     );
 }
@@ -989,7 +982,7 @@ function Permissions() {
                 <RoleCard
                     role="Editor"
                     tone="brand"
-                    body="Record transactions, allocate, rebalance, create events. Cannot change membership or envelopes/plans/categories."
+                    body="Record transactions, allocate, rebalance, create events. Cannot change membership or envelopes/categories."
                 />
                 <RoleCard
                     role="Viewer"
@@ -1067,7 +1060,7 @@ function Faq() {
             <div className="od-faq-list">
                 <FaqItem
                     q="Is my data private?"
-                    a="Yes — each space is isolated. Only members of a space can see its transactions, envelopes, and plans. Accounts have a second permission layer on top of space membership."
+                    a="Yes — each space is isolated. Only members of a space can see its transactions and envelopes. Accounts have a second permission layer on top of space membership."
                 />
                 <FaqItem
                     q="Can I edit a transaction after recording it?"
@@ -1079,7 +1072,7 @@ function Faq() {
                 />
                 <FaqItem
                     q="Can I use Orbit for just myself?"
-                    a="Absolutely. A space of one works exactly the same. You get all the same envelope and plan features without the collaboration overhead."
+                    a="Absolutely. A space of one works exactly the same. You get all the same envelope and goal features without the collaboration overhead."
                 />
                 <FaqItem
                     q="Does Orbit support multiple currencies?"

@@ -108,15 +108,6 @@ export default observer(function OverviewPage() {
         { enabled: !isPersonal }
     );
 
-    const plansSpace = trpc.analytics.planProgress.useQuery(
-        { spaceId: space.id },
-        { enabled: !isPersonal }
-    );
-    const plansPersonal = trpc.personal.planProgress.useQuery(undefined, {
-        enabled: isPersonal,
-    });
-    const plans = isPersonal ? plansPersonal : plansSpace;
-
     const events = trpc.event.listBySpace.useQuery(
         { spaceId: space.id },
         { enabled: !isPersonal }
@@ -317,19 +308,25 @@ export default observer(function OverviewPage() {
     );
 
     const allocationDonut = useMemo(() => {
-        const env = (utilization.data ?? [])
+        // Split envelopes by whether they carry a target. Both contribute
+        // to the held cash that the donut visualises; we just colour them
+        // into two stacks so the user can see goals vs envelopes at a
+        // glance.
+        const slices = (utilization.data ?? [])
             .filter((e) => e.remaining > 0)
-            .map((e) => ({ id: "env-" + e.envelopId, name: e.name, value: e.remaining, color: e.color }));
-        const pln = (plans.data ?? [])
-            .filter((p) => p.allocated > 0)
-            .map((p) => ({ id: "plan-" + p.planId, name: p.name, value: p.allocated, color: p.color }));
+            .map((e) => ({
+                id: (e.targetAmount != null ? "goal-" : "env-") + e.envelopId,
+                name: e.name,
+                value: e.remaining,
+                color: e.color,
+            }));
         const unallocated = summary.data?.unallocated ?? 0;
         const unSlice =
             unallocated > 0
                 ? [{ id: "unallocated", name: "Unallocated", value: unallocated, color: UNALLOCATED_COLOR }]
                 : [];
-        return [...env, ...pln, ...unSlice];
-    }, [utilization.data, plans.data, summary.data]);
+        return [...slices, ...unSlice];
+    }, [utilization.data, summary.data]);
 
     /* Borrow obligations banner — sums envelope.borrowedOut across the
        current month so the overview surfaces "future periods owe X" the
@@ -342,23 +339,33 @@ export default observer(function OverviewPage() {
             envelopColor: string;
             envelopIcon: string;
             owed: number;
+            // Personal-twin rows include a real space id; for in-space
+            // views the active space is the same as `space.id`.
+            spaceId: string;
+            spaceName?: string;
         }> = [];
         for (const e of utilization.data ?? []) {
             const out = (e as { borrowedOut?: number }).borrowedOut ?? 0;
             if (out > 0) {
+                const personalRow = e as {
+                    spaceId?: string;
+                    spaceName?: string;
+                };
                 rows.push({
                     envelopId: e.envelopId,
                     envelopName: e.name,
                     envelopColor: e.color,
                     envelopIcon: e.icon,
                     owed: out,
+                    spaceId: personalRow.spaceId ?? space.id,
+                    spaceName: personalRow.spaceName,
                 });
             }
         }
         rows.sort((a, b) => b.owed - a.owed);
         const total = rows.reduce((s, r) => s + r.owed, 0);
         return { rows, total };
-    }, [utilization.data]);
+    }, [utilization.data, space.id]);
 
     const overAllocated = summary.data?.isOverAllocated ?? false;
 
@@ -451,7 +458,7 @@ export default observer(function OverviewPage() {
                                 summary.data.unallocated > 0;
                             return (
                                 <Link
-                                    to={ROUTES.spacePlanMonth(
+                                    to={ROUTES.spaceBudgetMonth(
                                         space.id,
                                         planMonthSlug
                                     )}
@@ -462,8 +469,8 @@ export default observer(function OverviewPage() {
                                     }
                                     aria-label={
                                         hasMoneyToBudget && summary.data
-                                            ? `Plan ${planMonthName}, ${summary.data.unallocated.toFixed(2)} free to budget`
-                                            : `Open the ${planMonthName} plan`
+                                            ? `Budget ${planMonthName}, ${summary.data.unallocated.toFixed(2)} free to budget`
+                                            : `Open the ${planMonthName} budget`
                                     }
                                 >
                                     <DesignIcon
@@ -475,7 +482,7 @@ export default observer(function OverviewPage() {
                                                 : "var(--fg-3)"
                                         }
                                     />
-                                    {`Plan ${planMonthName}`}
+                                    {`Budget ${planMonthName}`}
                                     {hasMoneyToBudget && summary.data && (
                                         <span className="ov-plan-free">
                                             ·{" "}
@@ -560,7 +567,7 @@ export default observer(function OverviewPage() {
                             {borrowAlerts.rows.slice(0, 4).map((r) => (
                                 <Link
                                     key={r.envelopId}
-                                    to={ROUTES.spaceEnvelopeDetail(space.id, r.envelopId)}
+                                    to={ROUTES.spaceBudgetDetail(r.spaceId, r.envelopId)}
                                     className="ov-drift-row"
                                 >
                                     <span className="ov-drift-row-left">
@@ -590,8 +597,8 @@ export default observer(function OverviewPage() {
                                     <Money amount={Math.abs(summary.data.unallocated)} variant="expense" />
                                 </div>
                                 <div className="ov-drift-sub">
-                                    More money is allocated to envelopes and plans than you actually
-                                    have. Deallocate somewhere or record income to balance.
+                                    More money is allocated to envelopes than you actually have.
+                                    Deallocate somewhere or record income to balance.
                                 </div>
                             </div>
                         </div>
@@ -747,7 +754,7 @@ export default observer(function OverviewPage() {
                         slices={allocationDonut}
                         centerLabel="Spendables"
                         centerValue={formatShort(summary.data?.spendableBalance ?? 0)}
-                        loading={utilization.isLoading || plans.isLoading || summary.isLoading}
+                        loading={utilization.isLoading || summary.isLoading}
                     />
                     <DonutCard
                         title={
@@ -908,9 +915,9 @@ export default observer(function OverviewPage() {
                     <TopMovers movers={moversData} />
                 </div>
 
-                <SectionEyebrow label="Targets" sub="Envelopes, plans, spending against budget" />
+                <SectionEyebrow label="Targets" sub="Envelopes, goals, spending against budget" />
 
-                {/* Envelopes + Plans */}
+                {/* Envelopes + Goals */}
                 <div className="ov-grid-2">
                     <div className="od-card ov-section">
                         <SectionHead
@@ -942,7 +949,7 @@ export default observer(function OverviewPage() {
                                         return (
                                             <Link
                                                 key={e.envelopId}
-                                                to={ROUTES.spaceEnvelopeDetail(space.id, e.envelopId)}
+                                                to={ROUTES.spaceBudgetDetail(space.id, e.envelopId)}
                                                 className="ov-list-row"
                                             >
                                                 <div className="ov-list-row-head">
@@ -988,61 +995,149 @@ export default observer(function OverviewPage() {
                         <SectionHead
                             title={
                                 <>
-                                    <TargetIcon color="var(--gold)" /> Plans
+                                    <TargetIcon color="var(--gold)" /> Goals
                                 </>
                             }
                             sub="Long-term goal progress"
                             action={
-                                <Link to={ROUTES.spacePlans(space.id)} className="ov-details-link">
+                                <Link to={ROUTES.spaceBudgets(space.id)} className="ov-details-link">
                                     View all →
                                 </Link>
                             }
                         />
+                        {(() => {
+                            // Aggregate rollup: surface "$X saved toward
+                            // $Y across N goals" so the section reads
+                            // like every other Overview block that has a
+                            // header total. Excludes archived rows so a
+                            // retired goal doesn't pad the denominator.
+                            const activeGoals = (utilization.data ?? []).filter(
+                                (e) =>
+                                    e.targetAmount != null &&
+                                    !(e as { archived?: boolean }).archived
+                            );
+                            if (utilization.isLoading || activeGoals.length === 0) {
+                                return null;
+                            }
+                            const totalSaved = activeGoals.reduce(
+                                (s, e) => s + (e.lifetimeFunded ?? 0),
+                                0
+                            );
+                            const totalTarget = activeGoals.reduce(
+                                (s, e) => s + (e.targetAmount ?? 0),
+                                0
+                            );
+                            return (
+                                <div
+                                    className="ov-goal-rollup"
+                                    style={{
+                                        marginBottom: 10,
+                                        fontSize: 12,
+                                        color: "var(--fg-3)",
+                                    }}
+                                    aria-label={`${totalSaved.toFixed(2)} saved toward ${totalTarget.toFixed(2)} across ${activeGoals.length} ${activeGoals.length === 1 ? "goal" : "goals"}`}
+                                >
+                                    <Money amount={totalSaved} size={12.5} />{" "}
+                                    saved toward{" "}
+                                    <Money
+                                        amount={totalTarget}
+                                        size={12.5}
+                                        variant="muted"
+                                    />{" "}
+                                    across {activeGoals.length}{" "}
+                                    {activeGoals.length === 1 ? "goal" : "goals"}
+                                </div>
+                            );
+                        })()}
                         <div className="ov-list-col">
-                            {plans.isLoading
+                            {utilization.isLoading
                                 ? Array.from({ length: 3 }).map((_, i) => (
                                       <Skeleton key={i} height={32} />
                                   ))
-                                : !plans.data || plans.data.length === 0
-                                  ? <EmptyHint compact>No plans yet</EmptyHint>
-                                  : plans.data.slice(0, 5).map((p) => {
-                                        const pct = p.pctComplete != null ? p.pctComplete / 100 : 0;
-                                        return (
-                                            <Link
-                                                key={p.planId}
-                                                to={ROUTES.spacePlanDetail(space.id, p.planId)}
-                                                className="ov-list-row"
-                                            >
-                                                <div className="ov-list-row-head">
-                                                    <span className="ov-list-row-name">
-                                                        <EntityAvatar
-                                                            icon={p.icon}
-                                                            colorVar={p.color}
-                                                            size={22}
-                                                        />
-                                                        {p.name}
-                                                    </span>
-                                                    <span className="ov-list-row-amt">
-                                                        <Money amount={p.allocated} size={11.5} />
-                                                        {p.targetAmount ? (
-                                                            <>
-                                                                {" "}
-                                                                <span style={{ color: "var(--fg-4)" }}>
-                                                                    /{" "}
-                                                                    <Money
-                                                                        amount={p.targetAmount}
-                                                                        size={11.5}
-                                                                        variant="muted"
-                                                                    />
-                                                                </span>
-                                                            </>
-                                                        ) : null}
-                                                    </span>
-                                                </div>
-                                                <ProgressBar value={pct} color={p.color} height={4} />
-                                            </Link>
-                                        );
-                                    })}
+                                : (() => {
+                                      // Goals are envelopes that carry a target. On personal
+                                      // (cross-space) views we also want the rows to link into
+                                      // the originating space rather than the `/s/me` sentinel.
+                                      const goals = (utilization.data ?? []).filter(
+                                          (e) =>
+                                              e.targetAmount != null &&
+                                              !(e as { archived?: boolean }).archived
+                                      );
+                                      if (goals.length === 0) {
+                                          return <EmptyHint compact>No goals yet</EmptyHint>;
+                                      }
+                                      return goals.slice(0, 5).map((g) => {
+                                          const pctRaw = g.pctSaved ?? g.pctComplete;
+                                          const pct = pctRaw != null ? pctRaw / 100 : 0;
+                                          // Personal twin attaches spaceId/spaceName for
+                                          // per-row linking; in a real space they're absent
+                                          // and the link falls back to the active space.
+                                          const personalRow = g as {
+                                              spaceId?: string;
+                                              spaceName?: string;
+                                          };
+                                          const linkSpaceId = personalRow.spaceId ?? space.id;
+                                          const saved = g.lifetimeFunded ?? 0;
+                                          const target = g.targetAmount ?? 0;
+                                          return (
+                                              <Link
+                                                  key={g.envelopId}
+                                                  to={ROUTES.spaceBudgetDetail(linkSpaceId, g.envelopId)}
+                                                  className="ov-list-row"
+                                                  aria-label={
+                                                      g.targetAmount != null
+                                                          ? `${g.name}${personalRow.spaceName && isPersonal ? ` in ${personalRow.spaceName}` : ""}: ${saved.toFixed(2)} saved of ${target.toFixed(2)} target, ${Math.round(pctRaw ?? 0)}% complete`
+                                                          : `${g.name}${personalRow.spaceName && isPersonal ? ` in ${personalRow.spaceName}` : ""}`
+                                                  }
+                                              >
+                                                  <div className="ov-list-row-head">
+                                                      <span className="ov-list-row-name">
+                                                          <EntityAvatar
+                                                              icon={g.icon}
+                                                              colorVar={g.color}
+                                                              size={22}
+                                                          />
+                                                          {g.name}
+                                                          {personalRow.spaceName && isPersonal ? (
+                                                              <span
+                                                                  style={{
+                                                                      marginLeft: 6,
+                                                                      color: "var(--fg-4)",
+                                                                      fontSize: 11,
+                                                                  }}
+                                                              >
+                                                                  · {personalRow.spaceName}
+                                                              </span>
+                                                          ) : null}
+                                                      </span>
+                                                      <span className="ov-list-row-amt">
+                                                          <Money amount={saved} size={11.5} />
+                                                          {g.targetAmount ? (
+                                                              <>
+                                                                  {" "}
+                                                                  <span style={{ color: "var(--fg-4)" }}>
+                                                                      /{" "}
+                                                                      <Money
+                                                                          amount={g.targetAmount}
+                                                                          size={11.5}
+                                                                          variant="muted"
+                                                                      />
+                                                                  </span>
+                                                              </>
+                                                          ) : null}
+                                                      </span>
+                                                  </div>
+                                                  {g.targetAmount && g.targetAmount > 0 ? (
+                                                      <ProgressBar value={pct} color={g.color} height={4} />
+                                                  ) : (
+                                                      <span style={{ fontSize: 11, color: "var(--fg-4)" }}>
+                                                          No target set
+                                                      </span>
+                                                  )}
+                                              </Link>
+                                          );
+                                      });
+                                  })()}
                         </div>
                     </div>
                 </div>

@@ -16,7 +16,6 @@ import { personalEnvelopeUtilization } from "../procedures/personal/envelopeUtil
 import { personalIncomeBreakdown } from "../procedures/personal/incomeBreakdown.mjs";
 import { personalListCategories } from "../procedures/personal/listCategories.mjs";
 import { personalNetWorthHistory } from "../procedures/personal/netWorthHistory.mjs";
-import { personalPlanProgress } from "../procedures/personal/planProgress.mjs";
 import { personalReckoningListPending } from "../procedures/personal/reckoningListPending.mjs";
 import { personalRecurring } from "../procedures/personal/recurring.mjs";
 import { personalSpaceBreakdown } from "../procedures/personal/spaceBreakdown.mjs";
@@ -53,7 +52,6 @@ export const personalRouter = router({
     topCategoriesByBucket: personalTopCategoriesByBucket,
     categoryBreakdown: personalCategoryBreakdown,
     envelopeUtilization: personalEnvelopeUtilization,
-    planProgress: personalPlanProgress,
     balanceHistory: personalBalanceHistory,
     spendingHeatmap: personalSpendingHeatmap,
     accountDistribution: personalAccountDistribution,

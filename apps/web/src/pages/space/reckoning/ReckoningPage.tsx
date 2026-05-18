@@ -152,7 +152,7 @@ function PerSpaceReckoning() {
             }
             await refresh();
             toast.success("All overspends acknowledged");
-            navigate(ROUTES.spaceEnvelopes(space.id));
+            navigate(ROUTES.spaceBudgets(space.id));
         } catch (e) {
             toast.error((e as Error).message);
         } finally {
@@ -169,7 +169,7 @@ function PerSpaceReckoning() {
             <header className="rk-topbar">
                 <div className="rk-topbar-text">
                     <Link
-                        to={ROUTES.spaceEnvelopes(space.id)}
+                        to={ROUTES.spaceBudgets(space.id)}
                         className="rk-back"
                     >
                         <ArrowLeft className="size-3.5" /> Envelopes
@@ -271,8 +271,8 @@ function ReckoningRow({
         try {
             await transfer.mutateAsync({
                 amount: item.overBy,
-                from: { kind: "envelop", envelopId: pullSourceId },
-                to: { kind: "envelop", envelopId: item.envelopId },
+                from: { envelopId: pullSourceId },
+                to: { envelopId: item.envelopId },
                 idempotencyKey: pullIdem.key,
             });
             await acknowledge.mutateAsync({

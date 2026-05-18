@@ -13,7 +13,6 @@ import {
     Wallet,
     ArrowLeftRight,
     Mail,
-    Target,
     FolderTree,
     Calendar,
     BarChart3,
@@ -164,18 +163,11 @@ function CommandPaletteBody({
                 onSelect: () => go(ROUTES.spaceTransactions(space.id)),
             },
             {
-                id: "go-envelopes",
-                label: "Envelopes",
+                id: "go-budgets",
+                label: "Budgets",
                 icon: Mail,
                 shortcut: "G E",
-                onSelect: () => go(ROUTES.spaceEnvelopes(space.id)),
-            },
-            {
-                id: "go-plans",
-                label: "Plans",
-                icon: Target,
-                shortcut: "G P",
-                onSelect: () => go(ROUTES.spacePlans(space.id)),
+                onSelect: () => go(ROUTES.spaceBudgets(space.id)),
             },
             {
                 id: "go-categories",
@@ -228,18 +220,11 @@ function CommandPaletteBody({
                 onSelect: () => go(ROUTES.spaceTransactions(space.id)),
             },
             {
-                id: "create-plan",
-                label: "New plan",
-                icon: Target,
-                shortcut: "N P",
-                onSelect: () => go(ROUTES.spacePlans(space.id)),
-            },
-            {
                 id: "create-envelope",
                 label: "New envelope",
                 icon: Mail,
                 shortcut: "N E",
-                onSelect: () => go(ROUTES.spaceEnvelopes(space.id)),
+                onSelect: () => go(ROUTES.spaceBudgets(space.id)),
             },
         ];
 

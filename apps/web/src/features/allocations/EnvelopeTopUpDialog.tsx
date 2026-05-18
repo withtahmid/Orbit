@@ -288,11 +288,9 @@ export function EnvelopeTopUpDialog({
                                         transferMutation.mutate({
                                             amount: pullAmountNum,
                                             from: {
-                                                kind: "envelop",
                                                 envelopId: pullSourceId,
                                             },
                                             to: {
-                                                kind: "envelop",
                                                 envelopId,
                                             },
                                             idempotencyKey: pullIdem.key,

@@ -2,25 +2,22 @@ import { Kysely, sql } from "kysely";
 import type { DB } from "../../../db/kysely/types.mjs";
 
 /**
- * How much spendable cash in this space is not yet committed to an envelope
- * or plan. On-read computation (the materialized balances table is gone).
+ * How much spendable cash in this space is not yet committed to an envelope.
+ * On-read computation (the materialized balances table is gone).
  *
  * spendable = SUM(asset balances) − SUM(liability balances) (locked excluded)
- * held      = SUM(current-period envelope remaining, incl. carryIn) + SUM(plan allocated)
+ * held      = SUM(current-period envelope remaining, incl. carryIn)
  * free      = spendable − held
  *
  * Envelope held:
  *   Per-envelope current-period remaining, summed. For cadence='none' the
- *   window is [epoch, ∞). For cadence='monthly' it's the current calendar
- *   month. When `carry_over = true`, the previous period's remaining
- *   (clamped to ≥ 0) is added in as `carryIn` — matching
- *   `resolveEnvelopePeriodBalance`. The whole held value per envelope is
- *   clamped to ≥ 0 so that overspend shows as drift but doesn't inflate
- *   free cash.
- *
- * Plan held:
- *   Sum of all plan allocations (rolling, no period). Net of signed
- *   allocations — includes unassigned and all account-pinned plan alloc.
+ *   window is [epoch, ∞) (this also covers goal envelopes, which carry a
+ *   `target_amount` but the same rolling accumulation rules). For
+ *   cadence='monthly' it's the current calendar month. When `carry_over =
+ *   true`, the previous period's remaining (clamped to ≥ 0) is added in as
+ *   `carryIn` — matching `resolveEnvelopePeriodBalance`. The whole held
+ *   value per envelope is clamped to ≥ 0 so that overspend shows as drift
+ *   but doesn't inflate free cash.
  */
 export async function resolveSpaceUnallocated({
     trx,
@@ -32,7 +29,6 @@ export async function resolveSpaceUnallocated({
     const row = await sql<{
         spendable: string | null;
         envelope_held: string | null;
-        plan_held: string | null;
     }>`
         WITH period AS (
             SELECT
@@ -148,19 +144,12 @@ export async function resolveSpaceUnallocated({
                 JOIN env_policy ep ON ep.envelop_id = ea.envelop_id
                 LEFT JOIN env_prev_alloc epa ON epa.envelop_id = ea.envelop_id
                 LEFT JOIN env_prev_consume epc ON epc.envelop_id = ea.envelop_id
-            ) AS envelope_held,
-            (
-                SELECT COALESCE(SUM(pa.amount), 0)
-                FROM plan_allocations pa
-                JOIN plans p ON p.id = pa.plan_id
-                WHERE p.space_id = ${spaceId}
-            ) AS plan_held
+            ) AS envelope_held
     `
         .execute(trx)
         .then((r) => r.rows[0]);
 
     const spendable = Number(row?.spendable ?? 0);
     const envelopeHeld = Number(row?.envelope_held ?? 0);
-    const planHeld = Number(row?.plan_held ?? 0);
-    return spendable - envelopeHeld - planHeld;
+    return spendable - envelopeHeld;
 }

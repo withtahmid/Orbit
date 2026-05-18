@@ -7,3 +7,6 @@
 - [Rolling envelope overlay shape](rolling_envelope_overlay.md) — `spaceSummary` uses MAX(lifetime, period) for `cadence='none'` `remaining`; directionally hides current-period rolling overspend when lifetime is healthy.
 - [Allocation period_start NULL convention](allocation_period_start_null.md) — `cadence='none'` envelopes store `period_start=NULL`; SQL readers MUST COALESCE to `DATE_TRUNC('month', created_at)::date`.
 - [Migration down idempotence](migration_down_idempotence.md) — `045` is round-trip safe TODAY because nothing writes `kind` yet; becomes destructive once procedures write non-`allocate` values without legacy signals.
+- [Envelope target clearing hole](envelope_target_clearing.md) — `update.mts` `isClearingTargets` shortcut misses the explicit-null + undefined + cadence-flip case; target_date can survive on a now-monthly envelope.
+- [Transfer undefined-account drift](transfer_undefined_account_drift.md) — `allocation.transfer` aggregates partitions for available-check but writes debit to unassigned (`null`) when `accountId` is undefined; creates phantom drift.
+- [Target date tz drift](target_date_tz_drift.md) — `new Date("YYYY-MM-DD")` for envelope `target_date` is midnight UTC; PG sessions west of UTC store the previous day.

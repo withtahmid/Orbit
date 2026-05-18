@@ -6,7 +6,6 @@ import {
     Wallet,
     ArrowLeftRight,
     Mail,
-    Target,
     FolderTree,
     CalendarDays,
     BarChart3,
@@ -63,8 +62,7 @@ const FULL_NAV: NavItem[] = [
     { label: "Overview", icon: LayoutDashboard, path: "" },
     { label: "Accounts", icon: Wallet, path: "accounts" },
     { label: "Transactions", icon: ArrowLeftRight, path: "transactions" },
-    { label: "Envelopes", icon: Mail, path: "envelopes" },
-    { label: "Plans", icon: Target, path: "plans" },
+    { label: "Budgets", icon: Mail, path: "budgets" },
     { label: "Categories", icon: FolderTree, path: "categories" },
     { label: "Events", icon: CalendarDays, path: "events" },
     { label: "Analytics", icon: BarChart3, path: "analytics" },
@@ -72,7 +70,7 @@ const FULL_NAV: NavItem[] = [
 ];
 
 // Virtual "My money" space: strip mutation-oriented tabs that are
-// space-local concepts (envelopes, plans, categories, events, settings).
+// space-local concepts (budgets, categories, events, settings).
 const PERSONAL_NAV: NavItem[] = FULL_NAV.filter((n) =>
     ["", "accounts", "transactions", "analytics"].includes(n.path)
 );

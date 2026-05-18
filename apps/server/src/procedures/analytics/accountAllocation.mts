@@ -9,7 +9,6 @@ import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mj
 /**
  * Per-account allocation view for the Account detail page. Returns:
  *   - `envelopes`: per-envelope partition allocated/consumed/remaining at this account
- *   - `plans`: per-plan allocated at this account
  *   - `balance`, `allocated`, `unallocated` for the account itself
  *
  * Envelope numbers use the envelope's own cadence: cadence='none' pulls
@@ -187,37 +186,6 @@ export const accountAllocation = authorizedProcedure
                         (e) => e.allocated !== 0 || e.consumed !== 0 || e.carryIn !== 0
                     );
 
-                const plansRows = await sql<{
-                    plan_id: string;
-                    name: string;
-                    color: string;
-                    icon: string;
-                    allocated: string;
-                }>`
-                    SELECT
-                        p.id::text AS plan_id,
-                        p.name, p.color, p.icon,
-                        COALESCE((
-                            SELECT SUM(pa.amount)
-                            FROM plan_allocations pa
-                            WHERE pa.plan_id = p.id
-                              AND pa.account_id = ${input.accountId}
-                        ), 0)::text AS allocated
-                    FROM plans p
-                    WHERE p.space_id = ${input.spaceId}
-                    ORDER BY p.name ASC
-                `.execute(trx);
-
-                const plans = plansRows.rows
-                    .map((r) => ({
-                        planId: r.plan_id,
-                        name: r.name,
-                        color: r.color,
-                        icon: r.icon,
-                        allocated: Number(r.allocated),
-                    }))
-                    .filter((p) => p.allocated !== 0);
-
                 // Account balance + account-level unallocated
                 const bal = await trx
                     .selectFrom("account_balances")
@@ -227,14 +195,13 @@ export const accountAllocation = authorizedProcedure
                 const balance = Number(bal?.balance ?? 0);
 
                 // Allocated AT this account = sum of envelope partition
-                // current-period remaining (clamped) + plan partition
-                // allocated. Matches the "held" logic in resolveSpaceUnallocated.
+                // current-period remaining (clamped). Matches the "held"
+                // logic in resolveSpaceUnallocated.
                 const envelopeHeld = envelopes.reduce(
                     (acc, e) => acc + Math.max(0, e.remaining),
                     0
                 );
-                const planHeld = plans.reduce((acc, p) => acc + p.allocated, 0);
-                const allocated = envelopeHeld + planHeld;
+                const allocated = envelopeHeld;
                 const unallocated = balance - allocated;
 
                 return {
@@ -242,7 +209,6 @@ export const accountAllocation = authorizedProcedure
                     allocated,
                     unallocated,
                     envelopes,
-                    plans,
                 };
             })
         );

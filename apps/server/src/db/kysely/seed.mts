@@ -4,7 +4,7 @@
  * Wipes every product table and populates a rich, realistic dataset so
  * a fresh stack has something substantial to show: multi-year history,
  * many users collaborating across several spaces, dozens of accounts
- * and plans, deeply nested categories, and ~thousands of transactions
+ * and goals, deeply nested categories, and ~thousands of transactions
  * with realistic vendor names, seasonal patterns, transfer fees, and
  * event-linked clusters.
  *
@@ -23,7 +23,7 @@
  * - 16 accounts across asset / liability / locked
  * - 30+ envelopes with cadence + carry_policy mix
  *   (reset / positive_only / both — incl. "honest" mode for overspend)
- * - 12 plans (house, emergency, kids' college, side-business growth, …)
+ * - 4 goals (house, emergency, vacation, laptop) seeded as cadence='none' envelopes with targets
  * - 120+ expense categories, most two levels deep
  * - 24 events — trips, weddings, conferences, renovations, celebrations;
  *   past events marked closed with closed_at; some have estimated_amount
@@ -264,6 +264,14 @@ const ENVELOPES = [
     { key: "tr_dining",   space: "travel" as SpaceKey, name: "Dining Abroad",  cadence: "none" as const,    carry: false, color: "#f43f5e", icon: "utensils" },
     { key: "tr_activity", space: "travel" as SpaceKey, name: "Activities",     cadence: "none" as const,    carry: false, color: "#22c55e", icon: "mountain" },
     { key: "tr_transit",  space: "travel" as SpaceKey, name: "Transit Abroad", cadence: "none" as const,    carry: false, color: "#0ea5e9", icon: "train" },
+
+    // Goals — rolling envelopes with a target. Same envelope ledger as
+    // every other row; the UI treats them as goal cards because they
+    // carry a `target_amount`.
+    { key: "goal_house",     space: "family" as SpaceKey,   name: "House Down Payment", cadence: "none" as const, carry: false, color: "#6366f1", icon: "home",          target: 80000, target_months_out: 30,   description: "20% down for a 3-bedroom; target horizon ~2.5 years." },
+    { key: "goal_emergency", space: "family" as SpaceKey,   name: "Emergency Fund",     cadence: "none" as const, carry: false, color: "#14b8a6", icon: "shield-alert",  target: 24000, target_months_out: null, description: "6 months of essential expenses, kept liquid." },
+    { key: "goal_vacation",  space: "family" as SpaceKey,   name: "Annual Vacation",    cadence: "none" as const, carry: false, color: "#f59e0b", icon: "plane",         target:  7500, target_months_out: 6,    description: "10-day international trip for the whole family." },
+    { key: "goal_laptop",    space: "personal" as SpaceKey, name: "New Laptop",         cadence: "none" as const, carry: false, color: "#0ea5e9", icon: "laptop",        target:  3000, target_months_out: 3,    description: "Upgrading from a 5-year-old machine." },
 ] as const;
 
 // Priority tier per envelope. Categories created under these envelopes
@@ -327,23 +335,6 @@ const carryPolicyFor = (
     carry: boolean
 ): "reset" | "positive_only" | "both" =>
     ENVELOPE_CARRY_POLICY_OVERRIDE[key] ?? (carry ? "positive_only" : "reset");
-
-const PLANS = [
-    { key: "plan_house",      space: "family" as SpaceKey,    name: "House Down Payment",  target: 80000, target_date: addMonths(startOfMonthUTC(NOW),  30), color: "#6366f1", icon: "home",         description: "20% down for a 3-bedroom; target horizon ~2.5 years." },
-    { key: "plan_vacation",   space: "family" as SpaceKey,    name: "Annual Vacation",     target:  7500, target_date: addMonths(startOfMonthUTC(NOW),   6), color: "#f59e0b", icon: "plane",        description: "10-day international trip for the whole family." },
-    { key: "plan_emergency",  space: "family" as SpaceKey,    name: "Emergency Fund",      target: 24000, target_date: null,                               color: "#14b8a6", icon: "shield-alert", description: "6 months of essential expenses, kept liquid." },
-    { key: "plan_college",    space: "family" as SpaceKey,    name: "Kids' College Fund",  target: 60000, target_date: addMonths(startOfMonthUTC(NOW), 120), color: "#f472b6", icon: "graduation-cap", description: "Long-horizon fund, invested tax-advantaged." },
-    { key: "plan_renovation", space: "family" as SpaceKey,    name: "Home Renovation",     target: 18000, target_date: addMonths(startOfMonthUTC(NOW),  15), color: "#92400e", icon: "hammer",       description: "Kitchen remodel + new flooring in main rooms." },
-    { key: "plan_laptop",     space: "personal" as SpaceKey,  name: "New Laptop",          target:  3000, target_date: addMonths(startOfMonthUTC(NOW),   3), color: "#0ea5e9", icon: "laptop",       description: "Upgrading from a 5-year-old machine." },
-    { key: "plan_camera",     space: "personal" as SpaceKey,  name: "Photography Gear",    target:  2200, target_date: null,                               color: "#f43f5e", icon: "camera",       description: "Full-frame body + one prime + a decent tripod." },
-    { key: "plan_grad",       space: "personal" as SpaceKey,  name: "Graduate School",     target: 15000, target_date: addMonths(startOfMonthUTC(NOW),  18), color: "#8b5cf6", icon: "book-open",    description: "Part-time master's program, two years." },
-    { key: "plan_ac",         space: "roommates" as SpaceKey, name: "Air Conditioner",     target:  1200, target_date: addMonths(startOfMonthUTC(NOW),   2), color: "#0891b2", icon: "snowflake",    description: "Living-room AC, split across roommates." },
-    { key: "plan_couch",      space: "roommates" as SpaceKey, name: "Common Room Couch",   target:   900, target_date: addMonths(startOfMonthUTC(NOW),   4), color: "#a855f7", icon: "armchair",     description: "Upgrade the ratty second-hand sofa." },
-    { key: "plan_biz",        space: "side" as SpaceKey,      name: "Business Growth Fund",target: 10000, target_date: null,                               color: "#0891b2", icon: "trending-up",  description: "Runway for hiring a first contractor and new tooling." },
-    { key: "plan_world",      space: "travel" as SpaceKey,    name: "World Trip",          target: 12000, target_date: addMonths(startOfMonthUTC(NOW),  12), color: "#14b8a6", icon: "globe",        description: "Three-continent trip over six weeks." },
-] as const;
-
-type PlanKey = (typeof PLANS)[number]["key"];
 
 // Categories
 type CategorySeed = {
@@ -879,7 +870,6 @@ export async function seedDatabase() {
         const spaces = await seedSpaces(db, users);
         const accounts = await seedAccounts(db, users, spaces);
         const envelopes = await seedEnvelopes(db, spaces);
-        const plans = await seedPlans(db, spaces);
         const { byKey: categories, envelopByCategoryId } = await seedCategories(
             db,
             spaces,
@@ -887,7 +877,7 @@ export async function seedDatabase() {
         );
         const events = await seedEvents(db, spaces);
         await seedEnvelopeAllocations(db, users, envelopes, accounts);
-        await seedPlanAllocations(db, users, plans, accounts);
+        await seedGoalAllocations(db, users, envelopes, accounts);
         const txCount = await seedTransactions(
             db,
             users,
@@ -909,7 +899,6 @@ export async function seedDatabase() {
         console.log(`  spaces:        ${Object.keys(spaces).length}`);
         console.log(`  accounts:      ${Object.keys(accounts).length}`);
         console.log(`  envelopes:     ${Object.keys(envelopes).length}`);
-        console.log(`  plans:         ${Object.keys(plans).length}`);
         console.log(`  categories:    ${Object.keys(categories).length}`);
         console.log(`  events:        ${Object.keys(events).length}`);
         console.log(`  invites:       ${inviteCount} pending`);
@@ -939,13 +928,11 @@ async function wipe(db: ReturnType<typeof createQueryBuilder>) {
         "exported_reports",
         "files",
         "envelop_allocations",
-        "plan_allocations",
         "transactions",
         "reckoning_acknowledgments",
         "expense_categories",
         "events",
         "envelops",
-        "plans",
         "account_balances",
         "space_accounts",
         "user_accounts",
@@ -1100,6 +1087,11 @@ async function seedEnvelopes(
     logger.info("Envelopes…");
     const byKey: Record<EnvelopeKey, string> = {} as Record<EnvelopeKey, string>;
     for (const e of ENVELOPES) {
+        const hasTarget = "target" in e && e.target != null;
+        const targetDate =
+            "target_months_out" in e && e.target_months_out != null
+                ? addMonths(startOfMonthUTC(NOW), e.target_months_out)
+                : null;
         const row = await db
             .insertInto("envelops")
             .values({
@@ -1107,42 +1099,16 @@ async function seedEnvelopes(
                 name: e.name,
                 color: e.color,
                 icon: e.icon,
+                description: "description" in e ? e.description : null,
                 cadence: e.cadence,
                 carry_over: e.carry,
                 carry_policy: carryPolicyFor(e.key, e.carry),
+                target_amount: hasTarget ? String(e.target) : null,
+                target_date: targetDate,
             })
             .returning("id")
             .executeTakeFirstOrThrow();
         byKey[e.key] = row.id;
-    }
-    return byKey;
-}
-
-// ---------------------------------------------------------------------
-// Plans
-// ---------------------------------------------------------------------
-
-async function seedPlans(
-    db: ReturnType<typeof createQueryBuilder>,
-    spaces: Record<SpaceKey, string>
-) {
-    logger.info("Plans…");
-    const byKey: Record<PlanKey, string> = {} as Record<PlanKey, string>;
-    for (const p of PLANS) {
-        const row = await db
-            .insertInto("plans")
-            .values({
-                space_id: spaces[p.space],
-                name: p.name,
-                color: p.color,
-                icon: p.icon,
-                description: p.description,
-                target_amount: p.target,
-                target_date: p.target_date ?? null,
-            })
-            .returning("id")
-            .executeTakeFirstOrThrow();
-        byKey[p.key] = row.id;
     }
     return byKey;
 }
@@ -1350,6 +1316,10 @@ async function seedEnvelopeAllocations(
     }[] = [];
 
     for (const e of ENVELOPES) {
+        // Goal envelopes (rolling + has `target`) are seeded separately by
+        // `seedGoalAllocations`. Skipping them here prevents the demo from
+        // double-counting their balance and inflating `pctSaved`.
+        if ("target" in e && e.target != null) continue;
         const base = MONTHLY_ALLOCATION[e.key] ?? 80;
         if (e.cadence === "none") {
             // A couple of lifetime top-ups spread through the window so
@@ -1416,57 +1386,61 @@ async function seedEnvelopeAllocations(
     }
 }
 
-async function seedPlanAllocations(
+async function seedGoalAllocations(
     db: ReturnType<typeof createQueryBuilder>,
     users: Record<UserKey, string>,
-    plans: Record<PlanKey, string>,
+    envelopes: Record<EnvelopeKey, string>,
     accounts: Record<AccountKey, string>
 ) {
-    logger.info("Plan allocations…");
+    logger.info("Goal allocations…");
     const createdBy = users.primary;
     const rows: {
-        plan_id: string;
+        envelop_id: string;
         account_id: string | null;
         amount: number;
         created_by: string;
         created_at: Date;
+        period_start: Date | null;
     }[] = [];
 
-    const contributions: Record<PlanKey, { amount: number; account: AccountKey }> = {
-        plan_house:      { amount: 900, account: "savings" },
-        plan_vacation:   { amount: 320, account: "savings" },
-        plan_emergency:  { amount: 500, account: "joint" },
-        plan_college:    { amount: 300, account: "brokerage" },
-        plan_renovation: { amount: 550, account: "savings" },
-        plan_laptop:     { amount: 300, account: "checking" },
-        plan_camera:     { amount: 120, account: "checking" },
-        plan_grad:       { amount: 400, account: "savings" },
-        plan_ac:         { amount: 110, account: "shared" },
-        plan_couch:      { amount: 80,  account: "shared" },
-        plan_biz:        { amount: 400, account: "biz" },
-        plan_world:      { amount: 500, account: "travel_acc" },
+    // Monthly contributions per goal envelope. Goals live on the
+    // envelope ledger (cadence='none'), so allocations record at the
+    // envelope id with `period_start=null`.
+    const contributions: Partial<Record<EnvelopeKey, { amount: number; account: AccountKey }>> = {
+        goal_house:     { amount: 900, account: "savings" },
+        goal_emergency: { amount: 500, account: "joint" },
+        goal_vacation:  { amount: 320, account: "savings" },
+        // Laptop target is $3000 with target_months_out=3. With 18
+        // history months of contributions any rate >$160/mo overshoots
+        // the target lifetime, leaving the goal stuck at 100% in the
+        // demo. Slowed to $120/mo so the seed shows a goal in progress.
+        goal_laptop:    { amount: 120, account: "checking" },
     };
 
-    for (const p of PLANS) {
-        const c = contributions[p.key];
+    for (const e of ENVELOPES) {
+        const c = contributions[e.key];
+        if (!c) continue;
         for (const ps of periodStarts) {
-            // Occasional extra top-ups to show irregular contributions.
             const bonus = maybe(0.1) ? Math.round(c.amount * (0.5 + rng())) : 0;
-            const amount = c.amount + (maybe(0.15) ? Math.round(c.amount * (rng() * 0.2 - 0.1)) : 0);
+            const amount =
+                c.amount +
+                (maybe(0.15) ? Math.round(c.amount * (rng() * 0.2 - 0.1)) : 0);
             rows.push({
-                plan_id: plans[p.key],
+                envelop_id: envelopes[e.key],
                 account_id: accounts[c.account],
                 amount,
                 created_by: createdBy,
                 created_at: atHour(new Date(ps.getTime() + 2 * MS_DAY), 11, 0),
+                period_start: null,
             });
             if (bonus > 0) {
                 rows.push({
-                    plan_id: plans[p.key],
+                    envelop_id: envelopes[e.key],
                     account_id: accounts[c.account],
                     amount: bonus,
                     created_by: createdBy,
                     created_at: atHour(new Date(ps.getTime() + 18 * MS_DAY), 14, 0),
+                    period_start: null,
                 });
             }
         }
@@ -1474,7 +1448,10 @@ async function seedPlanAllocations(
 
     const CHUNK = 500;
     for (let i = 0; i < rows.length; i += CHUNK) {
-        await db.insertInto("plan_allocations").values(rows.slice(i, i + CHUNK)).execute();
+        await db
+            .insertInto("envelop_allocations")
+            .values(rows.slice(i, i + CHUNK))
+            .execute();
     }
 }
 

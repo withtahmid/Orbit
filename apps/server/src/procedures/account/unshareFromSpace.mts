@@ -9,7 +9,7 @@ import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mj
 /**
  * Remove an account from a space. Must leave the account in at least one
  * space (use account.delete to remove entirely). Blocks the unshare when the
- * space still has envelope/plan allocations or transactions tied to the
+ * space still has envelope allocations or transactions tied to the
  * account — those would otherwise become orphans.
  *
  * Permission: account owner, OR space owner of the space being unshared from.
@@ -87,7 +87,7 @@ export const unshareAccountFromSpace = authorizedProcedure
                 // Refuse if the space still has bound data. Surfacing a
                 // typed message lets the UI tell the user exactly what to
                 // clean up (transactions vs allocations).
-                const [txCount, envAllocCount, planAllocCount] = await Promise.all([
+                const [txCount, envAllocCount] = await Promise.all([
                     trx
                         .selectFrom("transactions")
                         .where("space_id", "=", input.spaceId)
@@ -106,18 +106,9 @@ export const unshareAccountFromSpace = authorizedProcedure
                         .where("e.space_id", "=", input.spaceId)
                         .select((eb) => eb.fn.countAll<string>().as("c"))
                         .executeTakeFirst(),
-                    trx
-                        .selectFrom("plan_allocations as a")
-                        .innerJoin("plans as p", "p.id", "a.plan_id")
-                        .where("a.account_id", "=", input.accountId)
-                        .where("p.space_id", "=", input.spaceId)
-                        .select((eb) => eb.fn.countAll<string>().as("c"))
-                        .executeTakeFirst(),
                 ]);
                 const bound =
-                    Number(txCount?.c ?? 0) +
-                    Number(envAllocCount?.c ?? 0) +
-                    Number(planAllocCount?.c ?? 0);
+                    Number(txCount?.c ?? 0) + Number(envAllocCount?.c ?? 0);
                 if (bound > 0) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",

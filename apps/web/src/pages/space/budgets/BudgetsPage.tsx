@@ -60,19 +60,28 @@ import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { ROUTES } from "@/router/routes";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
-import { addMonths, startOfMonth, endOfMonth } from "@/lib/dates";
+import { addMonths, startOfMonth, endOfMonth, makeAppTzDate } from "@/lib/dates";
 import type { RouterOutput } from "@/trpc";
 
 type Cadence = "none" | "monthly";
 type EnvelopeRow = RouterOutput["analytics"]["envelopeUtilization"][number];
 type ViewMode = "grouped" | "list" | "grid";
-type SortMode = "cadence" | "urgency" | "remaining" | "spent" | "name";
+type SortMode =
+    | "cadence"
+    | "urgency"
+    | "remaining"
+    | "spent"
+    | "name"
+    | "deadline"
+    | "progress";
 
 const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
     { value: "cadence", label: "Cadence" },
     { value: "urgency", label: "Urgency" },
     { value: "spent", label: "Spent" },
     { value: "remaining", label: "Remaining" },
+    { value: "deadline", label: "Deadline" },
+    { value: "progress", label: "Progress" },
     { value: "name", label: "Name" },
 ];
 
@@ -93,6 +102,20 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
                 pctOf(b.consumed, b.allocated + b.carryIn) -
                 pctOf(a.consumed, a.allocated + a.carryIn)
         );
+    else if (mode === "deadline")
+        // Earliest target_date first; rows without a deadline drop to
+        // the end so goal envelopes with an upcoming target lead.
+        arr.sort((a, b) => {
+            const aDate = a.targetDate ? new Date(a.targetDate).getTime() : Infinity;
+            const bDate = b.targetDate ? new Date(b.targetDate).getTime() : Infinity;
+            return aDate - bDate;
+        });
+    else if (mode === "progress")
+        // Highest pctComplete (== pctSaved) first; rows without a target
+        // are treated as 0 so plain envelopes sink below goals.
+        arr.sort(
+            (a, b) => (b.pctComplete ?? 0) - (a.pctComplete ?? 0)
+        );
     else
         // Default "cadence" sort: monthly group first, then rolling.
         // Within each group, preserve the server's natural order
@@ -106,12 +129,28 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
     return arr;
 }
 
-function groupByCadence(list: EnvelopeRow[]): Record<Cadence, EnvelopeRow[]> {
-    const out: Record<Cadence, EnvelopeRow[]> = { none: [], monthly: [] };
-    for (const e of list)
-        (out[e.cadence as Cadence] ??= []).push(e);
+/**
+ * Three-way grouping that surfaces the merged budget/goal model:
+ *   - monthly: cadence='monthly' envelopes
+ *   - goals:   cadence='none' envelopes that carry a target_amount
+ *   - rolling: cadence='none' envelopes without a target
+ *
+ * The page renders the groups in this order so the user sees their
+ * recurring budgets first, the long-horizon goals next, and any
+ * uncategorized rolling cash at the bottom.
+ */
+type Group = "monthly" | "goals" | "rolling";
+
+function groupEnvelopes(list: EnvelopeRow[]): Record<Group, EnvelopeRow[]> {
+    const out: Record<Group, EnvelopeRow[]> = { monthly: [], goals: [], rolling: [] };
+    for (const e of list) {
+        if (e.cadence === "monthly") out.monthly.push(e);
+        else if (e.targetAmount != null) out.goals.push(e);
+        else out.rolling.push(e);
+    }
     return out;
 }
+
 
 function buildAttention(envelopes: EnvelopeRow[]) {
     const items: Array<{
@@ -137,7 +176,7 @@ function buildAttention(envelopes: EnvelopeRow[]) {
     return items;
 }
 
-export default function EnvelopesPage() {
+export default function BudgetsPage() {
     const { space } = useCurrentSpace();
     const [monthOffset, setMonthOffset] = useState(0);
     const [query, setQuery] = useState("");
@@ -198,7 +237,21 @@ export default function EnvelopesPage() {
     }, [envelopes, debouncedQuery]);
 
     const sorted = useMemo(() => sortEnvelopes(filtered, sort), [filtered, sort]);
-    const grouped = useMemo(() => groupByCadence(sorted), [sorted]);
+    // Grouped view: deadline / progress sorts are only meaningful for
+    // goals — applying them across Monthly / Rolling reorders rows that
+    // have no target by an irrelevant axis. Reorder the Goals group by
+    // the requested sort, keep Monthly / Rolling on cadence order.
+    const grouped3 = useMemo(() => {
+        const cadenceSorted =
+            sort === "deadline" || sort === "progress"
+                ? sortEnvelopes(filtered, "cadence")
+                : sorted;
+        const groups = groupEnvelopes(cadenceSorted);
+        if (sort === "deadline" || sort === "progress") {
+            groups.goals = sortEnvelopes(groups.goals, sort);
+        }
+        return groups;
+    }, [filtered, sorted, sort]);
 
     const totals = useMemo(() => {
         const allocated = envelopes.reduce(
@@ -291,9 +344,10 @@ export default function EnvelopesPage() {
                             ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
                             : ""}
                     </span>
-                    <h1 className="display env-title">Envelopes</h1>
+                    <h1 className="display env-title">Budgets</h1>
                     <p className="env-sub">
-                        Logical buckets that hold the budget for each category.
+                        Envelopes that hold your monthly budget, and goals you're
+                        saving toward.
                     </p>
                 </div>
                 <div className="env-topbar-actions">
@@ -466,7 +520,7 @@ export default function EnvelopesPage() {
                                 {attention.slice(0, 6).map((a) => (
                                     <Link
                                         key={a.envelopId}
-                                        to={ROUTES.spaceEnvelopeDetail(
+                                        to={ROUTES.spaceBudgetDetail(
                                             space.id,
                                             a.envelopId
                                         )}
@@ -558,10 +612,11 @@ export default function EnvelopesPage() {
                                 fontWeight: 500,
                             }}
                         >
-                            No envelopes yet
+                            No budgets yet
                         </div>
                         <div style={{ fontSize: 12.5, color: "var(--fg-4)" }}>
-                            Create an envelope to start budgeting.
+                            Create an envelope for monthly spending, or a goal
+                            for long-term saving.
                         </div>
                         <PermissionGate roles={["owner"]}>
                             <CreateOrEditEnvelopeDialog
@@ -607,20 +662,33 @@ export default function EnvelopesPage() {
                     </div>
                 ) : (
                     <div className="env-groups">
-                        {(["monthly", "none"] as Cadence[]).map((c) => {
-                            const items = grouped[c];
+                        {(
+                            [
+                                {
+                                    key: "monthly" as const,
+                                    label: "Monthly · resets on the 1st",
+                                },
+                                {
+                                    key: "goals" as const,
+                                    label: "Goals · long-term targets",
+                                },
+                                {
+                                    key: "rolling" as const,
+                                    label: "Rolling · accumulates",
+                                },
+                            ]
+                        ).map(({ key, label }) => {
+                            const items = grouped3[key];
                             if (!items || items.length === 0) return null;
                             return (
-                                <div key={c} className="env-group">
+                                <div key={key} className="env-group">
                                     <div className="env-group-head">
-                                        <span className="eyebrow">
-                                            {c === "monthly"
-                                                ? "Monthly · resets on the 1st"
-                                                : "Rolling · accumulates"}
-                                        </span>
+                                        <span className="eyebrow">{label}</span>
                                         <span className="env-group-count">
-                                            {items.length} envelope
-                                            {items.length === 1 ? "" : "s"}
+                                            {items.length}{" "}
+                                            {key === "goals"
+                                                ? `goal${items.length === 1 ? "" : "s"}`
+                                                : `envelope${items.length === 1 ? "" : "s"}`}
                                         </span>
                                     </div>
                                     <div className="od-card env-list">
@@ -701,11 +769,18 @@ function EnvelopeCard({
         total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
     const pctSpent =
         total > 0 ? env.consumed / total : env.consumed > 0 ? Infinity : 0;
+    const isGoal = env.targetAmount != null;
+    const goalSaved = env.lifetimeFunded ?? 0;
+    const goalPct =
+        isGoal && env.targetAmount && env.targetAmount > 0
+            ? Math.max(0, Math.min(1, goalSaved / env.targetAmount))
+            : 0;
+    const targetDate = env.targetDate ? new Date(env.targetDate) : null;
 
     return (
         <Link
-            to={ROUTES.spaceEnvelopeDetail(spaceId, env.envelopId)}
-            className={`od-card env-card${env.archived ? " env-card-archived" : ""}`}
+            to={ROUTES.spaceBudgetDetail(spaceId, env.envelopId)}
+            className={`od-card env-card${isGoal ? " env-card-goal" : ""}${env.archived ? " env-card-archived" : ""}`}
         >
             <div className="env-card-head">
                 <span className="env-card-name">
@@ -721,10 +796,24 @@ function EnvelopeCard({
                         </span>
                         <span className="env-card-cadence">
                             <span>
-                                {env.cadence === "monthly"
-                                    ? "Monthly"
-                                    : "Rolling"}
+                                {isGoal
+                                    ? "Goal"
+                                    : env.cadence === "monthly"
+                                      ? "Monthly"
+                                      : "Rolling"}
                             </span>
+                            {isGoal && targetDate && (
+                                <>
+                                    <span aria-hidden>·</span>
+                                    <span style={{ color: "var(--fg-3)" }}>
+                                        by{" "}
+                                        {targetDate.toLocaleDateString("en-US", {
+                                            month: "short",
+                                            year: "numeric",
+                                        })}
+                                    </span>
+                                </>
+                            )}
                             {drift && (
                                 <>
                                     <span aria-hidden>·</span>
@@ -758,53 +847,104 @@ function EnvelopeCard({
                 </span>
                 <EnvelopeMenu env={env} />
             </div>
-            <div className="env-card-amt-row">
-                <Money
-                    amount={Math.abs(remaining)}
-                    size={26}
-                    variant={drift ? "expense" : "neutral"}
-                />
-                <span className="env-card-of">
-                    {drift ? (
-                        "over budget"
-                    ) : total > 0 ? (
-                        <>
-                            left of{" "}
-                            <Money amount={total} variant="muted" size={11} />
-                        </>
-                    ) : (
-                        "no budget"
-                    )}
-                </span>
-            </div>
-            <ProgressBar
-                value={drift ? 1 : drainV}
-                color={drift ? "var(--expense)" : env.color}
-                height={5}
-            />
-            <div className="env-card-foot">
-                <span
-                    style={{
-                        color: drift ? "var(--expense)" : "var(--fg-4)",
-                    }}
-                >
-                    {Number.isFinite(pctSpent)
-                        ? `${Math.round(pctSpent * 100)}% spent`
-                        : "spent without budget"}
-                </span>
-                <span style={{ color: "var(--fg-4)" }}>
-                    {drift && (
-                        <>
-                            over{" "}
+            {isGoal ? (
+                <>
+                    <div className="env-card-amt-row">
+                        <Money amount={goalSaved} size={26} variant="neutral" />
+                        <span className="env-card-of">
+                            saved of{" "}
                             <Money
-                                amount={Math.abs(overBy)}
+                                amount={env.targetAmount ?? 0}
+                                variant="muted"
                                 size={11}
-                                variant="expense"
                             />
-                        </>
-                    )}
-                </span>
-            </div>
+                        </span>
+                    </div>
+                    <ProgressBar value={goalPct} color={env.color} height={5} />
+                    <div className="env-card-foot">
+                        {goalSaved > (env.targetAmount ?? 0) ? (
+                            <span
+                                style={{
+                                    color: "var(--gold)",
+                                    fontWeight: 500,
+                                }}
+                            >
+                                Over-funded by{" "}
+                                <Money
+                                    amount={goalSaved - (env.targetAmount ?? 0)}
+                                    size={11}
+                                />
+                            </span>
+                        ) : (
+                            <span style={{ color: "var(--fg-4)" }}>
+                                {`${Math.round(goalPct * 100)}% complete`}
+                            </span>
+                        )}
+                        <span style={{ color: "var(--fg-4)" }}>
+                            {env.consumed > 0 ? (
+                                <>
+                                    spent{" "}
+                                    <Money
+                                        amount={env.consumed}
+                                        size={11}
+                                        variant="muted"
+                                    />
+                                </>
+                            ) : null}
+                        </span>
+                    </div>
+                </>
+            ) : (
+                <>
+                    <div className="env-card-amt-row">
+                        <Money
+                            amount={Math.abs(remaining)}
+                            size={26}
+                            variant={drift ? "expense" : "neutral"}
+                        />
+                        <span className="env-card-of">
+                            {drift ? (
+                                "over budget"
+                            ) : total > 0 ? (
+                                <>
+                                    left of{" "}
+                                    <Money amount={total} variant="muted" size={11} />
+                                </>
+                            ) : (
+                                "no budget"
+                            )}
+                        </span>
+                    </div>
+                    <ProgressBar
+                        value={drift ? 1 : drainV}
+                        color={drift ? "var(--expense)" : env.color}
+                        height={5}
+                    />
+                    <div className="env-card-foot">
+                        <span
+                            style={{
+                                color: drift ? "var(--expense)" : "var(--fg-4)",
+                            }}
+                        >
+                            {Number.isFinite(pctSpent)
+                                ? `${Math.round(pctSpent * 100)}% spent`
+                                : "spent without budget"}
+                        </span>
+                        <span style={{ color: "var(--fg-4)" }}>
+                            {drift && (
+                                <>
+                                    over{" "}
+                                    <Money
+                                        amount={Math.abs(overBy)}
+                                        size={11}
+                                        variant="expense"
+                                    />
+                                </>
+                            )}
+                        </span>
+                    </div>
+                </>
+            )}
         </Link>
     );
 }
@@ -823,10 +963,17 @@ function EnvelopeListRow({
     const drift = env.consumed > total;
     const drainV =
         total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
+    const isGoal = env.targetAmount != null;
+    const goalSaved = env.lifetimeFunded ?? 0;
+    const goalPct =
+        isGoal && env.targetAmount && env.targetAmount > 0
+            ? Math.max(0, Math.min(1, goalSaved / env.targetAmount))
+            : 0;
+    const targetDate = env.targetDate ? new Date(env.targetDate) : null;
     return (
         <Link
-            to={ROUTES.spaceEnvelopeDetail(spaceId, env.envelopId)}
-            className="env-list-row"
+            to={ROUTES.spaceBudgetDetail(spaceId, env.envelopId)}
+            className={`env-list-row${isGoal ? " env-list-row-goal" : ""}`}
             style={{
                 borderBottom: last ? "none" : "1px solid var(--line-soft)",
             }}
@@ -836,7 +983,23 @@ function EnvelopeListRow({
                 <div className="env-list-row-text">
                     <div className="env-list-row-title">{env.name}</div>
                     <div className="env-list-row-cadence">
-                        {env.cadence === "monthly" ? "Monthly" : "Rolling"}
+                        {isGoal
+                            ? "Goal"
+                            : env.cadence === "monthly"
+                              ? "Monthly"
+                              : "Rolling"}
+                        {isGoal && targetDate && (
+                            <>
+                                {" · "}
+                                <span style={{ color: "var(--fg-3)" }}>
+                                    by{" "}
+                                    {targetDate.toLocaleDateString("en-US", {
+                                        month: "short",
+                                        year: "numeric",
+                                    })}
+                                </span>
+                            </>
+                        )}
                         {drift && (
                             <>
                                 {" "}
@@ -868,33 +1031,49 @@ function EnvelopeListRow({
             </div>
             <div className="env-list-row-bar">
                 <ProgressBar
-                    value={drift ? 1 : drainV}
-                    color={drift ? "var(--expense)" : env.color}
+                    value={isGoal ? goalPct : drift ? 1 : drainV}
+                    color={isGoal ? env.color : drift ? "var(--expense)" : env.color}
                     height={4}
                 />
             </div>
             <div className="env-list-row-amt">
-                <Money
-                    amount={Math.abs(remaining)}
-                    size={12.5}
-                    variant={drift ? "expense" : "neutral"}
-                />{" "}
-                <span style={{ color: "var(--fg-4)" }}>
-                    {drift ? (
-                        "over budget"
-                    ) : total > 0 ? (
-                        <>
-                            left of{" "}
+                {isGoal ? (
+                    <>
+                        <Money amount={goalSaved} size={12.5} variant="neutral" />{" "}
+                        <span style={{ color: "var(--fg-4)" }}>
+                            of{" "}
                             <Money
-                                amount={total}
-                                size={12.5}
+                                amount={env.targetAmount ?? 0}
+                                size={11}
                                 variant="muted"
                             />
-                        </>
-                    ) : (
-                        "no budget"
-                    )}
-                </span>
+                        </span>
+                    </>
+                ) : (
+                    <>
+                        <Money
+                            amount={Math.abs(remaining)}
+                            size={12.5}
+                            variant={drift ? "expense" : "neutral"}
+                        />{" "}
+                        <span style={{ color: "var(--fg-4)" }}>
+                            {drift ? (
+                                "over budget"
+                            ) : total > 0 ? (
+                                <>
+                                    left of{" "}
+                                    <Money
+                                        amount={total}
+                                        size={12.5}
+                                        variant="muted"
+                                    />
+                                </>
+                            ) : (
+                                "no budget"
+                            )}
+                        </span>
+                    </>
+                )}
             </div>
             <ChevronRightIcon
                 className="size-3.5"
@@ -1058,10 +1237,10 @@ function UnbudgetedBanner({
         viewingDate.getMonth() + 1
     ).padStart(2, "0")}`;
     const tone = isOverAllocated ? "var(--expense)" : "var(--income)";
-    const title = isOverAllocated ? "Over-planned by" : "Unbudgeted";
+    const title = isOverAllocated ? "Over-budgeted by" : "Unbudgeted";
     const value = Math.abs(unallocated);
     const sub = isOverAllocated
-        ? "Your envelopes plan more than your accounts hold. Add income or reduce a plan."
+        ? "Your envelopes hold more than your accounts have. Add income or reduce an envelope."
         : "Money in your accounts that isn't planned for anything yet.";
 
     // 90-day drain breakdown — surfaces silent overspend absorption that
@@ -1133,21 +1312,6 @@ function UnbudgetedBanner({
                                     {Math.abs(t.allocationsNet).toFixed(2)}
                                 </span>
                             </div>
-                            <div className="env-unbudgeted-breakdown-row">
-                                <span>Net plan allocations</span>
-                                <span
-                                    className="tabular"
-                                    style={{
-                                        color:
-                                            t.planAllocationsNet > 0
-                                                ? "var(--expense)"
-                                                : "var(--income)",
-                                    }}
-                                >
-                                    {t.planAllocationsNet > 0 ? "−" : "+"}
-                                    {Math.abs(t.planAllocationsNet).toFixed(2)}
-                                </span>
-                            </div>
                             <div className="env-unbudgeted-breakdown-row env-unbudgeted-breakdown-emph">
                                 <span>Silent overspend absorbed</span>
                                 <span
@@ -1167,10 +1331,10 @@ function UnbudgetedBanner({
                 </span>
             </div>
             <Link
-                to={ROUTES.spacePlanMonth(spaceId, monthSlug)}
+                to={ROUTES.spaceBudgetMonth(spaceId, monthSlug)}
                 className="env-unbudgeted-cta"
             >
-                Plan this month →
+                Budget this month →
             </Link>
         </div>
     );
@@ -1402,24 +1566,39 @@ function SortPicker({
             </PopoverTrigger>
             <PopoverContent
                 align="end"
-                className="orbit-design env-popover w-44 p-1"
+                className="orbit-design env-popover w-52 p-1"
             >
-                {SORT_OPTIONS.map((o) => (
-                    <button
-                        key={o.value}
-                        type="button"
-                        className="env-popover-item"
-                        onClick={() => setSort(o.value)}
-                    >
-                        {o.label}
-                        {sort === o.value && (
-                            <Check
-                                className="ml-auto size-3.5"
-                                style={{ color: "var(--brand)" }}
-                            />
-                        )}
-                    </button>
-                ))}
+                {SORT_OPTIONS.map((o) => {
+                    // Deadline + Progress are goal-only axes; in the
+                    // grouped view they reorder the Goals section but
+                    // leave Monthly + Rolling on cadence order so the
+                    // page doesn't look broken under those sorts.
+                    const isGoalOnly =
+                        o.value === "deadline" || o.value === "progress";
+                    return (
+                        <button
+                            key={o.value}
+                            type="button"
+                            className="env-popover-item env-sort-item"
+                            onClick={() => setSort(o.value)}
+                        >
+                            <span className="env-sort-item-text">
+                                {o.label}
+                                {isGoalOnly && (
+                                    <span className="env-sort-item-sub">
+                                        Reorders Goals only
+                                    </span>
+                                )}
+                            </span>
+                            {sort === o.value && (
+                                <Check
+                                    className="ml-auto size-3.5"
+                                    style={{ color: "var(--brand)" }}
+                                />
+                            )}
+                        </button>
+                    );
+                })}
             </PopoverContent>
         </Popover>
     );
@@ -1440,6 +1619,8 @@ export interface EditableEnvelope {
     cadence: Cadence;
     carryOver: boolean;
     carryPolicy?: CarryPolicy;
+    targetAmount?: number | null;
+    targetDate?: Date | string | null;
 }
 
 export function CreateOrEditEnvelopeDialog({
@@ -1472,6 +1653,14 @@ export function CreateOrEditEnvelopeDialog({
         envelope?.carryPolicy ??
             (envelope?.carryOver ? "positive_only" : "reset")
     );
+    const [targetAmount, setTargetAmount] = useState<string>(
+        envelope?.targetAmount != null ? String(envelope.targetAmount) : ""
+    );
+    const [targetDate, setTargetDate] = useState<string>(
+        envelope?.targetDate
+            ? new Date(envelope.targetDate).toISOString().slice(0, 10)
+            : ""
+    );
 
     const invalidate = async () => {
         await utils.envelop.listBySpace.invalidate({ spaceId: space.id });
@@ -1502,7 +1691,52 @@ export function CreateOrEditEnvelopeDialog({
         if (pending) return;
         if (!name.trim()) return;
         const carryOverBool = carryPolicy !== "reset";
+        // Targets only ride along on rolling (cadence='none') envelopes.
+        // Server validates the same constraint; we mirror it here so the
+        // submit button can't ship contradictory state.
+        const parsedAmountRaw =
+            cadence === "none" && targetAmount.trim()
+                ? Number(targetAmount)
+                : null;
+        const parsedTargetAmount =
+            parsedAmountRaw != null && Number.isFinite(parsedAmountRaw)
+                ? parsedAmountRaw
+                : null;
+        // `<input type="date">` emits "YYYY-MM-DD". `new Date(s)` would
+        // parse it as UTC midnight and then PG's session-tz conversion
+        // could shift the stored `date` column by one day for any user
+        // outside Asia/Dhaka — use the APP_TZ-aware builder instead.
+        let parsedTargetDate: Date | null = null;
+        if (cadence === "none" && targetDate.trim()) {
+            const [yStr, mStr, dStr] = targetDate.split("-");
+            const y = Number(yStr);
+            const m = Number(mStr);
+            const d = Number(dStr);
+            if (
+                Number.isFinite(y) &&
+                Number.isFinite(m) &&
+                Number.isFinite(d)
+            ) {
+                parsedTargetDate = makeAppTzDate(y, m - 1, d);
+            }
+        }
         if (editing) {
+            // Only include target fields in the update payload when the
+            // user actually changed them. The form initializes from the
+            // stored row, so an untouched field would otherwise echo the
+            // stored value back as an explicit write — and a stored-null
+            // field would echo `null`, which the server reads as an
+            // intentional clear and lock-step cascades the other column.
+            // Track change vs the original envelope's serialized state.
+            const origAmountStr =
+                envelope?.targetAmount != null
+                    ? String(envelope.targetAmount)
+                    : "";
+            const origDateStr = envelope?.targetDate
+                ? new Date(envelope.targetDate).toISOString().slice(0, 10)
+                : "";
+            const amountChanged = targetAmount !== origAmountStr;
+            const dateChanged = targetDate !== origDateStr;
             update.mutate({
                 envelopId: envelope!.envelopId,
                 name: name.trim(),
@@ -1512,6 +1746,8 @@ export function CreateOrEditEnvelopeDialog({
                 cadence,
                 carryOver: carryOverBool,
                 carryPolicy,
+                ...(amountChanged ? { targetAmount: parsedTargetAmount } : {}),
+                ...(dateChanged ? { targetDate: parsedTargetDate } : {}),
             });
         } else {
             create.mutate({
@@ -1523,6 +1759,8 @@ export function CreateOrEditEnvelopeDialog({
                 cadence,
                 carryOver: carryOverBool,
                 carryPolicy,
+                targetAmount: parsedTargetAmount ?? undefined,
+                targetDate: parsedTargetDate ?? undefined,
                 idempotencyKey: idem.key,
             });
         }
@@ -1553,7 +1791,7 @@ export function CreateOrEditEnvelopeDialog({
                 </DialogTitle>
                 <OrbitModalShell
                     width={560}
-                    eyebrow="Envelopes"
+                    eyebrow="Budgets"
                     title={editing ? "Edit envelope" : "New envelope"}
                     subtitle="A bucket for a category — funded, tracked, and rolled-over."
                     leadIcon={<IconCmp className="size-4" />}
@@ -1684,6 +1922,37 @@ export function CreateOrEditEnvelopeDialog({
                             <div />
                         )}
                     </OrbitFieldRow>
+
+                    {/* Goal target — only on rolling envelopes. Both fields
+                       are optional; setting either turns the envelope into
+                       a goal card with a progress bar. */}
+                    {cadence === "none" ? (
+                        <OrbitFieldRow>
+                            <OrbitField
+                                label="Target amount"
+                                hint="Optional — turns this envelope into a goal"
+                            >
+                                <OrbitInput
+                                    type="number"
+                                    inputMode="decimal"
+                                    min={0}
+                                    step="0.01"
+                                    value={targetAmount}
+                                    onChange={(e) =>
+                                        setTargetAmount(e.target.value)
+                                    }
+                                    placeholder="0.00"
+                                />
+                            </OrbitField>
+                            <OrbitField label="Target date" hint="Optional">
+                                <OrbitInput
+                                    type="date"
+                                    value={targetDate}
+                                    onChange={(e) => setTargetDate(e.target.value)}
+                                />
+                            </OrbitField>
+                        </OrbitFieldRow>
+                    ) : null}
                 </OrbitModalShell>
             </DialogContent>
         </Dialog>
@@ -2255,6 +2524,32 @@ const ENV_STYLES = `
     border-color: var(--line-strong);
     background: var(--bg-elev-2);
 }
+/* Goal envelopes (cadence='none' + target_amount). Gold tint matches
+   the goal accent used on Overview/section headers so the user can
+   pick goal cards out of a mixed grid at a glance. */
+.orbit-design .od-card.env-card.env-card-goal {
+    background: color-mix(in oklab, var(--gold) 5%, var(--bg-elev-1));
+    border-color: color-mix(in oklab, var(--gold) 28%, var(--line));
+}
+.orbit-design .od-card.env-card.env-card-goal:hover {
+    background: color-mix(in oklab, var(--gold) 12%, var(--bg-elev-2));
+    border-color: color-mix(in oklab, var(--gold) 40%, var(--line));
+}
+.env-card-goal .env-card-cadence > span:first-child {
+    color: var(--gold);
+    font-weight: 500;
+}
+/* Archive wins over goal: an archived goal should read as muted, not
+   as a gold-accent active card. Reset background and border at higher
+   specificity. */
+.orbit-design .od-card.env-card.env-card-goal.env-card-archived {
+    background: var(--bg-elev-1);
+    border-color: var(--line);
+}
+.orbit-design .od-card.env-card.env-card-goal.env-card-archived:hover {
+    background: var(--bg-elev-2);
+    border-color: var(--line-strong);
+}
 .env-card-head {
     display: flex;
     align-items: flex-start;
@@ -2366,9 +2661,24 @@ const ENV_STYLES = `
     white-space: nowrap;
     text-align: right;
 }
+/* Goal rows: gold eyebrow signal so the "Goal" word is visible at a
+   glance, matching the grid card affordance. */
+.env-list-row-goal .env-list-row-cadence > :first-child {
+    color: var(--gold);
+    font-weight: 500;
+}
 @media (max-width: 720px) {
     .env-list-row { grid-template-columns: 1fr auto; gap: 12px; }
     .env-list-row-bar { display: none; }
+    /* Goal rows keep their progress bar even on mobile — it's the only
+       signal of completion left once the row is this compact. Bar moves
+       beneath the title row in its own grid track. */
+    .env-list-row-goal { grid-template-columns: 1fr auto; }
+    .env-list-row-goal .env-list-row-bar {
+        display: block;
+        grid-column: 1 / -1;
+        margin-top: 4px;
+    }
 }
 
 /* Groups */
@@ -2413,6 +2723,19 @@ const ENV_STYLES = `
     gap: 8px;
 }
 .env-popover-item:hover { background: var(--bg-elev-2); color: var(--fg); }
+/* Sort items with a goal-only hint stack label + 11px muted subhead. */
+.env-sort-item { align-items: flex-start; }
+.env-sort-item-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+.env-sort-item-sub {
+    font-size: 11px;
+    color: var(--fg-4);
+    font-weight: 400;
+}
 
 /* Archived envelopes — collapsible reveal section + dimmed cards. */
 .env-archived-section {

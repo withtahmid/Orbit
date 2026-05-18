@@ -6,3 +6,8 @@
 - [Concept critique 2026-05-13](concept_critique_2026_05_13.md) — Verdict: model is muddled, not dirty; collapse Plan into Envelope; promote a typed envelope-ledger as the missing primitive.
 - [Overview reconciliation identity](overview_reconciliation_identity.md) — Canonical 4-slot bar (Envelopes/Plans/Unbudgeted/Locked); user's "Remaining+Unbudgeted=NetWorth" is the simplified case.
 - [Personal-space Unallocated misframe](personal_space_unallocated_misframe.md) — `unallocated` exists on personal but no action surface; replace tile with "Across N spaces", suppress over-allocated banner on /s/me.
+- [Plan rename to Goal](plan_rename_to_goal.md) — `plan` entity renamed to `goal`; distinct from the unrelated PlanMonthPage monthly-budget view.
+- [Budgets page merge](budgets_page_merge_goals_envelopes.md) — Merge Envelopes + Goals into one "Budgets" page with allocation-bar invariant at top; entity word "Envelope" stays.
+- [Liability budgeting treatment](liability_budgeting_treatment.md) — Phase 1: drop liabilities from spendable, add separate Net Worth; Phase 2 (deferred): YNAB-style card-payment envelopes.
+- [Plan-envelope merge decision](plan_envelope_merge_decision.md) — 2026-05-14: drop `plans` entirely; goals = envelopes with `cadence='none'` + optional `target_amount`. Supersedes plan-rename plan.
+- [DocsPage stale after merge](docs_page_stale_after_merge.md) — Concepts tile "Plan" + Envelopes section copy still pre-merge as of 2026-05-15.

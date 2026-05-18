@@ -1291,11 +1291,9 @@ function EnvelopeStatusCard({
                                         transferMutation.mutate({
                                             amount: overBy,
                                             from: {
-                                                kind: "envelop",
                                                 envelopId: pullSourceId,
                                             },
                                             to: {
-                                                kind: "envelop",
                                                 envelopId: env.id,
                                             },
                                             idempotencyKey: pullIdem.key,

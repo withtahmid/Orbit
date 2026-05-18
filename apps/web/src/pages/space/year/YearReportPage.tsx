@@ -64,7 +64,7 @@ export default function YearReportPage() {
             <header className="yr-topbar">
                 <div className="yr-topbar-text">
                     <Link
-                        to={ROUTES.spaceEnvelopes(space.id)}
+                        to={ROUTES.spaceBudgets(space.id)}
                         className="yr-back"
                     >
                         <ArrowLeft className="size-3.5" /> Envelopes

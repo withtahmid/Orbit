@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { Target } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -220,12 +219,10 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
 }
 
 /* ============================================================
-   2. BY ACCOUNT — pill picker, balance KPIs, envelope/plan rows
+   2. BY ACCOUNT — pill picker, balance KPIs, envelope rows
    ============================================================ */
 function ByAccountPanel({ spaceId }: { spaceId: string }) {
     const q = useAllocations(spaceId);
-    const planAllocsQ = trpc.plan.allocationListBySpace.useQuery({ spaceId });
-    const plansQ = trpc.analytics.planProgress.useQuery({ spaceId });
 
     const accounts = q.data?.accounts ?? [];
     const pickable = accounts.filter((a) => a.accountType !== "locked");
@@ -257,38 +254,18 @@ function ByAccountPanel({ spaceId }: { spaceId: string }) {
             })
             .filter((e) => e.allocated > 0 || e.spent > 0);
 
-        const planRows = (planAllocsQ.data ?? [])
-            .filter((p) => p.account_id === effectiveId)
-            .map((p) => {
-                const plan = (plansQ.data ?? []).find(
-                    (pp) => pp.planId === p.plan_id
-                );
-                return {
-                    id: p.id,
-                    name: plan?.name ?? "Plan",
-                    color: plan?.color ?? "#a855f7",
-                    allocated: Number(p.amount),
-                };
-            });
-
-        const earmarkedEnv = envelopes.reduce(
+        const earmarked = envelopes.reduce(
             (s, e) => s + Math.max(0, e.allocated - e.spent),
             0
         );
-        const earmarkedPlan = planRows.reduce(
-            (s, p) => s + p.allocated,
-            0
-        );
-        const earmarked = earmarkedEnv + earmarkedPlan;
         const unallocated = acct.balance - earmarked;
         return {
             acct,
             envelopes,
-            plans: planRows,
             earmarked,
             unallocated,
         };
-    }, [q.data, effectiveId, planAllocsQ.data, plansQ.data]);
+    }, [q.data, effectiveId]);
 
     if (q.isLoading) {
         return <Skeleton className="h-64 w-full" />;
@@ -307,7 +284,6 @@ function ByAccountPanel({ spaceId }: { spaceId: string }) {
         0,
         ...data.envelopes.map((e) => e.allocated + e.spent)
     );
-    const planMax = Math.max(0, ...data.plans.map((p) => p.allocated));
 
     return (
         <div className="grid gap-4">
@@ -456,61 +432,6 @@ function ByAccountPanel({ spaceId }: { spaceId: string }) {
                 </CardContent>
             </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Plans funded from {data.acct.name}</CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                        Long-horizon goals.
-                    </p>
-                </CardHeader>
-                <CardContent>
-                    {data.plans.length === 0 ? (
-                        <p className="text-sm text-muted-foreground">
-                            No plan allocations from this account.
-                        </p>
-                    ) : (
-                        <div className="flex flex-col gap-2.5">
-                            {data.plans.map((p) => (
-                                <div
-                                    key={p.id}
-                                    className="grid items-center gap-3 sm:gap-4"
-                                    style={{
-                                        gridTemplateColumns:
-                                            "minmax(140px, 200px) minmax(0, 1fr) 96px",
-                                    }}
-                                >
-                                    <span className="flex min-w-0 items-center gap-2 truncate text-[12.5px] text-foreground/90">
-                                        <Target
-                                            className="size-3 shrink-0"
-                                            style={{ color: p.color }}
-                                        />
-                                        <span className="truncate">{p.name}</span>
-                                    </span>
-                                    <span
-                                        className="block h-1.5 overflow-hidden rounded-full bg-muted/40"
-                                        style={{
-                                            width:
-                                                planMax > 0
-                                                    ? `${(p.allocated / planMax) * 100}%`
-                                                    : "0%",
-                                        }}
-                                    >
-                                        <span
-                                            className="block h-full rounded-full"
-                                            style={{ backgroundColor: p.color }}
-                                        />
-                                    </span>
-                                    <MoneyDisplay
-                                        amount={p.allocated}
-                                        variant="neutral"
-                                        className="text-right text-[12.5px] font-semibold"
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
         </div>
     );
 }
@@ -520,7 +441,6 @@ function ByAccountPanel({ spaceId }: { spaceId: string }) {
    ============================================================ */
 function TotalsPanel({ spaceId }: { spaceId: string }) {
     const q = useAllocations(spaceId);
-    const planAllocsQ = trpc.plan.allocationListBySpace.useQuery({ spaceId });
 
     const t = useMemo(() => {
         if (!q.data) {
@@ -547,15 +467,10 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
         const locked = q.data.accounts
             .filter((a) => a.accountType === "locked")
             .reduce((s, a) => s + a.balance, 0);
-        const earmarkedEnv = q.data.envelopes.reduce(
+        const earmarked = q.data.envelopes.reduce(
             (s, e) => s + e.allocated,
             0
         );
-        const earmarkedPlans = (planAllocsQ.data ?? []).reduce(
-            (s, p) => s + Number(p.amount),
-            0
-        );
-        const earmarked = earmarkedEnv + earmarkedPlans;
         const unallocated = Math.max(0, totalAssets - earmarked);
         const drift = q.data.drift.delta;
         return {
@@ -567,8 +482,8 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
             drift,
             partition: [
                 {
-                    label: "Plans",
-                    value: earmarkedPlans,
+                    label: "Earmarked",
+                    value: earmarked,
                     color: "#a855f7",
                 },
                 {
@@ -588,7 +503,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
                 },
             ].filter((p) => p.value > 0),
         };
-    }, [q.data, planAllocsQ.data]);
+    }, [q.data]);
 
     const partitionTotal = t.partition.reduce((s, p) => s + p.value, 0);
 
@@ -603,7 +518,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
             label: "Earmarked",
             value: t.earmarked,
             money: true,
-            sub: "Across envelopes + plans",
+            sub: "Across envelopes",
         },
         {
             label: "Unallocated",

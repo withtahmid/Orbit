@@ -16,8 +16,8 @@ import { resolveSpaceUnallocated } from "../allocation/utils/resolveSpaceUnalloc
  * The breakdown is computed from raw event data over the window:
  *   - income:        sum of `income` transactions hitting space accounts
  *                    (assets credited, liabilities debited).
- *   - allocations:   net positive envelope_allocations + plan_allocations
- *                    created in the window. Positive amounts increase
+ *   - allocations:   net positive envelope_allocations created in the
+ *                    window. Positive amounts increase
  *                    "held"; negative amounts (deallocations) decrease it.
  *   - absorbedOverspend: the conceptual leak. For each completed past
  *                    period that fell within the window, if an envelope
@@ -84,17 +84,6 @@ export const unbudgetedTrend = authorizedProcedure
                     .execute(trx)
                     .then((r) => Number(r.rows[0]?.total ?? 0));
 
-                const planAllocChange = await sql<{ total: string }>`
-                    SELECT COALESCE(SUM(a.amount), 0)::text AS total
-                    FROM plan_allocations a
-                    JOIN plans p ON p.id = a.plan_id
-                    WHERE p.space_id = ${input.spaceId}
-                      AND a.created_at >= ${windowStart}
-                      AND a.created_at < ${now}
-                `
-                    .execute(trx)
-                    .then((r) => Number(r.rows[0]?.total ?? 0));
-
                 // Absorbed overspend: per past month within the window,
                 // for each envelope whose carry_policy != 'both', sum the
                 // amount by which consumed exceeded (allocated + carryIn
@@ -152,7 +141,6 @@ export const unbudgetedTrend = authorizedProcedure
                     windowDays: input.windowDays,
                     income,
                     allocationsNet: allocChange,
-                    planAllocationsNet: planAllocChange,
                     absorbedOverspend: absorbed,
                 };
             })
