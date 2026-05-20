@@ -10,11 +10,11 @@ import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { cn } from "@/lib/utils";
 
 /**
- * Allocation map — three perspectives on the same envelope×account×plan
+ * Allocation map — three perspectives on the same envelope×account
  * partition.
  *
  *   1. By envelope — for each envelope, which accounts fund it (stacked bar)
- *   2. By account  — for the selected account, which envelopes / plans it
+ *   2. By account  — for the selected account, which envelopes it
  *                    funds (account-pill picker + bars + balance KPIs)
  *   3. Totals      — space-wide partition of every dollar (KPIs + sankey-ish bar)
  */
@@ -40,7 +40,7 @@ export default function AllocationsView() {
     return (
         <AnalyticsDetailLayout
             title="Allocation map"
-            description="Where money is partitioned. Each envelope and plan is funded from one or more accounts — this view shows the contribution shape."
+            description="Where money is partitioned. Each envelope is funded from one or more accounts — this view shows the contribution shape."
         >
             <Tabs defaultValue="by-envelope">
                 <TabsList>

@@ -1266,7 +1266,7 @@ function EnvelopeStatusCard({
                                     Pull from another envelope
                                 </span>
                                 <span className="nt-recover-card-hint">
-                                    Move {overBy.toFixed(2)} of plan from another bucket into{" "}
+                                    Move {overBy.toFixed(2)} of budget from another bucket into{" "}
                                     {env.name}.
                                 </span>
                             </div>
@@ -1316,7 +1316,7 @@ function EnvelopeStatusCard({
                                 </span>
                                 <span className="nt-recover-card-hint">
                                     Adds {overBy.toFixed(2)} to {env.name} now and removes the same
-                                    from next month's plan.
+                                    from next month's budget.
                                 </span>
                             </div>
                             <div className="nt-recover-card-row nt-recover-card-row--end">

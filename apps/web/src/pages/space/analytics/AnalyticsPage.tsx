@@ -68,7 +68,7 @@ const ENTRIES: Entry[] = [
         view: "allocations",
         title: "Allocation map",
         description:
-            "Which accounts fund which envelopes and plans — the money-partitioning view.",
+            "Which accounts fund which envelopes — the money-partitioning view.",
         icon: Network,
         color: "var(--ent-4)",
     },

@@ -47,7 +47,7 @@ type Group = {
 /**
  * Editorial-dark Command Palette — opens with ⌘K (or Ctrl+K). Provides:
  *  - Jump-to navigation (Overview · Accounts · Transactions · …)
- *  - Create entries (New transaction · transfer · plan · …)
+ *  - Create entries (New transaction · transfer · envelope · …)
  *  - Recent transactions (live from the current space)
  *  - Fuzzy filter via the search input
  *  - Keyboard nav (↑/↓ select, ↵ open, ⌘K close)

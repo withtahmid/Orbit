@@ -332,7 +332,7 @@ export function EnvelopeTopUpDialog({
                             </span>
                             <span className="etu-recover-card-hint">
                                 Adds funds to {envelopeName} now and removes
-                                the same from next month's plan.
+                                the same from next month's budget.
                             </span>
                         </div>
                         <div className="etu-fields">

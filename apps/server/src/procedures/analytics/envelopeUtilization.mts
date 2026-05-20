@@ -108,19 +108,18 @@ export const envelopeUtilization = authorizedProcedure
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
                         ) AS last_allocated_at,
-                        -- Cumulative positive allocations: the goal-progress
-                        -- numerator. Excludes negative rows (withdrawals,
-                        -- deallocations) so that *spending* from a goal
-                        -- doesn't unwind its completion status. Filtered
-                        -- to user-funding kinds so future 'cover' /
-                        -- 'reckon' / 'restructure' writers can't inflate
-                        -- goal progress with envelope-to-envelope
-                        -- reallocations.
+                        -- Net allocated to this envelope: the goal-progress
+                        -- numerator. Counts signed allocations so any change
+                        -- to funding intent moves the bar — deallocations
+                        -- and the negative leg of an envelope-to-envelope
+                        -- transfer both reduce progress. Real spending stays
+                        -- in the transactions table, so it never touches
+                        -- this sum and a completed goal stays completed once
+                        -- the user starts spending toward it.
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
-                              AND a.amount > 0
                               AND a.kind IN ('allocate', 'borrow')
                         ), 0)::text AS lifetime_funded,
                         -- Borrow rows that landed IN this period (positive

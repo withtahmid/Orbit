@@ -135,7 +135,7 @@ export default function SpaceSettingsPage() {
                             <CardContent className="grid gap-3">
                                 <p className="text-sm text-muted-foreground">
                                     Deleting the space removes all its accounts, transactions,
-                                    envelopes, plans, and categories. This cannot be undone.
+                                    envelopes, and categories. This cannot be undone.
                                 </p>
                                 <ConfirmDialog
                                     trigger={

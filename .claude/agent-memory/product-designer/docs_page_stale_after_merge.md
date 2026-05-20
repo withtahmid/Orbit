@@ -1,20 +1,32 @@
 ---
 name: docs-page-stale-after-merge
-description: DocsPage Concepts grid still shows a "Plan" tile and Envelopes section omits target/goal copy after the plan->envelope merge.
+description: Plan->envelope-target rename cleanup tracker (2026-05-20). DocsPage/README/CLAUDE.md/marketing all clean; surviving stale surfaces are the contexts/ specs.
 metadata:
   type: project
 ---
 
-After the plan/envelope merge (see [[plan-envelope-merge-decision]] and [[budgets-page-merge-goals-envelopes]]), DocsPage was only partially updated.
+Tracks the remaining stale surfaces after the plan->envelope-target merge (see [[plan-envelope-merge-decision]], [[budgets-page-merge-goals-envelopes]]).
 
-Outstanding stale areas as of 2026-05-15:
-- Concepts ConceptCard for "Plan" remains as a sibling to "Envelope" (apps/web/src/pages/DocsPage.tsx:418), contradicting the merged model.
-- Concepts intro paragraph still says "envelopes & plans" (line 300).
-- Spaces section paragraph says "envelopes, plans, categories, and events" (line 493).
-- LiveDemo blurb mentions "12 plans" (line 345).
-- Envelopes function (line 576+) describes monthly/none cadence but never mentions the new `target_amount`/`target_date` capability and that goals live here now.
-- Reference to "Plan this month" page (line 831, 839) — page is now "Budget this month".
+**Resolved as of 2026-05-20:**
+- DocsPage (Concepts tile, Envelopes section, Goal envelopes callout, symmetric-progress rule)
+- README.md (envelope-budgeting bullet, seed count blurb)
+- CLAUDE.md (router list)
+- AnalyticsPage, AllocationsView, AccountsView, LandingPage, AuthShell, SpaceSelectorPage, SpaceSettingsPage, BudgetMonthPage, CommandPalette
+- contexts/modules/server/allocation.md (deleted)
 
-**Why:** Docs are a stakeholder-facing surface and should be the source-of-truth for the mental model. The merge collapses Plan into Envelope; leaving a Plan concept card teaches a model that the product no longer supports.
+**Still stale (ship blockers, in priority order):**
+1. `contexts/project-specification.md` — §3.4 still defines `plans`/`plan_allocations` schema (`:188-196`); §5.2 still describes "Plan balance" (`:404-408`); §10 is still titled "Plans" with rules contradicting the merged model (`:858-859` says plans can't be spent from directly). README + CLAUDE.md both point developers at this spec as "source of truth." Other refs: `:35, 39, 332, 338-339, 359, 418, 433, 446, 491, 526, 554, 560, 570, 678, 715, 758, 1061, 1082`.
+2. `contexts/modules/INDEX.md` — `:21, 23, 26, 43` still list `plan`/`allocation`/`plans` modules.
+3. `contexts/modules/server/plan.md` and `contexts/modules/web/plans.md` — full module docs for code that no longer exists; delete.
+4. `contexts/modules/server/analytics.md:3,17,57-59` — documents the deleted `planProgress` procedure.
+5. `contexts/modules/web/overview.md:3,22`, `contexts/modules/web/analytics.md:22`, `contexts/modules/server/personal.md:40,50`, `contexts/modules/server/envelop.md:55`, `contexts/modules/shared/db-layer.md:3,31,33`, `contexts/modules/shared/routing.md:49,52` — scattered plan refs.
+6. `contexts/engineering-specification.md:185, 279, 317, 338` — "17 envelopes, 6 plans", "Envelopes / Plans / Categories", "Cross-space envelope/plan math".
 
-**How to apply:** When auditing the rename branch before merge, treat DocsPage as a high-priority deliverable, not a polish item — the Concepts grid in particular is the page first-time visitors anchor on.
+**Polish:**
+- `apps/server/src/procedures/analytics/CLAUDE.md:35` — "The plan is to retire them" reads as generic-verb but is in a doc surface; reword to "the goal is".
+- Migration 046 destructiveness (down throws) is undocumented in README/CLAUDE.md. The migration's own JSDoc is honest, but a one-liner near `pnpm migrate` would help a developer running against a non-empty plans table.
+- Goal-progress bar has no UI tooltip explaining the symmetric rule; only the DocsPage callout documents it.
+
+**Why:** The product code is clean; the architecture/spec documentation tree is the load-bearing stale surface that shapes contributor mental models. Without it, the rename is half-done.
+
+**How to apply:** Treat this as the remaining punch-down for `rename-plan-goal`. Specs first (project + engineering), then `contexts/modules/`, then README/CLAUDE.md polish. Once cleared, this memory can be deleted.

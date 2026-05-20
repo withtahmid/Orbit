@@ -71,6 +71,19 @@ export const createEnvelop = authorizedProcedure
                             });
                         }
 
+                        // Migration 047's CHECK passes any half-set pair
+                        // when cadence='none'; enforce the lock-step at
+                        // the API boundary the same way update.mts does.
+                        const hasAmount = input.targetAmount != null;
+                        const hasDate = input.targetDate != null;
+                        if (hasAmount !== hasDate) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "Target amount and target date must be set together (or both omitted)",
+                            });
+                        }
+
                         return trx
                             .insertInto("envelops")
                             .values({

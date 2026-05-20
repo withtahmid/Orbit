@@ -70,9 +70,18 @@ export const transferAllocation = authorizedProcedure
                             });
                         }
 
+                        await resolveSpaceMembership({
+                            trx,
+                            spaceId: fromInfo.spaceId,
+                            userId: ctx.auth.user.id,
+                            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
+                        });
+
                         // Block transfers INTO an archived envelope.
                         // Transfers OUT of one are allowed so trapped cash
-                        // can be freed without unarchiving.
+                        // can be freed without unarchiving. Runs after the
+                        // membership check so the error message can't be
+                        // used to probe envelope names cross-space.
                         const dest = await trx
                             .selectFrom("envelops")
                             .select(["archived", "name"])
@@ -84,13 +93,6 @@ export const transferAllocation = authorizedProcedure
                                 message: `Envelope "${dest.name}" is archived. Pick a different destination.`,
                             });
                         }
-
-                        await resolveSpaceMembership({
-                            trx,
-                            spaceId: fromInfo.spaceId,
-                            userId: ctx.auth.user.id,
-                            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
-                        });
 
                         // Verify any pinned account belongs to the space
                         for (const accountId of [

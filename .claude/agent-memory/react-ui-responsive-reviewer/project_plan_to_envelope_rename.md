@@ -9,8 +9,8 @@ The legacy "Plans" feature was folded into envelopes: any envelope with `cadence
 
 - `apps/web/src/pages/space/budgets/BudgetsPage.tsx` — renamed from `EnvelopesPage`; create/edit dialog adds Target amount + Target date fields when `cadence === 'none'`.
 - `apps/web/src/pages/space/budgets/BudgetDetailPage.tsx` — adds a "Goal progress" card guarded by `envelope.targetAmount != null`.
-- `apps/web/src/pages/space/budgets/BudgetMonthPage.tsx` — renamed from `PlanMonthPage` but internal classes (`plan-*`) and user-visible strings ("Plan {Month}", "Save plan", "Over plan", "Under plan") still say "Plan".
-- `apps/web/src/pages/space/OverviewPage.tsx` — old Plans section replaced with a Goals card filtering `envelopeUtilization` by `targetAmount != null`; CTA button label is still "Plan {Month}".
+- `apps/web/src/pages/space/budgets/BudgetMonthPage.tsx` — renamed from `PlanMonthPage`. Internal CSS classes (`plan-*`) are still legacy, but all user-visible strings now say "budget" (including the column header at line ~510, fixed on 2026-05-20).
+- `apps/web/src/pages/space/OverviewPage.tsx` — old Plans section replaced with a Goals card filtering `envelopeUtilization` by `targetAmount != null`. CTA button label is now "Budget {Month}" (the `// Label is stable as "Plan {Month}"` comment at line ~447 is stale but the user-visible string is correct).
 
 **Why:** Single concept ("envelope") absorbs both monthly buckets and long-horizon savings goals. Avoids two parallel features.
 

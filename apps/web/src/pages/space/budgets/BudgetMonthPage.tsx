@@ -507,7 +507,7 @@ export default function BudgetMonthPage() {
                                     ? `${monthLabel.split(" ")[0]} actual`
                                     : `${prevMonthLabel} actual`}
                             </span>
-                            <span>{monthLabel.split(" ")[0]} plan</span>
+                            <span>{monthLabel.split(" ")[0]} budget</span>
                         </div>
                         {envelopes.map((e) => {
                             const prev = prevById.get(e.envelopId);

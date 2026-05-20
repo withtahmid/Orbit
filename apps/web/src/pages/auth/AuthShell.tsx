@@ -40,7 +40,7 @@ export function AuthShell({
                     <p className="oa-editorial-lede">
                         Orbit is a collaborative ledger for small groups —
                         families, couples, roommates. One coherent picture
-                        across accounts, envelopes, and long-horizon plans.
+                        across accounts, envelopes, and long-horizon goals.
                     </p>
 
                     <svg

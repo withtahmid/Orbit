@@ -129,8 +129,10 @@ export const updateEnvelop = authorizedProcedure
                     }
                     // Lock-step against the *merged post-update state* so
                     // no input combination can persist (amount-null, date-set)
-                    // or (date-null, amount-set). Both columns clear or both
-                    // stay set.
+                    // or (date-null, amount-set). Reject explicitly rather
+                    // than soft-clearing — a partial PATCH that previously
+                    // wiped the column the caller didn't touch could throw
+                    // away a value the user just typed.
                     const mergedAmount =
                         targetUpdates.target_amount !== undefined
                             ? targetUpdates.target_amount
@@ -142,8 +144,11 @@ export const updateEnvelop = authorizedProcedure
                     const exactlyOneNull =
                         (mergedAmount == null) !== (mergedDate == null);
                     if (exactlyOneNull) {
-                        targetUpdates.target_amount = null;
-                        targetUpdates.target_date = null;
+                        throw new TRPCError({
+                            code: "BAD_REQUEST",
+                            message:
+                                "Target amount and target date must be set together (or both omitted)",
+                        });
                     }
                 }
 

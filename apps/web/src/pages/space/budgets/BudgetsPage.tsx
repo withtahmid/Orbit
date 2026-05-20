@@ -61,6 +61,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { ROUTES } from "@/router/routes";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import { addMonths, startOfMonth, endOfMonth, makeAppTzDate } from "@/lib/dates";
+import { EnvelopeTargetDatePicker } from "./EnvelopeTargetDatePicker";
 import type { RouterOutput } from "@/trpc";
 
 type Cadence = "none" | "monthly";
@@ -1945,10 +1946,9 @@ export function CreateOrEditEnvelopeDialog({
                                 />
                             </OrbitField>
                             <OrbitField label="Target date" hint="Optional">
-                                <OrbitInput
-                                    type="date"
+                                <EnvelopeTargetDatePicker
                                     value={targetDate}
-                                    onChange={(e) => setTargetDate(e.target.value)}
+                                    onChange={setTargetDate}
                                 />
                             </OrbitField>
                         </OrbitFieldRow>

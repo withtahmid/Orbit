@@ -36,7 +36,7 @@
  *   runs, daily coffee, freelance income, bonuses, tax refunds, foreign
  *   transaction fees, credit card payoffs, salary progression, seasonal
  *   holiday spikes and event-tagged clusters
- * - ~500+ envelope + plan allocations, with intentional drift, rebalances,
+ * - ~500+ envelope allocations, with intentional drift, rebalances,
  *   and account-pinned allocations to surface the 2D matrix idea
  *
  * Primary user credentials are printed at the end.

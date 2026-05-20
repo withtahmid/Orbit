@@ -106,16 +106,18 @@ export const personalEnvelopeUtilization = authorizedProcedure
                             WHERE a.envelop_id = e.id
                               AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
                         ) AS last_allocated_at,
-                        -- Lifetime funded (positive allocations only) is
-                        -- the goal-progress numerator. Spending from a
-                        -- completed goal does not roll back its status.
-                        -- Filtered to user-funding kinds; see
-                        -- analytics/envelopeUtilization.mts for rationale.
+                        -- Net allocated to this envelope: the goal-progress
+                        -- numerator. Signed sum so deallocations and the
+                        -- negative leg of an envelope-to-envelope transfer
+                        -- both reduce progress. Spending lives in the
+                        -- transactions table and never touches this sum —
+                        -- a completed goal stays completed once the user
+                        -- starts drawing it down. See analytics twin for
+                        -- the canonical comment.
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
-                              AND a.amount > 0
                               AND a.kind IN ('allocate', 'borrow')
                               AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
                         ), 0)::text AS lifetime_funded,

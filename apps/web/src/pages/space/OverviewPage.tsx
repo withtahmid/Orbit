@@ -441,10 +441,10 @@ export default observer(function OverviewPage() {
                     </button>
                     {!isPersonal &&
                         (() => {
-                            // Monthly-plan entry point. State-aware: when
+                            // Monthly-budget entry point. State-aware: when
                             // there's money to budget, goes primary with a
                             // "·Money free" chip; otherwise stays ghost.
-                            // Label is stable as "Plan {Month}" to avoid a
+                            // Label is stable as "Budget {Month}" to avoid a
                             // perceptible flicker between loading and loaded
                             // states — the style + chip carry the urgency
                             // signal. "New transaction" demotes to ghost

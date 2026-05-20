@@ -380,7 +380,7 @@ function ReckoningRow({
                     <div className="rk-option-hint">
                         Adds {item.overBy.toFixed(2)} to{" "}
                         {item.name} retroactively, removes the same from
-                        next month's plan.
+                        next month's budget.
                     </div>
                     <div className="rk-option-row rk-option-row--end">
                         <button
