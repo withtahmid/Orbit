@@ -6,3 +6,4 @@
 - [Concept critique 2026-05-13](concept_critique_2026_05_13.md) — Verdict: model is muddled, not dirty; collapse Plan into Envelope; promote a typed envelope-ledger as the missing primitive.
 - [Overview reconciliation identity](overview_reconciliation_identity.md) — Canonical 4-slot bar (Envelopes/Plans/Unbudgeted/Locked); user's "Remaining+Unbudgeted=NetWorth" is the simplified case.
 - [Personal-space Unallocated misframe](personal_space_unallocated_misframe.md) — `unallocated` exists on personal but no action surface; replace tile with "Across N spaces", suppress over-allocated banner on /s/me.
+- [Space isolation override 2026-05-20](space_isolation_override_2026_05_20.md) — Tahmid overrode spec §12; flow analytics must be space-isolated; balance tile keeps full ledger but must be re-labeled.

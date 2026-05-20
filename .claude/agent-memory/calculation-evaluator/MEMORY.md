@@ -7,3 +7,4 @@
 - [Period preset boundaries](period_presets.md) — "Last month" relative to "this month" should be calendar-month-aligned, not span-subtracted. CategoriesPage does span subtraction.
 - [Envelope carryIn semantics](envelope_carryin_semantics.md) — `allocated` vs `allocated + carryIn` is "plan" vs "pool"; "Under plan" companion stat dictates which is shown.
 - [APP_TZ month helpers](apptz_month_helpers.md) — past/current/future classification must use `getAppTzYear/Month` + `makeAppTzDate` or it drifts for non-Dhaka users.
+- [Account-scope double count](account_scope_double_count.md) — `spaceSummary`/`cashFlow` scope by `space_accounts` (spec §12), so shared-account tx double-count across spaces. Personal twin scopes by `transactions.space_id` and doesn't.
