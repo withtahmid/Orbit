@@ -12,3 +12,5 @@
 - [Transfer undefined-account drift](transfer_undefined_account_drift.md) — `allocation.transfer` aggregates partitions for available-check but writes debit to unassigned (`null`) when `accountId` is undefined; creates phantom drift.
 - [Target date tz drift](target_date_tz_drift.md) — `new Date("YYYY-MM-DD")` for envelope `target_date` is midnight UTC; PG sessions west of UTC store the previous day.
 - [types.mts pollution](types_mts_pollution.md) — `pnpm generate-types` reflects the live DB it's pointed at; dev-only tables can leak in. Cross-check every new table/column in types.mts diffs against a migration.
+- [Category parent_id cycle risk](category-parent-cycle-risk.md) — `expense_categories.parent_id` has no cycle prevention beyond self-parent; recursive CTEs over it use `UNION ALL`, can hang until `statement_timeout`.
+- [Trends SQL fragment helpers](sql-fragment-helpers-trends.md) — `trendsFilters.mts` review checklist (injection, CTE composition, `intersectAccountIds` empty-set short-circuit invariant).

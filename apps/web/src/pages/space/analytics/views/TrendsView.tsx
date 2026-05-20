@@ -1,7 +1,26 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import {
+    ArrowDown,
+    ArrowUp,
+    ChevronDown,
+    FolderTree,
+    Tags,
+    Wallet,
+    X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    DropdownMenu,
+    DropdownMenuCheckboxItem,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
@@ -22,6 +41,13 @@ import {
 import { formatInAppTz } from "@/lib/formatDate";
 
 type Granularity = "week" | "month" | "quarter" | "year";
+
+/** Cheap RFC-4122-ish gate for URL filter params. The server runs a
+ *  proper Zod uuid validator; this just stops a single malformed pasted
+ *  link from 400-ing the whole view. */
+const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (s: string): boolean => UUID_RE.test(s);
 
 const GRANULARITY_OPTIONS: ReadonlyArray<{
     id: Granularity;
@@ -84,6 +110,59 @@ export default function TrendsView() {
     };
     const noun = GRANULARITY_OPTIONS.find((o) => o.id === granularity)!.noun;
 
+    /* Filter state — read multi-value params straight off the URL so
+       links are shareable. Empty arrays → no filter on that dimension.
+       Garbage values (`?cat=oops`) are dropped client-side so they
+       never reach the server's Zod uuid validator — otherwise a single
+       bad pasted URL would 400 the entire view. The server then
+       silently drops *unknown* (well-formed but stale) ids on top. */
+    const envelopeIds = useMemo(
+        () => params.getAll("env").filter(isUuid),
+        [params]
+    );
+    const accountIds = useMemo(
+        () => params.getAll("acc").filter(isUuid),
+        [params]
+    );
+    const categoryIds = useMemo(
+        () => params.getAll("cat").filter(isUuid),
+        [params]
+    );
+    const setFilterIds = useCallback(
+        (key: "env" | "acc" | "cat", values: string[]) => {
+            setParams(
+                (p) => {
+                    const next = new URLSearchParams(p);
+                    next.delete(key);
+                    for (const v of values) next.append(key, v);
+                    return next;
+                },
+                { replace: true }
+            );
+        },
+        [setParams]
+    );
+    const clearAllFilters = useCallback(() => {
+        setParams(
+            (p) => {
+                const next = new URLSearchParams(p);
+                next.delete("env");
+                next.delete("acc");
+                next.delete("cat");
+                return next;
+            },
+            { replace: true }
+        );
+    }, [setParams]);
+
+    /* Filter inputs threaded through to every query. Undefined when
+       empty so we never spend a network round-trip on an empty array. */
+    const envelopeIdsArg = envelopeIds.length > 0 ? envelopeIds : undefined;
+    const accountIdsArg = accountIds.length > 0 ? accountIds : undefined;
+    const categoryIdsArg = categoryIds.length > 0 ? categoryIds : undefined;
+    const hasAnyFilter =
+        envelopeIds.length + accountIds.length + categoryIds.length > 0;
+
     const now = useMemo(() => new Date(), []);
     const period = useMemo(() => periodBoundsFor(granularity, now), [granularity, now]);
 
@@ -94,11 +173,19 @@ export default function TrendsView() {
     const { mode } = useMetricMode("operational");
 
     const dailySpaceQ = trpc.analytics.trends.dailyComparison.useQuery(
-        { spaceId: space.id, anchor: now, granularity, mode },
+        {
+            spaceId: space.id,
+            anchor: now,
+            granularity,
+            mode,
+            envelopeIds: envelopeIdsArg,
+            accountIds: accountIdsArg,
+            categoryIds: categoryIdsArg,
+        },
         { enabled: !isPersonal }
     );
     const dailyPersonalQ = trpc.personal.trends.dailyComparison.useQuery(
-        { anchor: now, granularity, mode },
+        { anchor: now, granularity, mode, accountIds: accountIdsArg },
         { enabled: isPersonal }
     );
     const dailyData = (isPersonal ? dailyPersonalQ.data : dailySpaceQ.data) ?? null;
@@ -111,11 +198,17 @@ export default function TrendsView() {
        not browser-local; near year-end the two can disagree by one. */
     const yoyYear = Number(formatInAppTz(now, "yyyy"));
     const yoySpaceQ = trpc.analytics.trends.yearOverYear.useQuery(
-        { spaceId: space.id, year: yoyYear },
+        {
+            spaceId: space.id,
+            year: yoyYear,
+            envelopeIds: envelopeIdsArg,
+            accountIds: accountIdsArg,
+            categoryIds: categoryIdsArg,
+        },
         { enabled: !isPersonal }
     );
     const yoyPersonalQ = trpc.personal.trends.yearOverYear.useQuery(
-        { year: yoyYear },
+        { year: yoyYear, accountIds: accountIdsArg },
         { enabled: isPersonal }
     );
     const yoyData = (isPersonal ? yoyPersonalQ.data : yoySpaceQ.data) ?? null;
@@ -126,15 +219,26 @@ export default function TrendsView() {
             periodStart: period.start,
             periodEnd: period.end,
             limit: 6,
+            envelopeIds: envelopeIdsArg,
+            accountIds: accountIdsArg,
+            categoryIds: categoryIdsArg,
         },
         { enabled: !isPersonal }
     );
     const moversPersonalQ = trpc.personal.trends.categoryMovers.useQuery(
-        { periodStart: period.start, periodEnd: period.end, limit: 6 },
+        {
+            periodStart: period.start,
+            periodEnd: period.end,
+            limit: 6,
+            accountIds: accountIdsArg,
+        },
         { enabled: isPersonal }
     );
-    const moversData =
-        (isPersonal ? moversPersonalQ.data : moversSpaceQ.data) ?? [];
+    const moversResponse =
+        (isPersonal ? moversPersonalQ.data : moversSpaceQ.data) ?? null;
+    const moversData = moversResponse?.items ?? [];
+    const moversMode: "standard" | "drill" = moversResponse?.mode ?? "standard";
+    const moversDrillRootId = moversResponse?.drillRootCategoryId ?? null;
 
     const TODAY = dailyData?.today ?? 1;
     const DAYS_IN_MONTH = dailyData?.periodLength ?? 30;
@@ -268,14 +372,22 @@ export default function TrendsView() {
     const yoyThisYear = (yoyData?.thisYear ?? []).map((v) => v ?? 0);
     const yoyLastYear = (yoyData?.lastYear ?? []).map((v) => v ?? 0);
 
-    const yoyThisTotal = (yoyData?.thisYear ?? []).reduce<number>(
-        (s, v) => s + (v ?? 0),
-        0
+    /* Compare same-window-of-year on both sides so the headline delta
+       isn't asymmetric YTD-vs-FY. Server returns `null` for the first
+       not-yet-happened month of `thisYear`, so `findIndex(v == null)`
+       gives us the cutoff. Mid-May with flat YoY spend should read
+       ~0%, not ~-58%. */
+    const yoyFutureStartIdx = (yoyData?.thisYear ?? []).findIndex(
+        (v) => v == null
     );
-    const yoyLastTotal = (yoyData?.lastYear ?? []).reduce<number>(
-        (s, v) => s + (v ?? 0),
-        0
-    );
+    const yoyWindowMonths =
+        yoyFutureStartIdx === -1 ? 12 : yoyFutureStartIdx;
+    const yoyThisTotal = (yoyData?.thisYear ?? [])
+        .slice(0, yoyWindowMonths)
+        .reduce<number>((s, v) => s + (v ?? 0), 0);
+    const yoyLastTotal = (yoyData?.lastYear ?? [])
+        .slice(0, yoyWindowMonths)
+        .reduce<number>((s, v) => s + (v ?? 0), 0);
     const yoyTotalDelta =
         yoyLastTotal > 0 ? (yoyThisTotal / yoyLastTotal - 1) * 100 : 0;
     const yoyHeaviestGrowth = useMemo(() => {
@@ -314,6 +426,16 @@ export default function TrendsView() {
                 </div>
             }
         >
+            <TrendsFilterBar
+                spaceId={space.id}
+                isPersonal={isPersonal}
+                envelopeIds={envelopeIds}
+                accountIds={accountIds}
+                categoryIds={categoryIds}
+                onChange={setFilterIds}
+                onClearAll={clearAllFilters}
+                hasAnyFilter={hasAnyFilter}
+            />
             <KpiStrip items={kpiItems} isLoading={dailyLoading} />
 
             <Card>
@@ -339,6 +461,7 @@ export default function TrendsView() {
                             daysInMonth={DAYS_IN_MONTH}
                             projection={projected}
                             bucketUnit={BUCKET_UNIT}
+                            periodStart={period.start}
                         />
                     )}
                     {/* Endpoint strip — replaces the inline right-edge
@@ -484,18 +607,29 @@ export default function TrendsView() {
                 <CardHeader className="flex flex-row items-start justify-between gap-3">
                     <div>
                         <CardTitle>
-                            Biggest movers · this {noun} vs last {noun}
+                            {moversMode === "drill" ? (
+                                <DrillRootTitle
+                                    spaceId={space.id}
+                                    rootId={moversDrillRootId}
+                                    noun={noun}
+                                />
+                            ) : (
+                                <>Biggest movers · this {noun} vs last {noun}</>
+                            )}
                         </CardTitle>
                         <p className="text-xs text-muted-foreground">
-                            Categories with the largest change vs the prior
-                            {" "}{noun}.
+                            {moversMode === "drill"
+                                ? `Sub-categories with the largest change vs the prior ${noun}.`
+                                : `Categories with the largest change vs the prior ${noun}.`}
                         </p>
                     </div>
                 </CardHeader>
                 <CardContent>
                     {moversData.length === 0 ? (
                         <p className="py-8 text-center text-sm text-muted-foreground">
-                            No category movement vs last {noun}.
+                            {hasAnyFilter
+                                ? "No movement matching the current filters."
+                                : `No category movement vs last ${noun}.`}
                         </p>
                     ) : (
                         <div className="grid gap-2.5 sm:grid-cols-2">
@@ -581,6 +715,7 @@ export function CumulativeRaceChart({
     daysInMonth,
     projection,
     bucketUnit,
+    periodStart,
 }: {
     cur: number[];
     prv: number[];
@@ -594,7 +729,40 @@ export function CumulativeRaceChart({
     projection: number;
     /** Drives the hover tooltip's bucket label ("Day 5", "Month 11"). */
     bucketUnit: "day" | "week" | "month";
+    /** Start of the current period in absolute time. Required for the
+     *  date column on the tooltip and the X-axis ticks. Together with
+     *  `bucketUnit` it fully resolves each bucket index → wall-clock
+     *  date in APP_TIMEZONE. */
+    periodStart: Date;
 }) {
+    /** Real-world date of bucket position `i` (0-based) given the
+     *  current period's start and the bucket unit. Used for both the
+     *  axis labels and the tooltip's date column. */
+    const bucketDate = (i: number): Date => {
+        if (bucketUnit === "month") return addMonths(periodStart, i);
+        if (bucketUnit === "week") return addDays(periodStart, i * 7);
+        return addDays(periodStart, i);
+    };
+
+    /** Compact axis-tick format — strips redundant pieces depending on
+     *  how zoomed-in the chart is. */
+    const axisDateFormat =
+        bucketUnit === "month"
+            ? "MMM"
+            : daysInMonth <= 7
+              ? "EEE"
+              : daysInMonth <= 31
+                ? "MMM d"
+                : "MMM d";
+
+    /** Tooltip date format — slightly longer than the axis so the
+     *  user gets the year too when looking at month / year views. */
+    const tooltipDateFormat =
+        bucketUnit === "month"
+            ? "MMMM yyyy"
+            : daysInMonth <= 7
+              ? "EEE, MMM d"
+              : "MMM d, yyyy";
     const w = 800;
     const h = 380;
     const p = 32;
@@ -932,8 +1100,24 @@ export function CumulativeRaceChart({
                                     : "translateX(12px)",
                         }}
                     >
-                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                            {bucketLabelSingular} {hoverIdx + 1} of {daysInMonth}
+                        <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                            <span className="text-foreground">
+                                {formatInAppTz(
+                                    bucketDate(hoverIdx),
+                                    tooltipDateFormat
+                                )}
+                            </span>
+                            {/* For quarter / year the "Day 145 of 365"
+                                counter competes with the date without
+                                adding context — the wall date already
+                                says where the user is. Keep it for
+                                week / month where the position is the
+                                useful frame. */}
+                            {daysInMonth <= 31 ? (
+                                <span>
+                                    {bucketLabelSingular} {hoverIdx + 1} of {daysInMonth}
+                                </span>
+                            ) : null}
                         </div>
                         <TooltipRow
                             label={`This (so far)`}
@@ -957,10 +1141,21 @@ export function CumulativeRaceChart({
                     </div>
                 ) : null}
             </div>
-            {/* Day axis */}
-            <div className="mt-1 flex justify-between text-[10.5px] text-muted-foreground">
+            {/* Date axis — bucket-position ticks resolved to wall-clock
+                dates in APP_TIMEZONE so the user can see *when*, not
+                just *how far in*. Format compresses as the period
+                widens (weekday name for week view, year-aware on quarter
+                / year).
+
+                Horizontal padding mirrors the SVG's inset
+                (`p=32` of `w=800` ≈ 4%) so the first tick anchors at
+                the curve's actual origin and the last doesn't overflow
+                the card on mobile. */}
+            <div className="mt-1 flex justify-between px-[4%] text-[10.5px] text-muted-foreground">
                 {dayTicks.map((d) => (
-                    <span key={d}>Day {d}</span>
+                    <span key={d}>
+                        {formatInAppTz(bucketDate(d - 1), axisDateFormat)}
+                    </span>
                 ))}
             </div>
         </div>
@@ -1381,4 +1576,540 @@ function VelocityRow({
 
 function formatMoneyShort(n: number): string {
     return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+/* ============================================================
+   FILTER BAR
+   ============================================================ */
+
+type FilterKey = "env" | "acc" | "cat";
+
+/**
+ * Spending Trends filter bar. Three dropdowns on space pages (envelope,
+ * account, category) collapse to just **Accounts** on `/s/me` because
+ * envelopes and categories are space-scoped — rolling them up across a
+ * user's spaces would be misleading.
+ *
+ * State lives in URL search params (`env`, `acc`, `cat`) so links are
+ * shareable. Multi-value: repeat the key per id.
+ */
+function TrendsFilterBar({
+    spaceId,
+    isPersonal,
+    envelopeIds,
+    accountIds,
+    categoryIds,
+    onChange,
+    onClearAll,
+    hasAnyFilter,
+}: {
+    spaceId: string;
+    isPersonal: boolean;
+    envelopeIds: string[];
+    accountIds: string[];
+    categoryIds: string[];
+    onChange: (key: FilterKey, values: string[]) => void;
+    onClearAll: () => void;
+    hasAnyFilter: boolean;
+}) {
+    const envelopesQ = trpc.envelop.listBySpace.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const categoriesQ = trpc.expenseCategory.listBySpace.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const accountsSpaceQ = trpc.account.listBySpace.useQuery(
+        { spaceId },
+        { enabled: !isPersonal }
+    );
+    const accountsPersonalQ = trpc.personal.ownedAccounts.useQuery(undefined, {
+        enabled: isPersonal,
+    });
+
+    const envelopes = useMemo(
+        () =>
+            (envelopesQ.data ?? []).filter((e) => !e.archived).map((e) => ({
+                id: e.id,
+                name: e.name,
+                color: e.color,
+                icon: e.icon,
+            })),
+        [envelopesQ.data]
+    );
+    const accounts = useMemo(() => {
+        const src = isPersonal
+            ? accountsPersonalQ.data ?? []
+            : accountsSpaceQ.data ?? [];
+        return src.map((a) => ({
+            id: a.id,
+            name: a.name,
+            color: a.color,
+            icon: a.icon,
+        }));
+    }, [isPersonal, accountsPersonalQ.data, accountsSpaceQ.data]);
+
+    const categoriesRaw = useMemo(() => categoriesQ.data ?? [], [categoriesQ.data]);
+
+    return (
+        <div className="-mt-1 flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Filter
+                </span>
+                {!isPersonal && (
+                    <ChipMultiSelect
+                        icon={<Tags className="size-3.5" />}
+                        label="Envelopes"
+                        selected={envelopeIds}
+                        items={envelopes}
+                        onChange={(v) => onChange("env", v)}
+                        searchPlaceholder="Search envelopes…"
+                        emptyLabel="No envelopes."
+                    />
+                )}
+                <ChipMultiSelect
+                    icon={<Wallet className="size-3.5" />}
+                    label="Accounts"
+                    selected={accountIds}
+                    items={accounts}
+                    onChange={(v) => onChange("acc", v)}
+                    searchPlaceholder="Search accounts…"
+                    emptyLabel="No accounts."
+                    footnote="Money leaving the selected account(s)."
+                />
+                {!isPersonal && (
+                    <CategoryMultiSelect
+                        selected={categoryIds}
+                        categories={categoriesRaw}
+                        onChange={(v) => onChange("cat", v)}
+                    />
+                )}
+                {hasAnyFilter && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground sm:h-7 sm:text-[11.5px]"
+                        onClick={onClearAll}
+                    >
+                        <X className="size-3" /> Clear all
+                    </Button>
+                )}
+            </div>
+            {hasAnyFilter && (
+                <FilterSummaryLine
+                    isPersonal={isPersonal}
+                    envelopeIds={envelopeIds}
+                    accountIds={accountIds}
+                    categoryIds={categoryIds}
+                    envelopes={envelopes}
+                    accounts={accounts}
+                    categories={categoriesRaw}
+                />
+            )}
+        </div>
+    );
+}
+
+interface NamedItem {
+    id: string;
+    name: string;
+    color: string;
+    icon: string;
+}
+
+function ChipMultiSelect({
+    icon,
+    label,
+    selected,
+    items,
+    onChange,
+    searchPlaceholder,
+    emptyLabel,
+    footnote,
+}: {
+    icon: React.ReactNode;
+    label: string;
+    selected: string[];
+    items: NamedItem[];
+    onChange: (next: string[]) => void;
+    searchPlaceholder: string;
+    emptyLabel: string;
+    footnote?: string;
+}) {
+    const [query, setQuery] = useState("");
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return items;
+        return items.filter((i) => i.name.toLowerCase().includes(q));
+    }, [query, items]);
+    const selectedSet = useMemo(() => new Set(selected), [selected]);
+    const triggerLabel =
+        selected.length === 0
+            ? `${label} · All`
+            : selected.length === 1
+              ? items.find((i) => selectedSet.has(i.id))?.name ?? `${label} · 1`
+              : `${label} · ${selected.length}`;
+
+    const toggle = (id: string) => {
+        const next = selectedSet.has(id)
+            ? selected.filter((s) => s !== id)
+            : [...selected, id];
+        onChange(next);
+    };
+
+    return (
+        <DropdownMenu onOpenChange={(o) => !o && setQuery("")}>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                        "h-9 gap-1.5 px-2.5 text-sm sm:h-7 sm:text-[12px]",
+                        selected.length > 0 &&
+                            "border-warning/40 bg-warning/5 text-foreground"
+                    )}
+                >
+                    {icon}
+                    <span className="max-w-[160px] truncate">{triggerLabel}</span>
+                    <ChevronDown className="size-3 opacity-60" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuLabel className="text-xs">
+                    Filter by {label.toLowerCase()}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <div className="px-2 pb-1.5">
+                    <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder={searchPlaceholder}
+                        aria-label={searchPlaceholder}
+                        className="h-7 text-xs"
+                    />
+                </div>
+                {items.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                        {emptyLabel}
+                    </p>
+                ) : (
+                    <>
+                        <DropdownMenuItem
+                            onSelect={(e) => {
+                                e.preventDefault();
+                                onChange([]);
+                            }}
+                            disabled={selected.length === 0}
+                            className="text-xs"
+                        >
+                            Clear selection
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <div className="max-h-[260px] overflow-y-auto">
+                            {filtered.length === 0 ? (
+                                <p className="px-2 py-2 text-center text-xs text-muted-foreground">
+                                    No matches
+                                </p>
+                            ) : (
+                                filtered.map((it) => (
+                                    <DropdownMenuCheckboxItem
+                                        key={it.id}
+                                        checked={selectedSet.has(it.id)}
+                                        onCheckedChange={() => toggle(it.id)}
+                                        onSelect={(e) => e.preventDefault()}
+                                    >
+                                        <span className="flex min-w-0 items-center gap-2">
+                                            <EntityAvatar
+                                                size="sm"
+                                                color={it.color}
+                                                icon={it.icon}
+                                            />
+                                            <span className="truncate">{it.name}</span>
+                                        </span>
+                                    </DropdownMenuCheckboxItem>
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+                {footnote && (
+                    <>
+                        <DropdownMenuSeparator />
+                        <p className="px-2 pb-1.5 pt-1 text-[10.5px] text-muted-foreground">
+                            {footnote}
+                        </p>
+                    </>
+                )}
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+}
+
+interface CategoryRow {
+    id: string;
+    name: string;
+    color: string;
+    icon: string;
+    parent_id: string | null;
+}
+
+interface CategoryNode extends CategoryRow {
+    depth: number;
+    descendantCount: number;
+}
+
+/** Multi-select category dropdown that surfaces the hierarchy: each
+ *  parent row carries a "+N sub" badge so users see at a glance that
+ *  selecting it includes descendants. */
+function CategoryMultiSelect({
+    selected,
+    categories,
+    onChange,
+}: {
+    selected: string[];
+    categories: CategoryRow[];
+    onChange: (next: string[]) => void;
+}) {
+    const [query, setQuery] = useState("");
+    const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+    const flattened = useMemo<CategoryNode[]>(() => {
+        const byParent = new Map<string | null, CategoryRow[]>();
+        for (const c of categories) {
+            const arr = byParent.get(c.parent_id) ?? [];
+            arr.push(c);
+            byParent.set(c.parent_id, arr);
+        }
+        for (const arr of byParent.values()) {
+            arr.sort((a, b) => a.name.localeCompare(b.name));
+        }
+        const descCount = new Map<string, number>();
+        const countDescendants = (id: string): number => {
+            const direct = byParent.get(id) ?? [];
+            let n = direct.length;
+            for (const child of direct) n += countDescendants(child.id);
+            descCount.set(id, n);
+            return n;
+        };
+        for (const c of categories) {
+            if (!descCount.has(c.id)) countDescendants(c.id);
+        }
+        const out: CategoryNode[] = [];
+        const walk = (parentId: string | null, depth: number) => {
+            const arr = byParent.get(parentId) ?? [];
+            for (const c of arr) {
+                out.push({ ...c, depth, descendantCount: descCount.get(c.id) ?? 0 });
+                walk(c.id, depth + 1);
+            }
+        };
+        walk(null, 0);
+        return out;
+    }, [categories]);
+
+    const filtered = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        if (!q) return flattened;
+        return flattened.filter((n) => n.name.toLowerCase().includes(q));
+    }, [query, flattened]);
+
+    const triggerLabel =
+        selected.length === 0
+            ? "Categories · All"
+            : selected.length === 1
+              ? categories.find((c) => selectedSet.has(c.id))?.name ??
+                "Categories · 1"
+              : `Categories · ${selected.length}`;
+
+    const toggle = (id: string) => {
+        const next = selectedSet.has(id)
+            ? selected.filter((s) => s !== id)
+            : [...selected, id];
+        onChange(next);
+    };
+
+    return (
+        <DropdownMenu onOpenChange={(o) => !o && setQuery("")}>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(
+                        "h-9 gap-1.5 px-2.5 text-sm sm:h-7 sm:text-[12px]",
+                        selected.length > 0 &&
+                            "border-warning/40 bg-warning/5 text-foreground"
+                    )}
+                >
+                    <FolderTree className="size-3.5" />
+                    <span className="max-w-[180px] truncate">{triggerLabel}</span>
+                    <ChevronDown className="size-3 opacity-60" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-72">
+                <DropdownMenuLabel className="text-xs">
+                    Filter by category
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <div className="px-2 pb-1.5">
+                    <Input
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Search categories…"
+                        aria-label="Search categories"
+                        className="h-7 text-xs"
+                    />
+                </div>
+                {categories.length === 0 ? (
+                    <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                        No categories.
+                    </p>
+                ) : (
+                    <>
+                        <DropdownMenuItem
+                            onSelect={(e) => {
+                                e.preventDefault();
+                                onChange([]);
+                            }}
+                            disabled={selected.length === 0}
+                            className="text-xs"
+                        >
+                            Clear selection
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <div className="max-h-[300px] overflow-y-auto">
+                            {filtered.length === 0 ? (
+                                <p className="px-2 py-2 text-center text-xs text-muted-foreground">
+                                    No matches
+                                </p>
+                            ) : (
+                                filtered.map((n) => (
+                                    <DropdownMenuCheckboxItem
+                                        key={n.id}
+                                        checked={selectedSet.has(n.id)}
+                                        onCheckedChange={() => toggle(n.id)}
+                                        onSelect={(e) => e.preventDefault()}
+                                        style={{
+                                            paddingLeft: `${0.5 + n.depth * 0.75}rem`,
+                                        }}
+                                    >
+                                        <span className="flex min-w-0 flex-1 items-center gap-2">
+                                            <EntityAvatar
+                                                size="sm"
+                                                color={n.color}
+                                                icon={n.icon}
+                                            />
+                                            <span className="truncate">{n.name}</span>
+                                            {n.descendantCount > 0 && (
+                                                <span
+                                                    className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[9.5px] font-medium text-muted-foreground"
+                                                    title={`Includes ${n.descendantCount} sub-categor${
+                                                        n.descendantCount === 1 ? "y" : "ies"
+                                                    }`}
+                                                >
+                                                    +{n.descendantCount}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </DropdownMenuCheckboxItem>
+                                ))
+                            )}
+                        </div>
+                    </>
+                )}
+                <DropdownMenuSeparator />
+                <p className="px-2 pb-1.5 pt-1 text-[10.5px] text-muted-foreground">
+                    Selecting a category includes all sub-categories.
+                </p>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    );
+}
+
+/** One-line summary under the filter buttons — names the active picks so
+ *  the user doesn't have to open the popovers to remember what they set. */
+function FilterSummaryLine({
+    isPersonal,
+    envelopeIds,
+    accountIds,
+    categoryIds,
+    envelopes,
+    accounts,
+    categories,
+}: {
+    isPersonal: boolean;
+    envelopeIds: string[];
+    accountIds: string[];
+    categoryIds: string[];
+    envelopes: NamedItem[];
+    accounts: NamedItem[];
+    categories: CategoryRow[];
+}) {
+    const parts: string[] = [];
+    const nameOf = (
+        ids: string[],
+        items: { id: string; name: string }[],
+        label: string
+    ) => {
+        if (ids.length === 0) return;
+        if (ids.length === 1) {
+            const name = items.find((i) => i.id === ids[0])?.name;
+            if (name) parts.push(name);
+            return;
+        }
+        if (ids.length <= 2) {
+            const names = ids
+                .map((id) => items.find((i) => i.id === id)?.name)
+                .filter((n): n is string => !!n);
+            if (names.length > 0) parts.push(names.join(", "));
+            return;
+        }
+        parts.push(`${ids.length} ${label}`);
+    };
+    if (!isPersonal) nameOf(envelopeIds, envelopes, "envelopes");
+    nameOf(accountIds, accounts, "accounts");
+    if (!isPersonal) nameOf(categoryIds, categories, "categories");
+    if (parts.length === 0) return null;
+    return (
+        <p className="text-[11px] text-muted-foreground">
+            Filtered to {parts.join(" · ")}
+        </p>
+    );
+}
+
+/** Drill-mode card title — fetches the selected category's name so the
+ *  movers card can read "Biggest movers within Groceries · this month
+ *  vs last month" instead of a generic header. Falls back to the
+ *  standard (non-drill) title while the name resolves so a deep-link
+ *  with a cold cache doesn't flash an ellipsis. The query shares its
+ *  cache key with `CategoryMultiSelect` so a user who opened the
+ *  filter bar pays no extra round-trip. */
+function DrillRootTitle({
+    spaceId,
+    rootId,
+    noun,
+}: {
+    spaceId: string;
+    rootId: string | null;
+    noun: string;
+}) {
+    const q = trpc.expenseCategory.listBySpace.useQuery(
+        { spaceId },
+        { enabled: !!rootId }
+    );
+    const name = q.data?.find((c) => c.id === rootId)?.name;
+    if (!name) {
+        return (
+            <>Biggest movers · this {noun} vs last {noun}</>
+        );
+    }
+    return (
+        <>
+            Biggest movers within{" "}
+            <span className="inline-block max-w-[55vw] truncate align-bottom sm:max-w-none">
+                {name}
+            </span>{" "}
+            · this {noun} vs last {noun}
+        </>
+    );
 }
