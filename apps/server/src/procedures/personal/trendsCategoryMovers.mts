@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
+import { intersectAccountIds } from "../analytics/utils/trendsFilters.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 export const personalTrendsCategoryMovers = authorizedProcedure
@@ -11,20 +12,34 @@ export const personalTrendsCategoryMovers = authorizedProcedure
             periodStart: z.coerce.date(),
             periodEnd: z.coerce.date(),
             limit: z.number().int().min(1).max(50).default(10),
+            /* Personal trends only supports account filtering — see
+               daily-comparison twin for the rationale. */
+            accountIds: z.array(z.string().uuid()).max(200).optional(),
         })
     )
     .query(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
             (async () => {
-                const owned = await resolveOwnedAccountIds(
+                const ownedAll = await resolveOwnedAccountIds(
                     ctx.services.qb,
                     ctx.auth.user.id
                 );
+                const owned = intersectAccountIds(ownedAll, input.accountIds);
                 const memberSpaces = await resolveMemberSpaceIds(
                     ctx.services.qb,
                     ctx.auth.user.id
                 );
-                if (owned.length === 0 || memberSpaces.length === 0) return [];
+                /* Response shape matches the space-scoped twin so the
+                   frontend renders both via a single code path. Personal
+                   can never enter drill-in mode (no category filter),
+                   so `mode` is always "standard". */
+                if (owned.length === 0 || memberSpaces.length === 0) {
+                    return {
+                        mode: "standard" as const,
+                        drillRootCategoryId: null as string | null,
+                        items: [],
+                    };
+                }
 
                 const durationMs =
                     input.periodEnd.getTime() - input.periodStart.getTime();
@@ -90,7 +105,11 @@ export const personalTrendsCategoryMovers = authorizedProcedure
                     (a, b) =>
                         Math.abs(b.deltaAmount) - Math.abs(a.deltaAmount)
                 );
-                return items.slice(0, input.limit);
+                return {
+                    mode: "standard" as const,
+                    drillRootCategoryId: null as string | null,
+                    items: items.slice(0, input.limit),
+                };
             })()
         );
         if (error) {

@@ -3,12 +3,14 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
+import { intersectAccountIds } from "../analytics/utils/trendsFilters.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 const granularitySchema = z.enum(["week", "month", "quarter", "year"]);
 type Granularity = z.infer<typeof granularitySchema>;
 
-/* See space-scoped procedure for why quarter uses day buckets. */
+/* See space-scoped procedure for why every granularity (including
+ * year) uses day buckets. */
 const GRANULARITY_CONFIG: Record<
     Granularity,
     {
@@ -21,7 +23,7 @@ const GRANULARITY_CONFIG: Record<
     week: { periodInterval: "1 week", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
     month: { periodInterval: "1 month", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
     quarter: { periodInterval: "3 months", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
-    year: { periodInterval: "1 year", bucketInterval: "1 month", bucketUnit: "month", bucketDays: 30 },
+    year: { periodInterval: "1 year", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
 };
 
 /**
@@ -40,15 +42,22 @@ export const personalTrendsDailyComparison = authorizedProcedure
              *  `operational` excludes it. Internal owned-to-owned
              *  transfers are always excluded regardless of mode. */
             mode: z.enum(["cash", "operational"]).default("cash"),
+            /* Personal trends only supports account filtering: envelope
+               and category filtering doesn't make sense across spaces
+               (they are space-scoped and rolling them up cross-space
+               would be misleading). The web UI hides the other two
+               filter buttons on `/s/me`. */
+            accountIds: z.array(z.string().uuid()).max(200).optional(),
         })
     )
     .query(async ({ ctx, input }) => {
         const [error, result] = await safeAwait(
             (async () => {
-                const owned = await resolveOwnedAccountIds(
+                const ownedAll = await resolveOwnedAccountIds(
                     ctx.services.qb,
                     ctx.auth.user.id
                 );
+                const owned = intersectAccountIds(ownedAll, input.accountIds);
                 const memberSpaces = await resolveMemberSpaceIds(
                     ctx.services.qb,
                     ctx.auth.user.id

@@ -5,6 +5,13 @@ import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
+import {
+    categoryFilterWhere,
+    envelopeFilterWhere,
+    scopeAccountsFilter,
+    selectedCategoriesCTEClause,
+    trendsFilterInputShape,
+} from "./utils/trendsFilters.mjs";
 
 const granularitySchema = z.enum(["week", "month", "quarter", "year"]);
 type Granularity = z.infer<typeof granularitySchema>;
@@ -13,12 +20,16 @@ type Granularity = z.infer<typeof granularitySchema>;
  * Per-granularity bucket layout. The cumulative race chart needs a
  * tractable bucket count regardless of period length.
  *
- * Day buckets for week / month / quarter; month buckets for year. We
- * intentionally do *not* use weekly buckets for quarter — quarter
- * boundaries (Jan 1, Apr 1, Jul 1, Oct 1) almost never fall on an
- * ISO Monday, so a Mon-aligned weekly bucket would straddle the
- * quarter boundary and classify early days of the quarter into the
- * previous one. A 91-day cumulative chart reads just fine.
+ * Every granularity uses *day* buckets. Year previously bucketed by
+ * month (12 points) but that hid intra-month rhythm — a single
+ * March-spike bucket told you nothing about whether the spike was on
+ * payday week vs taxes week. Weekly buckets were considered but
+ * Postgres' `date_trunc('week', …)` aligns to ISO Mondays, which
+ * leaves early-Jan / late-Dec days bucketed into the previous year
+ * (the same boundary issue that kept quarter on day buckets).
+ * Day buckets sidestep both: 365 same-shaped points, no boundary
+ * fuzz, average-shape still works (position N = day-of-year, with a
+ * 1-day leap-year offset for Dec 31 that's invisible at this scale).
  */
 const GRANULARITY_CONFIG: Record<
     Granularity,
@@ -32,7 +43,7 @@ const GRANULARITY_CONFIG: Record<
     week: { periodInterval: "1 week", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
     month: { periodInterval: "1 month", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
     quarter: { periodInterval: "3 months", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
-    year: { periodInterval: "1 year", bucketInterval: "1 month", bucketUnit: "month", bucketDays: 30 },
+    year: { periodInterval: "1 year", bucketInterval: "1 day", bucketUnit: "day", bucketDays: 1 },
 };
 
 /**
@@ -73,6 +84,7 @@ export const trendsDailyComparison = authorizedProcedure
              * "spending."
              */
             mode: z.enum(["cash", "operational"]).default("cash"),
+            ...trendsFilterInputShape,
         })
     )
     .query(async ({ ctx, input }) => {
@@ -92,6 +104,16 @@ export const trendsDailyComparison = authorizedProcedure
                    surface. Same pattern as cashFlow.mts. */
                 const xferFactor = input.mode === "cash" ? 1 : 0;
 
+                /* Filter fragments. Empty when the corresponding filter
+                   is not active so the query reads cleanly in the
+                   unfiltered (default) case. */
+                const catCTE = selectedCategoriesCTEClause(input.categoryIds, [
+                    input.spaceId,
+                ]);
+                const catWhere = categoryFilterWhere(input.categoryIds);
+                const envWhere = envelopeFilterWhere(input.envelopeIds);
+                const acctScope = scopeAccountsFilter(input.accountIds);
+
                 /* The query produces three logical streams in one shot:
                    - kind='cur'  : one row per bucket of the active period
                    - kind='prev' : one row per bucket of the prior period
@@ -108,7 +130,8 @@ export const trendsDailyComparison = authorizedProcedure
                     today_bucket: number;
                     period_length: number;
                 }>`
-                    WITH params AS (
+                    WITH RECURSIVE ${catCTE}
+                    params AS (
                         SELECT ${anchor}::timestamptz AS anchor_ts
                     ),
                     bounds AS (
@@ -125,6 +148,7 @@ export const trendsDailyComparison = authorizedProcedure
                         SELECT account_id
                         FROM space_accounts
                         WHERE space_id = ${input.spaceId}
+                        ${acctScope}
                     ),
                     /* Earliest period_start with any data in scope. Caps
                        generate_series so we don't spin up buckets back
@@ -141,6 +165,8 @@ export const trendsDailyComparison = authorizedProcedure
                             t.source_account_id IN (SELECT account_id FROM scope_accounts)
                             OR t.destination_account_id IN (SELECT account_id FROM scope_accounts)
                         )
+                          ${envWhere}
+                          ${catWhere}
                     ),
                     history_start AS (
                         SELECT COALESCE(
@@ -175,6 +201,8 @@ export const trendsDailyComparison = authorizedProcedure
                               t.source_account_id IN (SELECT account_id FROM scope_accounts)
                               OR t.destination_account_id IN (SELECT account_id FROM scope_accounts)
                           )
+                          ${envWhere}
+                          ${catWhere}
                         GROUP BY 1
                     ),
                     classified AS (

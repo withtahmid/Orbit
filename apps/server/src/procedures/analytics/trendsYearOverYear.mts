@@ -7,6 +7,13 @@ import {
     ALL_ROLES,
     resolveSpaceMembership,
 } from "../space/utils/resolveSpaceMembership.mjs";
+import {
+    categoryFilterWhere,
+    envelopeFilterWhere,
+    scopeAccountsFilter,
+    selectedCategoriesCTEClause,
+    trendsFilterInputShape,
+} from "./utils/trendsFilters.mjs";
 
 const MONTH_LABELS = [
     "Jan",
@@ -34,6 +41,7 @@ export const trendsYearOverYear = authorizedProcedure
         z.object({
             spaceId: z.string().uuid(),
             year: z.number().int().min(1970).max(9999).optional(),
+            ...trendsFilterInputShape,
         })
     )
     .query(async ({ ctx, input }) => {
@@ -48,6 +56,13 @@ export const trendsYearOverYear = authorizedProcedure
 
                 const now = new Date();
 
+                const catCTE = selectedCategoriesCTEClause(input.categoryIds, [
+                    input.spaceId,
+                ]);
+                const catWhere = categoryFilterWhere(input.categoryIds);
+                const envWhere = envelopeFilterWhere(input.envelopeIds);
+                const acctScope = scopeAccountsFilter(input.accountIds);
+
                 /* Year/month split is done in SQL via EXTRACT against
                    the session timezone (Asia/Dhaka) so January doesn't
                    roll back to December of the prior year when read
@@ -59,7 +74,8 @@ export const trendsYearOverYear = authorizedProcedure
                     month_idx: number;
                     expense: string;
                 }>`
-                    WITH params AS (
+                    WITH RECURSIVE ${catCTE}
+                    params AS (
                         SELECT
                             COALESCE(${input.year ?? null}::int,
                                 EXTRACT(YEAR FROM ${now}::timestamptz)::int
@@ -76,6 +92,7 @@ export const trendsYearOverYear = authorizedProcedure
                         SELECT account_id
                         FROM space_accounts
                         WHERE space_id = ${input.spaceId}
+                        ${acctScope}
                     )
                     SELECT
                         EXTRACT(YEAR FROM date_trunc('month', t.transaction_datetime))::int AS year,
@@ -97,6 +114,8 @@ export const trendsYearOverYear = authorizedProcedure
                           t.source_account_id IN (SELECT account_id FROM scope_accounts)
                           OR t.destination_account_id IN (SELECT account_id FROM scope_accounts)
                       )
+                      ${envWhere}
+                      ${catWhere}
                     GROUP BY 1, 2
                 `.execute(trx);
 

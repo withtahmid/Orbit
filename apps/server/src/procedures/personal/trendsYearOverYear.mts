@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
+import { intersectAccountIds } from "../analytics/utils/trendsFilters.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 const MONTH_LABELS = [
@@ -24,6 +25,9 @@ export const personalTrendsYearOverYear = authorizedProcedure
     .input(
         z.object({
             year: z.number().int().min(1970).max(9999).optional(),
+            /* Personal trends only supports account filtering — see
+               daily-comparison twin for the rationale. */
+            accountIds: z.array(z.string().uuid()).max(200).optional(),
         })
     )
     .query(async ({ ctx, input }) => {
@@ -32,10 +36,11 @@ export const personalTrendsYearOverYear = authorizedProcedure
                 /* Year/month split is done in SQL via EXTRACT against
                    the session timezone — see space-scoped twin for
                    full TZ commentary. */
-                const [owned, memberSpaces] = await Promise.all([
+                const [ownedAll, memberSpaces] = await Promise.all([
                     resolveOwnedAccountIds(ctx.services.qb, ctx.auth.user.id),
                     resolveMemberSpaceIds(ctx.services.qb, ctx.auth.user.id),
                 ]);
+                const owned = intersectAccountIds(ownedAll, input.accountIds);
 
                 const now = new Date();
                 const yearRow = await sql<{

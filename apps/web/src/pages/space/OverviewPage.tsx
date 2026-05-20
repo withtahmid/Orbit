@@ -1147,6 +1147,7 @@ export default observer(function OverviewPage() {
                     monthExpense={summary.data?.periodExpense ?? 0}
                     lastMonthExpense={lastMonthSummary.data?.periodExpense ?? 0}
                     trendsData={trendsData}
+                    periodStart={thisMonthStart}
                     detailHref={ROUTES.spaceAnalyticsDetail(space.id, "trends")}
                 />
 
@@ -2679,6 +2680,7 @@ function SpendingTrends({
     monthExpense,
     lastMonthExpense,
     trendsData,
+    periodStart,
     detailHref,
 }: {
     monthExpense: number;
@@ -2692,6 +2694,9 @@ function SpendingTrends({
         bucketDays: number;
         bucketUnit: "day" | "week" | "month";
     } | null;
+    /** Start of the current period — month start for the overview
+     *  card. Passed straight through to the chart for date labelling. */
+    periodStart: Date;
     /** Target for the "Open view →" link in the section head. */
     detailHref: string;
 }) {
@@ -2759,6 +2764,7 @@ function SpendingTrends({
                         daysInMonth={DAYS_IN_MONTH}
                         projection={projectedTotal}
                         bucketUnit={BUCKET_UNIT}
+                        periodStart={periodStart}
                     />
                     <div className="ov-trends-legend">
                         <span>
