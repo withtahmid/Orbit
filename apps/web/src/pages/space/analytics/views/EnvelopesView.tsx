@@ -255,7 +255,7 @@ function EnvelopeRow({
 
     return (
         <Link
-            to={ROUTES.spaceEnvelopeDetail(spaceIdForLink, envelope.envelopId)}
+            to={ROUTES.spaceBudgetDetail(spaceIdForLink, envelope.envelopId)}
             className={cn(
                 "group grid items-center gap-4 px-6 py-4 transition-colors hover:bg-accent/30",
                 "grid-cols-[minmax(0,180px)_minmax(0,1fr)_auto_auto] sm:grid-cols-[minmax(0,200px)_minmax(0,1fr)_88px_92px_72px_16px]",

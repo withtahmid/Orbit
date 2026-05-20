@@ -161,11 +161,9 @@ export function EnvelopeMoveDialog({
                         mutation.mutate({
                             amount: n,
                             from: {
-                                kind: "envelop",
                                 envelopId: sourceEnvelopId,
                             },
                             to: {
-                                kind: "envelop",
                                 envelopId: destinationId,
                             },
                             idempotencyKey: idem.key,

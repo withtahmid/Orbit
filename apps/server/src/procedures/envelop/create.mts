@@ -21,6 +21,8 @@ export const createEnvelop = authorizedProcedure
             carryPolicy: z
                 .enum(["reset", "positive_only", "both"])
                 .optional(),
+            targetAmount: z.number().positive().nullable().optional(),
+            targetDate: z.coerce.date().nullable().optional(),
             idempotencyKey: z.string().uuid().optional(),
         })
     )
@@ -53,6 +55,35 @@ export const createEnvelop = authorizedProcedure
                         // can never disagree. Any conflicting input fields
                         // are reconciled in favor of carry_policy as the
                         // canonical truth.
+                        // Targets are only meaningful for rolling
+                        // envelopes (cadence='none'). Reject monthly +
+                        // target so the UI cannot create a shape we
+                        // don't render yet.
+                        if (
+                            input.cadence !== "none" &&
+                            (input.targetAmount != null ||
+                                input.targetDate != null)
+                        ) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "Targets are only allowed on rolling envelopes (cadence='none')",
+                            });
+                        }
+
+                        // Migration 047's CHECK passes any half-set pair
+                        // when cadence='none'; enforce the lock-step at
+                        // the API boundary the same way update.mts does.
+                        const hasAmount = input.targetAmount != null;
+                        const hasDate = input.targetDate != null;
+                        if (hasAmount !== hasDate) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "Target amount and target date must be set together (or both omitted)",
+                            });
+                        }
+
                         return trx
                             .insertInto("envelops")
                             .values({
@@ -64,6 +95,11 @@ export const createEnvelop = authorizedProcedure
                                 cadence: input.cadence,
                                 carry_over: policy !== "reset",
                                 carry_policy: policy,
+                                target_amount:
+                                    input.targetAmount != null
+                                        ? String(input.targetAmount)
+                                        : null,
+                                target_date: input.targetDate ?? null,
                             })
                             .returning([
                                 "id",
@@ -75,6 +111,8 @@ export const createEnvelop = authorizedProcedure
                                 "cadence",
                                 "carry_over",
                                 "carry_policy",
+                                "target_amount",
+                                "target_date",
                                 "created_at",
                                 "updated_at",
                             ])

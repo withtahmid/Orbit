@@ -48,10 +48,13 @@ export const personalEnvelopeUtilization = authorizedProcedure
                 );
                 const prevEnd = periodStart;
 
-                // If the caller owns no accounts, we can still show
-                // envelopes with zeros — useful to see the landscape
-                // before they're added as an owner anywhere.
-                const ownedParam = owned.length === 0 ? ["00000000-0000-0000-0000-000000000000"] : owned;
+                // A user with zero owned accounts has no personal slice
+                // of any envelope — short-circuit. The previous sentinel
+                // approach incorrectly counted space-wide allocations
+                // (account_id IS NULL) while zeroing consumed, producing
+                // a phantom "allocated, 0 spent" row in personal views.
+                if (owned.length === 0) return [];
+                const ownedParam = owned;
 
                 const totalsQuery = sql<{
                     envelop_id: string;
@@ -65,6 +68,11 @@ export const personalEnvelopeUtilization = authorizedProcedure
                     carry_over: boolean;
                     carry_policy: string;
                     archived: boolean;
+                    target_amount: string | null;
+                    target_date: Date | null;
+                    first_allocated_at: Date | null;
+                    last_allocated_at: Date | null;
+                    lifetime_funded: string;
                     allocated: string;
                     consumed: string;
                     carry_in: string;
@@ -84,6 +92,35 @@ export const personalEnvelopeUtilization = authorizedProcedure
                         e.carry_over,
                         e.carry_policy,
                         e.archived,
+                        e.target_amount,
+                        e.target_date,
+                        (
+                            SELECT MIN(a.created_at)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
+                        ) AS first_allocated_at,
+                        (
+                            SELECT MAX(a.created_at)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
+                        ) AS last_allocated_at,
+                        -- Net allocated to this envelope: the goal-progress
+                        -- numerator. Signed sum so deallocations and the
+                        -- negative leg of an envelope-to-envelope transfer
+                        -- both reduce progress. Spending lives in the
+                        -- transactions table and never touches this sum —
+                        -- a completed goal stays completed once the user
+                        -- starts drawing it down. See analytics twin for
+                        -- the canonical comment.
+                        COALESCE((
+                            SELECT SUM(a.amount)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                              AND a.kind IN ('allocate', 'borrow')
+                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
+                        ), 0)::text AS lifetime_funded,
                         -- Borrow-link rows touching this period. Allocations
                         -- are now space-wide (account_id IS NULL); legacy
                         -- pinned rows are still counted when pinned to an
@@ -382,6 +419,16 @@ export const personalEnvelopeUtilization = authorizedProcedure
                     const consumed = Number(t.consumed);
                     const carryIn = Number(t.carry_in);
                     const remaining = carryIn + allocated - consumed;
+                    const targetAmount =
+                        t.target_amount != null ? Number(t.target_amount) : null;
+                    const lifetimeFunded = Number(t.lifetime_funded);
+                    const pctSaved =
+                        targetAmount != null && targetAmount > 0
+                            ? Math.max(
+                                  0,
+                                  Math.min(100, (lifetimeFunded / targetAmount) * 100)
+                              )
+                            : null;
                     return {
                         envelopId: t.envelop_id,
                         spaceId: t.space_id,
@@ -397,6 +444,13 @@ export const personalEnvelopeUtilization = authorizedProcedure
                             | "positive_only"
                             | "both",
                         archived: t.archived,
+                        targetAmount,
+                        targetDate: t.target_date,
+                        lifetimeFunded,
+                        pctSaved,
+                        pctComplete: pctSaved,
+                        firstAllocatedAt: t.first_allocated_at,
+                        lastAllocatedAt: t.last_allocated_at,
                         allocated,
                         consumed,
                         carryIn,

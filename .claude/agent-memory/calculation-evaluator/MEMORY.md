@@ -7,3 +7,7 @@
 - [Period preset boundaries](period_presets.md) — "Last month" relative to "this month" should be calendar-month-aligned, not span-subtracted. CategoriesPage does span subtraction.
 - [Envelope carryIn semantics](envelope_carryin_semantics.md) — `allocated` vs `allocated + carryIn` is "plan" vs "pool"; "Under plan" companion stat dictates which is shown.
 - [APP_TZ month helpers](apptz_month_helpers.md) — past/current/future classification must use `getAppTzYear/Month` + `makeAppTzDate` or it drifts for non-Dhaka users.
+- [Goal progress formula](goal_progress_formula.md) — Now `pctSaved = lifetime_funded / target` (positive allocations only); `pctComplete` is a legacy alias. Borrow/cover kinds need a kind-filter once writers land.
+- [Envelope ledger kinds](envelope_ledger_kinds.md) — Goal funding aggregates filter `kind IN ('allocate','borrow')`; cover/reckon/restructure stay excluded as internal reallocations.
+- [Lifetime funded numerator rule](lifetime_funded_numerator_rule.md) — Goal UI must pair `Money={lifetimeFunded}` with `Bar={pctSaved/100}`; both readers feed off the same SQL source.
+- [Envelope target lock-step cascade](envelope_target_lockstep_cascade.md) — Cascade only fires on explicit non-null→null with partner column undefined; preserves no-op echoes.

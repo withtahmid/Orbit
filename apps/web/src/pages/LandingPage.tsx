@@ -445,7 +445,7 @@ export default function LandingPage() {
 
                         <p className="ol-hero-p">
                             One coherent picture across accounts, envelopes, and long-horizon
-                            plans — for couples, families, and roommates who&apos;d rather talk
+                            goals — for couples, families, and roommates who&apos;d rather talk
                             about life than spreadsheets.
                         </p>
 

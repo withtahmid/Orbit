@@ -22,9 +22,9 @@ import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog"
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
-import { CreateOrEditEnvelopeDialog } from "./EnvelopesPage";
+import { CreateOrEditEnvelopeDialog } from "./BudgetsPage";
 
-export default function EnvelopeDetailPage() {
+export default function BudgetDetailPage() {
     const { space } = useCurrentSpace();
     const { envelopeId } = useParams<{ envelopeId: string }>();
     const utils = trpc.useUtils();
@@ -168,8 +168,8 @@ export default function EnvelopeDetailPage() {
             <header className="ed-topbar">
                 <div className="ed-topbar-text">
                     <span className="eyebrow ed-breadcrumb">
-                        <Link to={ROUTES.spaceEnvelopes(space.id)} className="ed-crumb">
-                            Envelopes
+                        <Link to={ROUTES.spaceBudgets(space.id)} className="ed-crumb">
+                            Budgets
                         </Link>
                         <ChevronRight
                             className="size-3"
@@ -313,6 +313,8 @@ export default function EnvelopeDetailPage() {
                                     cadence: envelope.cadence,
                                     carryOver: envelope.carryOver,
                                     carryPolicy: envelope.carryPolicy,
+                                    targetAmount: envelope.targetAmount,
+                                    targetDate: envelope.targetDate,
                                 }}
                                 open={editOpen}
                                 onOpenChange={setEditOpen}
@@ -384,6 +386,54 @@ export default function EnvelopeDetailPage() {
                     </div>
                 ) : (
                     <Skeleton height={140} />
+                )}
+
+                {/* Goal progress — rendered when this rolling envelope
+                    carries a target. The "Saved" numerator tracks
+                    lifetime positive allocations so spending from a
+                    goal does not unwind its completion status. */}
+                {envelope && envelope.targetAmount != null && (
+                    <div className="od-card ed-section ed-goal">
+                        <div className="ed-sect-head">
+                            <div className="ed-sect-text">
+                                <h2 className="display ed-sect-title">
+                                    Goal progress
+                                </h2>
+                                <span className="ed-sect-sub">
+                                    {envelope.targetDate
+                                        ? `Target by ${new Date(
+                                              envelope.targetDate
+                                          ).toLocaleDateString("en-US", {
+                                              month: "short",
+                                              day: "numeric",
+                                              year: "numeric",
+                                          })}`
+                                        : "No deadline set"}
+                                </span>
+                            </div>
+                            <div
+                                className="ed-goal-summary"
+                                aria-label={`${envelope.lifetimeFunded.toFixed(2)} saved of ${envelope.targetAmount.toFixed(2)} target`}
+                            >
+                                <strong className="ed-goal-saved">
+                                    {envelope.lifetimeFunded.toFixed(2)}
+                                </strong>
+                                <span aria-hidden> / </span>
+                                <span aria-hidden>
+                                    {envelope.targetAmount.toFixed(2)}
+                                </span>
+                            </div>
+                        </div>
+                        <ProgressBar
+                            value={
+                                envelope.pctComplete != null
+                                    ? envelope.pctComplete / 100
+                                    : 0
+                            }
+                            color={envelope.color}
+                            height={8}
+                        />
+                    </div>
                 )}
 
                 {/* Active borrow obligations — appears only when there
@@ -1093,6 +1143,13 @@ const ED_STYLES = `
     margin: 0;
 }
 .ed-sect-sub { font-size: 12px; color: var(--fg-3); }
+.ed-goal-summary {
+    text-align: right;
+    font-size: 13px;
+    color: var(--fg-2);
+    font-variant-numeric: tabular-nums;
+}
+.ed-goal-saved { color: var(--fg); font-weight: 600; }
 .ed-rebalance-link {
     font-size: 12px;
     color: var(--brand);

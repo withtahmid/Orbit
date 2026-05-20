@@ -5,7 +5,6 @@ import { spaceRouter } from "./space.mjs";
 import { accountRouter } from "./account.mjs";
 import { eventRouter } from "./event.mjs";
 import { envelopRouter } from "./envelop.mjs";
-import { planRouter } from "./plan.mjs";
 import { expenseCategoryRouter } from "./expenseCategory.mjs";
 import { transactionRouter } from "./transaction.mjs";
 import { allocationRouter } from "./allocation.mjs";
@@ -23,7 +22,6 @@ export const appRouter = router({
     account: accountRouter,
     event: eventRouter,
     envelop: envelopRouter,
-    plan: planRouter,
     expenseCategory: expenseCategoryRouter,
     transaction: transactionRouter,
     allocation: allocationRouter,

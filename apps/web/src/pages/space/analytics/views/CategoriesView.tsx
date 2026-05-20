@@ -644,7 +644,7 @@ export default function CategoriesView() {
                                         variant="outline"
                                         onClick={() =>
                                             navigate(
-                                                ROUTES.spaceEnvelopeDetail(
+                                                ROUTES.spaceBudgetDetail(
                                                     space.id,
                                                     env.id
                                                 )

@@ -87,7 +87,7 @@ const SpaceSelectorPage = observer(function SpaceSelectorPage() {
                     <p className="ss-lede">
                         You&apos;re a member of {memberCount} space
                         {memberCount === 1 ? "" : "s"}. Spaces hold shared
-                        envelopes, plans and transactions.
+                        envelopes and transactions.
                     </p>
                 </div>
 

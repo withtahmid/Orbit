@@ -7,3 +7,8 @@
 - [Rolling envelope overlay shape](rolling_envelope_overlay.md) — `spaceSummary` uses MAX(lifetime, period) for `cadence='none'` `remaining`; directionally hides current-period rolling overspend when lifetime is healthy.
 - [Allocation period_start NULL convention](allocation_period_start_null.md) — `cadence='none'` envelopes store `period_start=NULL`; SQL readers MUST COALESCE to `DATE_TRUNC('month', created_at)::date`.
 - [Migration down idempotence](migration_down_idempotence.md) — `045` is round-trip safe TODAY because nothing writes `kind` yet; becomes destructive once procedures write non-`allocate` values without legacy signals.
+- [Envelope target lock-step asymmetry](envelope_target_clearing.md) — create.mts throws on half-set pair; update.mts silently nulls both. Partial PATCH `{targetAmount}` against null-date stored row silently drops the amount.
+- [Envelope name leak class](envelope_name_leak_class.md) — createAllocation.mts and borrowFromNextMonth.mts still echo name/cadence BEFORE membership check — same anti-pattern transfer.mts already fixed.
+- [Transfer undefined-account drift](transfer_undefined_account_drift.md) — `allocation.transfer` aggregates partitions for available-check but writes debit to unassigned (`null`) when `accountId` is undefined; creates phantom drift.
+- [Target date tz drift](target_date_tz_drift.md) — `new Date("YYYY-MM-DD")` for envelope `target_date` is midnight UTC; PG sessions west of UTC store the previous day.
+- [types.mts pollution](types_mts_pollution.md) — `pnpm generate-types` reflects the live DB it's pointed at; dev-only tables can leak in. Cross-check every new table/column in types.mts diffs against a migration.

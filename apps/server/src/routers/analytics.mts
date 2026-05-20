@@ -19,7 +19,6 @@ import { eventCategoryBreakdown } from "../procedures/analytics/eventCategoryBre
 import { eventTotals } from "../procedures/analytics/eventTotals.mjs";
 import { incomeBreakdown } from "../procedures/analytics/incomeBreakdown.mjs";
 import { netWorthHistory } from "../procedures/analytics/netWorthHistory.mjs";
-import { planProgress } from "../procedures/analytics/planProgress.mjs";
 import { priorityBreakdown } from "../procedures/analytics/priorityBreakdown.mjs";
 import { recurring } from "../procedures/analytics/recurring.mjs";
 import { spaceSummary } from "../procedures/analytics/spaceSummary.mjs";
@@ -45,7 +44,6 @@ export const analyticsRouter = router({
     envelopeUtilization,
     eventTotals,
     eventCategoryBreakdown,
-    planProgress,
     priorityBreakdown,
     topCategories,
     topCategoriesByBucket,

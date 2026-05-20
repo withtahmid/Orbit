@@ -23,7 +23,7 @@ function monthSlug(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export default function PlanMonthPage() {
+export default function BudgetMonthPage() {
     const { space } = useCurrentSpace();
     const { month } = useParams<{ month: string }>();
     const navigate = useNavigate();
@@ -223,7 +223,7 @@ export default function PlanMonthPage() {
                     ? "Nothing to save"
                     : `Saved ${successes.length} envelope${successes.length === 1 ? "" : "s"}`
             );
-            navigate(ROUTES.spaceEnvelopes(space.id));
+            navigate(ROUTES.spaceBudgets(space.id));
         } else {
             // Partial save: the server state has moved for the successful
             // ones. Reset hydration so drafts re-sync from the refreshed
@@ -245,29 +245,29 @@ export default function PlanMonthPage() {
             <header className="plan-topbar">
                 <div className="plan-topbar-text">
                     <Link
-                        to={ROUTES.spaceEnvelopes(space.id)}
+                        to={ROUTES.spaceBudgets(space.id)}
                         className="plan-back"
                     >
-                        <ArrowLeft className="size-3.5" /> Envelopes
+                        <ArrowLeft className="size-3.5" /> Budgets
                     </Link>
                     <h1 className="display plan-title">
                         {isLocked
                             ? `Review ${monthLabel}`
                             : isPast
                               ? `Reconcile ${monthLabel}`
-                              : `Plan ${monthLabel}`}
+                              : `Budget ${monthLabel}`}
                     </h1>
                     <p className="plan-sub">
                         {isLocked
                             ? "Past month — view only. Editing settled allocations would rewrite history and shift carry-over."
                             : isPast
-                              ? "Reconciliation mode. Saving overwrites this month's plan and shifts carry-over into every later month."
+                              ? "Reconciliation mode. Saving overwrites this month's budget and shifts carry-over into every later month."
                               : "Set what you intend to spend on each envelope. The whole month in one screen."}
                     </p>
                 </div>
                 <div className="plan-topbar-actions">
                     <Link
-                        to={ROUTES.spacePlanMonth(
+                        to={ROUTES.spaceBudgetMonth(
                             space.id,
                             monthSlug(addMonths(monthDate, -1))
                         )}
@@ -284,7 +284,7 @@ export default function PlanMonthPage() {
                     </Link>
                     {!isCurrentMonth && (
                         <Link
-                            to={ROUTES.spacePlanMonth(
+                            to={ROUTES.spaceBudgetMonth(
                                 space.id,
                                 monthSlug(new Date())
                             )}
@@ -295,7 +295,7 @@ export default function PlanMonthPage() {
                         </Link>
                     )}
                     <Link
-                        to={ROUTES.spacePlanMonth(
+                        to={ROUTES.spaceBudgetMonth(
                             space.id,
                             monthSlug(addMonths(monthDate, 1))
                         )}
@@ -337,7 +337,7 @@ export default function PlanMonthPage() {
                                 ? "Saving…"
                                 : isPast && unlocked
                                   ? "Save reconciliation"
-                                  : "Save plan"}
+                                  : "Save budget"}
                         </button>
                     )}
                 </div>
@@ -353,8 +353,9 @@ export default function PlanMonthPage() {
                         <AlertTriangle className="size-3.5" aria-hidden />
                         <span>
                             <strong>Reconciliation mode.</strong> Saving
-                            overwrites this month's plan and shifts carry-over
-                            into every later month, including the current one.
+                            overwrites this month's budget and shifts
+                            carry-over into every later month, including the
+                            current one.
                         </span>
                         <button
                             type="button"
@@ -377,7 +378,7 @@ export default function PlanMonthPage() {
                 {/* Summary */}
                 <div className="od-card plan-summary">
                     <SummaryStat
-                        label={isLocked ? "Was planned" : "Total planned"}
+                        label={isLocked ? "Was budgeted" : "Total budgeted"}
                         value={
                             isLocked
                                 ? envelopes.reduce(
@@ -396,7 +397,7 @@ export default function PlanMonthPage() {
                                 sub="liquid cash in your accounts"
                             />
                             <SummaryStat
-                                label={overplanning ? "Over-planned by" : "Free after save"}
+                                label={overplanning ? "Over-budgeted by" : "Free after save"}
                                 value={Math.abs(unallocatedAfterSave)}
                                 tone={overplanning ? "expense" : "income"}
                                 sub={
@@ -428,8 +429,8 @@ export default function PlanMonthPage() {
                                         <SummaryStat
                                             label={
                                                 totalRem < 0
-                                                    ? "Over plan"
-                                                    : "Under plan"
+                                                    ? "Over budget"
+                                                    : "Under budget"
                                             }
                                             value={Math.abs(totalRem)}
                                             tone={
@@ -439,8 +440,8 @@ export default function PlanMonthPage() {
                                             }
                                             sub={
                                                 totalRem < 0
-                                                    ? "spent more than planned"
-                                                    : "spent less than planned"
+                                                    ? "spent more than budgeted"
+                                                    : "spent less than budgeted"
                                             }
                                         />
                                     ) : (
@@ -506,7 +507,7 @@ export default function PlanMonthPage() {
                                     ? `${monthLabel.split(" ")[0]} actual`
                                     : `${prevMonthLabel} actual`}
                             </span>
-                            <span>{monthLabel.split(" ")[0]} plan</span>
+                            <span>{monthLabel.split(" ")[0]} budget</span>
                         </div>
                         {envelopes.map((e) => {
                             const prev = prevById.get(e.envelopId);

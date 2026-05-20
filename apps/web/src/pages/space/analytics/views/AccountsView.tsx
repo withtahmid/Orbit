@@ -239,7 +239,7 @@ export default function AccountsView() {
                                 <GroupCard
                                     kind="locked"
                                     title="Locked savings"
-                                    subtitle="Cannot fund envelopes or plans"
+                                    subtitle="Cannot fund envelopes"
                                     total={totals.lockedSum}
                                     accounts={grouped.locked}
                                     spaceId={space.id}

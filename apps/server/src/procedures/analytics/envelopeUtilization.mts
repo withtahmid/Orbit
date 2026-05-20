@@ -74,6 +74,11 @@ export const envelopeUtilization = authorizedProcedure
                     carry_over: boolean;
                     carry_policy: string;
                     archived: boolean;
+                    target_amount: string | null;
+                    target_date: Date | null;
+                    first_allocated_at: Date | null;
+                    last_allocated_at: Date | null;
+                    lifetime_funded: string;
                     allocated: string;
                     consumed: string;
                     carry_in: string;
@@ -91,6 +96,32 @@ export const envelopeUtilization = authorizedProcedure
                         e.carry_over,
                         e.carry_policy,
                         e.archived,
+                        e.target_amount,
+                        e.target_date,
+                        (
+                            SELECT MIN(a.created_at)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                        ) AS first_allocated_at,
+                        (
+                            SELECT MAX(a.created_at)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                        ) AS last_allocated_at,
+                        -- Net allocated to this envelope: the goal-progress
+                        -- numerator. Counts signed allocations so any change
+                        -- to funding intent moves the bar — deallocations
+                        -- and the negative leg of an envelope-to-envelope
+                        -- transfer both reduce progress. Real spending stays
+                        -- in the transactions table, so it never touches
+                        -- this sum and a completed goal stays completed once
+                        -- the user starts spending toward it.
+                        COALESCE((
+                            SELECT SUM(a.amount)
+                            FROM envelop_allocations a
+                            WHERE a.envelop_id = e.id
+                              AND a.kind IN ('allocate', 'borrow')
+                        ), 0)::text AS lifetime_funded,
                         -- Borrow rows that landed IN this period (positive
                         -- amounts paired via borrowed_link_id). UI uses
                         -- this to surface "+$X borrowed from next month"
@@ -393,6 +424,20 @@ export const envelopeUtilization = authorizedProcedure
                     const consumed = Number(t.consumed);
                     const carryIn = Number(t.carry_in);
                     const remaining = carryIn + allocated - consumed;
+                    const targetAmount =
+                        t.target_amount != null ? Number(t.target_amount) : null;
+                    const lifetimeFunded = Number(t.lifetime_funded);
+                    // pctSaved is the goal-progress signal: cumulative
+                    // positive allocations over target, clamped to 100.
+                    // Spending money out of the goal does not reverse
+                    // progress — completing a goal stays completed.
+                    const pctSaved =
+                        targetAmount != null && targetAmount > 0
+                            ? Math.max(
+                                  0,
+                                  Math.min(100, (lifetimeFunded / targetAmount) * 100)
+                              )
+                            : null;
                     return {
                         envelopId: t.envelop_id,
                         name: t.name,
@@ -406,6 +451,15 @@ export const envelopeUtilization = authorizedProcedure
                             | "positive_only"
                             | "both",
                         archived: t.archived,
+                        targetAmount,
+                        targetDate: t.target_date,
+                        lifetimeFunded,
+                        pctSaved,
+                        // Legacy alias retained for any reader still on
+                        // the old name; new callers should read pctSaved.
+                        pctComplete: pctSaved,
+                        firstAllocatedAt: t.first_allocated_at,
+                        lastAllocatedAt: t.last_allocated_at,
                         allocated,
                         consumed,
                         carryIn,

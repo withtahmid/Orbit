@@ -6,7 +6,6 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 import { resolveEnvelopePeriodBalance } from "../envelop/utils/resolveEnvelopePeriodBalance.mjs";
-import { resolvePlanBalance } from "../plan/utils/resolvePlanBalance.mjs";
 import {
     effectivePeriodStart,
     type Cadence,
@@ -14,29 +13,22 @@ import {
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 /**
- * Transfer allocation between any two (envelope|plan, optional-account)
+ * Transfer allocation between any two (envelope, optional-account)
  * partitions in the same space. Used for:
  *   - Rebalancing drift (same envelope, cross-account)
- *   - Moving funds between envelopes / plans
+ *   - Moving funds between envelopes
  *   - Converting unassigned-pool allocations into account-pinned ones
  *
  * Both source and destination carry an optional `accountId`. null means
- * "unassigned pool." For envelope targets, the period is current-period of
- * the envelope's cadence (callers can't retarget historical periods —
- * auditable history matters more than flexibility here).
+ * "unassigned pool." The period is current-period of the envelope's cadence
+ * (callers can't retarget historical periods — auditable history matters
+ * more than flexibility here).
  */
 
-const envelopTarget = z.object({
-    kind: z.literal("envelop"),
+const targetSchema = z.object({
     envelopId: z.string().uuid(),
     accountId: z.string().uuid().nullable().optional(),
 });
-const planTarget = z.object({
-    kind: z.literal("plan"),
-    planId: z.string().uuid(),
-    accountId: z.string().uuid().nullable().optional(),
-});
-const targetSchema = z.discriminatedUnion("kind", [envelopTarget, planTarget]);
 
 type Target = z.infer<typeof targetSchema>;
 
@@ -78,23 +70,6 @@ export const transferAllocation = authorizedProcedure
                             });
                         }
 
-                        // Block transfers INTO an archived envelope.
-                        // Transfers OUT of one are allowed so trapped cash
-                        // can be freed without unarchiving.
-                        if (input.to.kind === "envelop") {
-                            const dest = await trx
-                                .selectFrom("envelops")
-                                .select(["archived", "name"])
-                                .where("id", "=", input.to.envelopId)
-                                .executeTakeFirst();
-                            if (dest?.archived) {
-                                throw new TRPCError({
-                                    code: "BAD_REQUEST",
-                                    message: `Envelope "${dest.name}" is archived. Pick a different destination.`,
-                                });
-                            }
-                        }
-
                         await resolveSpaceMembership({
                             trx,
                             spaceId: fromInfo.spaceId,
@@ -102,10 +77,27 @@ export const transferAllocation = authorizedProcedure
                             roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
                         });
 
+                        // Block transfers INTO an archived envelope.
+                        // Transfers OUT of one are allowed so trapped cash
+                        // can be freed without unarchiving. Runs after the
+                        // membership check so the error message can't be
+                        // used to probe envelope names cross-space.
+                        const dest = await trx
+                            .selectFrom("envelops")
+                            .select(["archived", "name"])
+                            .where("id", "=", input.to.envelopId)
+                            .executeTakeFirst();
+                        if (dest?.archived) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message: `Envelope "${dest.name}" is archived. Pick a different destination.`,
+                            });
+                        }
+
                         // Verify any pinned account belongs to the space
                         for (const accountId of [
-                            targetAccountId(input.from),
-                            targetAccountId(input.to),
+                            input.from.accountId ?? null,
+                            input.to.accountId ?? null,
                         ]) {
                             if (accountId) {
                                 const sa = await trx
@@ -135,52 +127,28 @@ export const transferAllocation = authorizedProcedure
                         }
 
                         // Debit source
-                        if (input.from.kind === "envelop") {
-                            await trx
-                                .insertInto("envelop_allocations")
-                                .values({
-                                    envelop_id: input.from.envelopId,
-                                    amount: -input.amount,
-                                    created_by: ctx.auth.user.id,
-                                    account_id: input.from.accountId ?? null,
-                                    period_start: fromInfo.periodStart ?? null,
-                                })
-                                .execute();
-                        } else {
-                            await trx
-                                .insertInto("plan_allocations")
-                                .values({
-                                    plan_id: input.from.planId,
-                                    amount: -input.amount,
-                                    created_by: ctx.auth.user.id,
-                                    account_id: input.from.accountId ?? null,
-                                })
-                                .execute();
-                        }
+                        await trx
+                            .insertInto("envelop_allocations")
+                            .values({
+                                envelop_id: input.from.envelopId,
+                                amount: -input.amount,
+                                created_by: ctx.auth.user.id,
+                                account_id: input.from.accountId ?? null,
+                                period_start: fromInfo.periodStart ?? null,
+                            })
+                            .execute();
 
                         // Credit destination
-                        if (input.to.kind === "envelop") {
-                            await trx
-                                .insertInto("envelop_allocations")
-                                .values({
-                                    envelop_id: input.to.envelopId,
-                                    amount: input.amount,
-                                    created_by: ctx.auth.user.id,
-                                    account_id: input.to.accountId ?? null,
-                                    period_start: toInfo.periodStart ?? null,
-                                })
-                                .execute();
-                        } else {
-                            await trx
-                                .insertInto("plan_allocations")
-                                .values({
-                                    plan_id: input.to.planId,
-                                    amount: input.amount,
-                                    created_by: ctx.auth.user.id,
-                                    account_id: input.to.accountId ?? null,
-                                })
-                                .execute();
-                        }
+                        await trx
+                            .insertInto("envelop_allocations")
+                            .values({
+                                envelop_id: input.to.envelopId,
+                                amount: input.amount,
+                                created_by: ctx.auth.user.id,
+                                account_id: input.to.accountId ?? null,
+                                period_start: toInfo.periodStart ?? null,
+                            })
+                            .execute();
 
                         return { message: "Allocation transferred" };
                     },
@@ -205,66 +173,41 @@ async function resolveTargetInfo(
     available: number;
     periodStart: Date | null;
 }> {
-    if (target.kind === "envelop") {
-        const envelope = await trx
-            .selectFrom("envelops")
-            .select(["space_id", "cadence"])
-            .where("id", "=", target.envelopId)
-            .executeTakeFirst();
-        if (!envelope) {
-            throw new TRPCError({ code: "NOT_FOUND", message: "Envelope not found" });
-        }
-        const cadence = envelope.cadence as Cadence;
-        const now = new Date();
-        const periodStart =
-            cadence === "none" ? null : effectivePeriodStart(cadence, null, now);
-
-        // Preserve undefined → aggregate across all account partitions
-        // (top-line). Coercing it to null here would scope the available
-        // check to the unassigned-only partition, which makes pulling from
-        // legacy allocations pinned to a specific account silently fail.
-        const bal = await resolveEnvelopePeriodBalance({
-            trx,
-            envelopId: target.envelopId,
-            accountId: target.accountId,
-            at: now,
-        });
-        return {
-            spaceId: envelope.space_id,
-            available: bal.remaining,
-            periodStart,
-        };
-    }
-
-    const plan = await trx
-        .selectFrom("plans")
-        .select("space_id")
-        .where("id", "=", target.planId)
+    const envelope = await trx
+        .selectFrom("envelops")
+        .select(["space_id", "cadence"])
+        .where("id", "=", target.envelopId)
         .executeTakeFirst();
-    if (!plan) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Plan not found" });
+    if (!envelope) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Envelope not found" });
     }
-    const bal = await resolvePlanBalance({
-        trx,
-        planId: target.planId,
-        accountId: target.accountId,
-    });
-    return { spaceId: plan.space_id, available: bal.allocated, periodStart: null };
-}
+    const cadence = envelope.cadence as Cadence;
+    const now = new Date();
+    const periodStart =
+        cadence === "none" ? null : effectivePeriodStart(cadence, null, now);
 
-function targetAccountId(t: Target): string | null {
-    return t.accountId ?? null;
+    // The available check and the row we write must scope to the same
+    // partition. `target.accountId` can arrive as `undefined` (caller
+    // omitted) or `null` (caller asked for the unassigned pool); the
+    // insert collapses both to NULL, so the check must too — otherwise
+    // an "aggregate available" lookup happily debits a partition that
+    // does not actually hold the money.
+    const accountId: string | null = target.accountId ?? null;
+    const bal = await resolveEnvelopePeriodBalance({
+        trx,
+        envelopId: target.envelopId,
+        accountId,
+        at: now,
+    });
+    return {
+        spaceId: envelope.space_id,
+        available: bal.remaining,
+        periodStart,
+    };
 }
 
 function sameTarget(a: Target, b: Target): boolean {
-    if (a.kind !== b.kind) return false;
     const aAcct = a.accountId ?? null;
     const bAcct = b.accountId ?? null;
-    if (a.kind === "envelop" && b.kind === "envelop") {
-        return a.envelopId === b.envelopId && aAcct === bAcct;
-    }
-    if (a.kind === "plan" && b.kind === "plan") {
-        return a.planId === b.planId && aAcct === bAcct;
-    }
-    return false;
+    return a.envelopId === b.envelopId && aAcct === bAcct;
 }

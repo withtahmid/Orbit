@@ -195,15 +195,6 @@ export const spaceSummary = authorizedProcedure
                     .execute(trx)
                     .then((r) => r.rows[0]);
 
-                const planRow = await trx
-                    .selectFrom("plan_allocations")
-                    .innerJoin("plans", "plans.id", "plan_allocations.plan_id")
-                    .where("plans.space_id", "=", input.spaceId)
-                    .select((eb) => [
-                        eb.fn.sum<string>("plan_allocations.amount").as("allocated"),
-                    ])
-                    .executeTakeFirst();
-
                 // Period income / expense derived from actual money
                 // movement through the space's accounts. Two views are
                 // computed in one pass:
@@ -302,7 +293,6 @@ export const spaceSummary = authorizedProcedure
                 const envelopeAllocated = Number(envelopeRow?.allocated ?? 0);
                 const envelopeConsumed = Number(envelopeRow?.consumed ?? 0);
                 const envelopeRemaining = Number(envelopeRow?.remaining ?? 0);
-                const planAllocated = Number(planRow?.allocated ?? 0);
                 const cashIncome = Number(incomeExpenseRow?.cash_income ?? 0);
                 const cashExpense = Number(incomeExpenseRow?.cash_expense ?? 0);
                 const operationalIncome = Number(
@@ -312,7 +302,7 @@ export const spaceSummary = authorizedProcedure
                     incomeExpenseRow?.operational_expense ?? 0
                 );
 
-                const unallocated = spendableBalance - envelopeRemaining - planAllocated;
+                const unallocated = spendableBalance - envelopeRemaining;
 
                 return {
                     totalBalance,
@@ -321,7 +311,6 @@ export const spaceSummary = authorizedProcedure
                     envelopeAllocated,
                     envelopeConsumed,
                     envelopeRemaining,
-                    planAllocated,
                     unallocated,
                     isOverAllocated: unallocated < 0,
                     /* `period*` = cash flow (matches balance movement).

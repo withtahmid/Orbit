@@ -7,15 +7,17 @@ import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 /**
  * Cross-space personal summary — same shape as analytics.spaceSummary
- * (balance / spendable / locked / envelope / plan / unallocated /
+ * (balance / spendable / locked / envelope / unallocated /
  * period income & expense) so the existing OverviewPage and all its
  * downstream UI can render unchanged when the virtual space is active.
  *
  * Semantics are anchored to the caller's personally-owned accounts
  * (user_accounts.role='owner') unioned across every space they're a
- * member of. Envelope and plan aggregates sum only the partitions
- * belonging to owned accounts — "my slice" of each budget I
- * participate in.
+ * member of. Envelope aggregates sum only the partitions belonging
+ * to owned accounts — "my slice" of each budget I participate in.
+ * Goal envelopes (cadence='none' with target) ride the same rules:
+ * their balance contributes to envelopeRemaining like any other
+ * rolling envelope.
  *
  * Cash-flow semantics (mirrors personal.cashFlow):
  *   - income/adjustment to an owned account        → personal inflow
@@ -51,7 +53,6 @@ export const personalSummary = authorizedProcedure
                         envelopeAllocated: 0,
                         envelopeConsumed: 0,
                         envelopeRemaining: 0,
-                        planAllocated: 0,
                         unallocated: 0,
                         isOverAllocated: false,
                         periodIncome: 0,
@@ -216,17 +217,6 @@ export const personalSummary = authorizedProcedure
                     .execute(ctx.services.qb)
                     .then((r) => r.rows[0]);
 
-                const planRow = await sql<{ allocated: string }>`
-                    SELECT
-                        COALESCE(SUM(pa.amount), 0)::text AS allocated
-                    FROM plan_allocations pa
-                    JOIN plans p ON p.id = pa.plan_id
-                    WHERE p.space_id = ANY(${memberSpaces})
-                      AND (pa.account_id IS NULL OR pa.account_id = ANY(${owned}))
-                `
-                    .execute(ctx.services.qb)
-                    .then((r) => r.rows[0]);
-
                 /* Personal flow — two views computed in one pass:
                  *
                  * `cash_*` — CASH FLOW. Owned↔owned transfers excluded
@@ -295,7 +285,6 @@ export const personalSummary = authorizedProcedure
                 const envelopeAllocated = Number(envelopeRow?.allocated ?? 0);
                 const envelopeConsumed = Number(envelopeRow?.consumed ?? 0);
                 const envelopeRemaining = Number(envelopeRow?.remaining ?? 0);
-                const planAllocated = Number(planRow?.allocated ?? 0);
                 const cashIncome = Number(flowRow?.cash_income ?? 0);
                 const cashExpense = Number(flowRow?.cash_expense ?? 0);
                 const operationalIncome = Number(
@@ -305,8 +294,7 @@ export const personalSummary = authorizedProcedure
                     flowRow?.operational_expense ?? 0
                 );
 
-                const unallocated =
-                    spendableBalance - envelopeRemaining - planAllocated;
+                const unallocated = spendableBalance - envelopeRemaining;
 
                 return {
                     totalBalance,
@@ -315,7 +303,6 @@ export const personalSummary = authorizedProcedure
                     envelopeAllocated,
                     envelopeConsumed,
                     envelopeRemaining,
-                    planAllocated,
                     unallocated,
                     isOverAllocated: unallocated < 0,
                     /* `period*` = cash flow. `operational*` = excludes

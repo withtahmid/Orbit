@@ -172,43 +172,6 @@ export const personalAccountAllocation = authorizedProcedure
                         (e) => e.allocated !== 0 || e.consumed !== 0 || e.carryIn !== 0
                     );
 
-                const plansRows = await sql<{
-                    plan_id: string;
-                    space_id: string;
-                    space_name: string;
-                    name: string;
-                    color: string;
-                    icon: string;
-                    allocated: string;
-                }>`
-                    SELECT
-                        p.id::text AS plan_id,
-                        p.space_id::text AS space_id,
-                        s.name AS space_name,
-                        p.name, p.color, p.icon,
-                        COALESCE((
-                            SELECT SUM(pa.amount)
-                            FROM plan_allocations pa
-                            WHERE pa.plan_id = p.id
-                              AND pa.account_id = ${input.accountId}
-                        ), 0)::text AS allocated
-                    FROM plans p
-                    JOIN spaces s ON s.id = p.space_id
-                    ORDER BY s.name ASC, p.name ASC
-                `.execute(ctx.services.qb);
-
-                const plans = plansRows.rows
-                    .map((r) => ({
-                        planId: r.plan_id,
-                        spaceId: r.space_id,
-                        spaceName: r.space_name,
-                        name: r.name,
-                        color: r.color,
-                        icon: r.icon,
-                        allocated: Number(r.allocated),
-                    }))
-                    .filter((p) => p.allocated !== 0);
-
                 const bal = await ctx.services.qb
                     .selectFrom("account_balances")
                     .select(["balance"])
@@ -220,8 +183,7 @@ export const personalAccountAllocation = authorizedProcedure
                     (acc, e) => acc + Math.max(0, e.remaining),
                     0
                 );
-                const planHeld = plans.reduce((acc, p) => acc + p.allocated, 0);
-                const allocated = envelopeHeld + planHeld;
+                const allocated = envelopeHeld;
                 const unallocated = balance - allocated;
 
                 return {
@@ -229,7 +191,6 @@ export const personalAccountAllocation = authorizedProcedure
                     allocated,
                     unallocated,
                     envelopes,
-                    plans,
                 };
             })()
         );

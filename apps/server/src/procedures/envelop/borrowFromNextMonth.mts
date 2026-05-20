@@ -55,6 +55,17 @@ export const borrowFromNextMonth = authorizedProcedure
                             });
                         }
 
+                        await resolveSpaceMembership({
+                            trx,
+                            spaceId: envelop.space_id,
+                            userId: ctx.auth.user.id,
+                            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
+                        });
+
+                        // Archived-state and cadence checks run after the
+                        // membership check so their error messages can't
+                        // be used to probe envelope name/cadence
+                        // cross-space.
                         if (envelop.archived) {
                             throw new TRPCError({
                                 code: "BAD_REQUEST",
@@ -69,13 +80,6 @@ export const borrowFromNextMonth = authorizedProcedure
                                     "Borrowing only works for monthly envelopes — rolling envelopes accumulate.",
                             });
                         }
-
-                        await resolveSpaceMembership({
-                            trx,
-                            spaceId: envelop.space_id,
-                            userId: ctx.auth.user.id,
-                            roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
-                        });
 
                         // Both rows live on UTC month boundaries — matches how
                         // createAllocation stores period_start.

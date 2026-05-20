@@ -6,7 +6,7 @@ type Size = "sm" | "md" | "lg";
 
 /**
  * Small rounded tinted chip with an icon — used everywhere an entity
- * (envelope, plan, account, category, event) needs a visual ID.
+ * (envelope, account, category, event) needs a visual ID.
  */
 export function EntityAvatar({
     color,

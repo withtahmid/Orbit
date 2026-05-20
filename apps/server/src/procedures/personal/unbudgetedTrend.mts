@@ -33,7 +33,6 @@ export const personalUnbudgetedTrend = authorizedProcedure
                         windowDays: input.windowDays,
                         income: 0,
                         allocationsNet: 0,
-                        planAllocationsNet: 0,
                         absorbedOverspend: 0,
                     };
                 }
@@ -69,17 +68,6 @@ export const personalUnbudgetedTrend = authorizedProcedure
                     FROM envelop_allocations a
                     JOIN envelops e ON e.id = a.envelop_id
                     WHERE e.space_id = ANY(${memberSpaces}::uuid[])
-                      AND a.created_at >= ${windowStart}
-                      AND a.created_at < ${now}
-                `
-                    .execute(trx)
-                    .then((r) => Number(r.rows[0]?.total ?? 0));
-
-                const planAllocChange = await sql<{ total: string }>`
-                    SELECT COALESCE(SUM(a.amount), 0)::text AS total
-                    FROM plan_allocations a
-                    JOIN plans p ON p.id = a.plan_id
-                    WHERE p.space_id = ANY(${memberSpaces}::uuid[])
                       AND a.created_at >= ${windowStart}
                       AND a.created_at < ${now}
                 `
@@ -133,7 +121,6 @@ export const personalUnbudgetedTrend = authorizedProcedure
                     windowDays: input.windowDays,
                     income,
                     allocationsNet: allocChange,
-                    planAllocationsNet: planAllocChange,
                     absorbedOverspend: absorbed,
                 };
             })

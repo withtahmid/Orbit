@@ -14,12 +14,14 @@ single coherent ledger:
 
 - **Ledger accounting** — accounts hold real money, transactions move it.
 - **Envelope budgeting** — named buckets hold a logical allocation; spending
-  routes through categories. Categories carry an optional priority tier
-  (essential / important / discretionary / luxury) with ancestor inheritance,
-  so analytics can answer "what fraction of this month was must-spend vs
-  want-spend?" at a glance — with the granularity to mark an occasional
-  premium leaf as luxury while its siblings stay essential.
-- **Goal-based planning** — plans hold money earmarked for long-horizon targets.
+  routes through categories. Envelopes can carry an optional target amount +
+  target date for long-horizon goals (e.g. "save 80K for a down payment by
+  next October"), with progress tracked against lifetime funding. Categories
+  carry an optional priority tier (essential / important / discretionary /
+  luxury) with ancestor inheritance, so analytics can answer "what fraction
+  of this month was must-spend vs want-spend?" at a glance — with the
+  granularity to mark an occasional premium leaf as luxury while its
+  siblings stay essential.
 
 The transaction-entry form is the highest-traffic surface, and ships with
 two friction reducers worth calling out: a **custom date+time picker**
@@ -159,12 +161,12 @@ pnpm --filter backend seed
 ```
 
 Wipes every product table and populates 8 users, 5 spaces, 16 accounts,
-34 envelopes, 12 plans, ~150 categories, 24 events, ~4,000 transactions
-spread across ~18 months — with intentional drift and rebalances to
-show off the 2D allocation idea — plus two transaction-entry pins on
-the family space (an account pin for Alex, a space-wide envelope pin)
-so the new-transaction form's "pinned" affordance is visible out of the
-box. Data is locale-neutral and currency-agnostic (interpret amounts as
+34 envelopes (a few with goal targets), ~150 categories, 24 events,
+~4,000 transactions spread across ~18 months — with intentional drift
+and rebalances to show off the 2D allocation idea — plus two
+transaction-entry pins on the family space (an account pin for Alex, a
+space-wide envelope pin) so the new-transaction form's "pinned"
+affordance is visible out of the box. Data is locale-neutral and currency-agnostic (interpret amounts as
 whatever unit you like). Refuses to run when `NODE_ENV=production`.
 Primary login is printed at the end: `alex@orbit.dev` / `password123`.
 
@@ -285,7 +287,7 @@ Actions secret in CI).
 
 **Deployed to production** at
 [orbit.withtahmid.com](https://orbit.withtahmid.com); feature-complete
-for the core ledger / envelope / plan flows and serving real users.
+for the core ledger / envelope flows and serving real users.
 Known limitations worth flagging:
 
 - **Multi-currency** — amounts are currency-agnostic today; a migration

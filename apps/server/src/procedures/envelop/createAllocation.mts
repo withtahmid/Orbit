@@ -71,22 +71,25 @@ export const createEnvelopAllocation = authorizedProcedure
                             });
                         }
 
-                        // Block ALLOCATING to an archived envelope; allow
-                        // DEALLOCATING (so the user can free up trapped
-                        // cash from a retired envelope without unarchiving).
-                        if (envelop.archived && input.amount > 0) {
-                            throw new TRPCError({
-                                code: "BAD_REQUEST",
-                                message: `Envelope "${envelop.name}" is archived. Unarchive it first to allocate.`,
-                            });
-                        }
-
                         await resolveSpaceMembership({
                             trx,
                             spaceId: envelop.space_id,
                             userId: ctx.auth.user.id,
                             roles: ["owner", "editor"] as unknown as SpaceMembers["role"][],
                         });
+
+                        // Block ALLOCATING to an archived envelope; allow
+                        // DEALLOCATING (so the user can free up trapped
+                        // cash from a retired envelope without unarchiving).
+                        // Runs after the membership check so the error
+                        // message can't be used to probe envelope names
+                        // cross-space.
+                        if (envelop.archived && input.amount > 0) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message: `Envelope "${envelop.name}" is archived. Unarchive it first to allocate.`,
+                            });
+                        }
 
                         // Validate account-belongs-to-space if pinned
                         if (input.accountId) {

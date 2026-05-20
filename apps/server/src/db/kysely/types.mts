@@ -88,6 +88,8 @@ export interface Envelops {
   id: Generated<string>;
   name: string;
   space_id: string;
+  target_amount: Numeric | null;
+  target_date: Timestamp | null;
   updated_at: Generated<Timestamp | null>;
 }
 
@@ -154,28 +156,6 @@ export interface IdempotencyKeys {
   operation: string;
   response: Json | null;
   user_id: string;
-}
-
-export interface PlanAllocations {
-  account_id: string | null;
-  amount: Numeric;
-  created_at: Generated<Timestamp>;
-  created_by: string;
-  id: Generated<string>;
-  plan_id: string;
-}
-
-export interface Plans {
-  color: Generated<string>;
-  created_at: Generated<Timestamp>;
-  description: string | null;
-  icon: Generated<string>;
-  id: Generated<string>;
-  name: string;
-  space_id: string;
-  target_amount: Numeric | null;
-  target_date: Timestamp | null;
-  updated_at: Generated<Timestamp | null>;
 }
 
 export interface ReckoningAcknowledgments {
@@ -305,8 +285,6 @@ export interface DB {
   exported_reports: ExportedReports;
   files: Files;
   idempotency_keys: IdempotencyKeys;
-  plan_allocations: PlanAllocations;
-  plans: Plans;
   reckoning_acknowledgments: ReckoningAcknowledgments;
   space_accounts: SpaceAccounts;
   space_invites: SpaceInvites;

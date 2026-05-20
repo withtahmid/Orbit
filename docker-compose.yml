@@ -71,7 +71,7 @@ services:
               published: 5173
 
         env_file:
-            - ./.env.development.local
+            - ./.env.demo.local
 
         volumes:
             - ./:/app
