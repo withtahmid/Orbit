@@ -11,3 +11,4 @@
 - [Envelope ledger kinds](envelope_ledger_kinds.md) — Goal funding aggregates filter `kind IN ('allocate','borrow')`; cover/reckon/restructure stay excluded as internal reallocations.
 - [Lifetime funded numerator rule](lifetime_funded_numerator_rule.md) — Goal UI must pair `Money={lifetimeFunded}` with `Bar={pctSaved/100}`; both readers feed off the same SQL source.
 - [Envelope target lock-step cascade](envelope_target_lockstep_cascade.md) — Cascade only fires on explicit non-null→null with partner column undefined; preserves no-op echoes.
+- [spaceSummary unallocated formula](space_summary_unallocated.md) — `unallocated = spendable − envRemaining`; out-of-scope transfers drain spendable but not operational income — that's how Income and Unbudgeted diverge.
