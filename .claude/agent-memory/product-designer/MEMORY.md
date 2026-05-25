@@ -11,3 +11,5 @@
 - [Liability budgeting treatment](liability_budgeting_treatment.md) — Phase 1: drop liabilities from spendable, add separate Net Worth; Phase 2 (deferred): YNAB-style card-payment envelopes.
 - [Plan-envelope merge decision](plan_envelope_merge_decision.md) — 2026-05-14: drop `plans` entirely; goals = envelopes with `cadence='none'` + optional `target_amount`. Supersedes plan-rename plan.
 - [DocsPage stale after merge](docs_page_stale_after_merge.md) — Concepts tile "Plan" + Envelopes section copy still pre-merge as of 2026-05-15.
+- [Account balance sign convention](account_balance_sign_convention.md) — balance is signed-from-owner; liabilities negative; UI uses label not minus.
+- [Anomaly pattern: sign conventions](anomaly_pattern_sign_conventions.md) — drift between SQL writers and JS readers on signed numeric columns is a recurring class.
