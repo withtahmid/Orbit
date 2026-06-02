@@ -6,3 +6,6 @@
 - [Envelope lifetime-overrun surfaces](project_envelope_lifetime_overrun_surfaces.md) — Four UI sites display rolling-envelope lifetime overspend; keep them in sync.
 - [Cadence-row wrap bug pattern](feedback_recurring_cadence_row_wrap_bug.md) — Envelope card cadence spans don't flex-wrap; flag any 3rd segment added there.
 - [Plan-to-envelope rename](project_plan_to_envelope_rename.md) — Plans merged into envelopes via targetAmount/targetDate; leftover "Plan" copy in BudgetMonthPage + Overview "Plan {Month}" CTA.
+- [Transactions UI architecture](transactions_ui_architecture.md) — Page-level sheet ownership pattern (selectedTx + editingTx) prevents stacked right-side sheets.
+- [Orbit form primitives](orbit_form_primitives.md) — OrbitField/OrbitSelect/OrbitInfoPill conventions and the envelope-chip disclosure pattern.
+- [Analytics CategoriesView](analytics_categories_view.md) — Donut/ranked-list layout, breadcrumb ml-auto wrap fragility, DrillableDonut a11y mitigated by legend buttons.

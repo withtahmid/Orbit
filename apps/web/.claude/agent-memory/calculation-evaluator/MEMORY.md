@@ -1,1 +1,0 @@
-- [Category breakdown semantics](category_breakdown_semantics.md) — directTotal vs subtreeTotal; why summing ROOT subtreeTotals never double-counts (strict forest via single parent_id FK)
