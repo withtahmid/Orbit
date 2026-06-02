@@ -35,13 +35,6 @@ import { cn } from "@/lib/utils";
  */
 const DIRECT_SLICE_PREFIX = "__direct__:";
 
-/**
- * Sentinel id prefix for envelope-level slices at the top of the view.
- * Envelopes aren't in the `expense_categories` tree so we synthesize them
- * as pseudo-nodes at render time.
- */
-const ENVELOPE_ID_PREFIX = "env:";
-
 type Row = {
     id: string;
     parentId: string | null;
@@ -121,7 +114,9 @@ export default function CategoriesView() {
         return m;
     }, [prevRows]);
 
-    // Envelope metadata for grouping
+    // Envelope metadata — used only for contextual labels (the ranked-list
+    // subtitle + the leaf "Open envelope" shortcut). Envelopes are NOT a
+    // level in the drill hierarchy; the donut drills the category tree.
     const envSpaceQ = trpc.envelop.listBySpace.useQuery(
         { spaceId: space.id },
         { enabled: !space.isPersonal }
@@ -170,118 +165,48 @@ export default function CategoriesView() {
         return m;
     }, [rows]);
 
-    const isEnvelopeFocus = !!focusId && focusId.startsWith(ENVELOPE_ID_PREFIX);
-    const focusedEnvelopeId = isEnvelopeFocus
-        ? focusId!.slice(ENVELOPE_ID_PREFIX.length)
-        : null;
-    const focusedEnvelope = focusedEnvelopeId
-        ? envelopeMeta.get(focusedEnvelopeId) ?? null
-        : null;
-    const focus = focusId && !isEnvelopeFocus ? byId.get(focusId) ?? null : null;
+    const focus = focusId ? byId.get(focusId) ?? null : null;
 
-    type Crumb = Row | (EnvelopeMeta & { kind: "env" });
-    const ancestors = useMemo<Crumb[]>(() => {
-        const chain: Crumb[] = [];
-        let envId: string | null = null;
-
-        if (focus) {
-            let cur: Row | undefined = focus;
-            while (cur) {
-                chain.unshift(cur);
-                cur = cur.parentId ? byId.get(cur.parentId) : undefined;
-            }
-            envId = focus.envelopId;
-        } else if (focusedEnvelopeId) {
-            envId = focusedEnvelopeId;
-        }
-
-        if (envId) {
-            const env = envelopeMeta.get(envId);
-            if (env) {
-                chain.unshift({ ...env, kind: "env" });
-            }
+    // Breadcrumb chain — category ancestors only (no envelope level).
+    const ancestors = useMemo<Row[]>(() => {
+        const chain: Row[] = [];
+        let cur: Row | undefined = focus ?? undefined;
+        while (cur) {
+            chain.unshift(cur);
+            cur = cur.parentId ? byId.get(cur.parentId) : undefined;
         }
         return chain;
-    }, [focus, focusedEnvelopeId, byId, envelopeMeta]);
+    }, [focus, byId]);
 
     // The rows the donut + ranked list show, by mode:
-    //   1. Category focus  → children of that category
-    //   2. Envelope focus  → root categories in that envelope
-    //   3. No focus        → one row per envelope (top level)
+    //   1. Category focus → children of that category
+    //   2. No focus       → root categories (one slice per top-level category)
+    const rootRows = useMemo(
+        () => rows.filter((r) => r.parentId === null),
+        [rows]
+    );
     const focusChildren = useMemo(
         () => (focus ? childrenByParent.get(focus.id) ?? [] : []),
         [focus, childrenByParent]
     );
-    const envelopeRootRows = useMemo(() => {
-        if (!focusedEnvelopeId) return [] as Row[];
-        return rows.filter(
-            (r) => r.envelopId === focusedEnvelopeId && r.parentId === null
-        );
-    }, [rows, focusedEnvelopeId]);
-    const topLevelEnvelopes = useMemo(() => {
-        const totals = new Map<string, number>();
-        for (const r of rows) {
-            if (r.parentId === null) {
-                totals.set(
-                    r.envelopId,
-                    (totals.get(r.envelopId) ?? 0) + r.subtreeTotal
-                );
-            }
-        }
-        const list: Array<{ envelope: EnvelopeMeta; total: number }> = [];
-        for (const [envId, total] of totals) {
-            const env = envelopeMeta.get(envId);
-            if (env) list.push({ envelope: env, total });
-        }
-        for (const env of envelopeMeta.values()) {
-            if (!totals.has(env.id)) {
-                list.push({ envelope: env, total: 0 });
-            }
-        }
-        return list;
-    }, [rows, envelopeMeta]);
 
-    const prevTopLevelEnvelopes = useMemo(() => {
-        const totals = new Map<string, number>();
-        for (const r of prevRows) {
-            if (r.parentId === null) {
-                totals.set(
-                    r.envelopId,
-                    (totals.get(r.envelopId) ?? 0) + r.subtreeTotal
-                );
-            }
-        }
-        return totals;
-    }, [prevRows]);
+    const rootTotal = useMemo(
+        () => rootRows.reduce((s, r) => s + r.subtreeTotal, 0),
+        [rootRows]
+    );
+    const prevRootTotal = useMemo(
+        () =>
+            prevRows
+                .filter((r) => r.parentId === null)
+                .reduce((s, r) => s + r.subtreeTotal, 0),
+        [prevRows]
+    );
 
-    // Donut slices. `drillable` flags slices that descend into another
-    // level on click (envelope → categories, category → sub-categories).
-    // Leaf categories and the synthesized "(direct)" pseudo-slice navigate
-    // to filtered transactions instead — they're not drillable here.
+    // Donut slices. `drillable` flags slices that descend into another level
+    // on click (category → sub-categories). Leaf categories and the
+    // synthesized "(direct)" pseudo-slice navigate to filtered transactions
+    // instead — they're not drillable here.
     const donutData: DrillableDonutSlice[] = useMemo(() => {
-        if (!focus && !focusedEnvelopeId) {
-            return topLevelEnvelopes
-                .filter((e) => e.total > 0)
-                .map((e) => ({
-                    id: `${ENVELOPE_ID_PREFIX}${e.envelope.id}`,
-                    name: e.envelope.name,
-                    value: e.total,
-                    color: e.envelope.color,
-                    drillable: true,
-                }));
-        }
-        if (focusedEnvelopeId && !focus) {
-            return envelopeRootRows
-                .filter((c) => c.subtreeTotal > 0)
-                .map((c) => ({
-                    id: c.id,
-                    name: c.name,
-                    value: c.subtreeTotal,
-                    color: c.color,
-                    drillable:
-                        (childrenByParent.get(c.id) ?? []).length > 0,
-                }));
-        }
         const slices: DrillableDonutSlice[] = [];
         if (focus && focus.directTotal > 0) {
             slices.push({
@@ -292,41 +217,23 @@ export default function CategoriesView() {
                 drillable: false,
             });
         }
-        for (const c of focusChildren) {
+        const source = focus ? focusChildren : rootRows;
+        for (const c of source) {
             if (c.subtreeTotal > 0) {
                 slices.push({
                     id: c.id,
                     name: c.name,
                     value: c.subtreeTotal,
                     color: c.color,
-                    drillable:
-                        (childrenByParent.get(c.id) ?? []).length > 0,
+                    drillable: (childrenByParent.get(c.id) ?? []).length > 0,
                 });
             }
         }
         return slices;
-    }, [
-        focus,
-        focusedEnvelopeId,
-        focusChildren,
-        envelopeRootRows,
-        topLevelEnvelopes,
-        childrenByParent,
-    ]);
+    }, [focus, focusChildren, rootRows, childrenByParent]);
 
-    const focusedEnvelopeTotal = useMemo(() => {
-        if (!focusedEnvelopeId || focus) return undefined;
-        return (
-            topLevelEnvelopes.find((e) => e.envelope.id === focusedEnvelopeId)
-                ?.total ?? 0
-        );
-    }, [focusedEnvelopeId, focus, topLevelEnvelopes]);
-    const centerValue = focus ? focus.subtreeTotal : focusedEnvelopeTotal;
-    const centerLabel = focus
-        ? focus.name
-        : focusedEnvelope
-          ? focusedEnvelope.name
-          : "Total spent";
+    const centerValue = focus ? focus.subtreeTotal : rootTotal;
+    const centerLabel = focus ? focus.name : "Total spent";
 
     const setFocus = (id: string | null) => {
         setParams(
@@ -341,10 +248,6 @@ export default function CategoriesView() {
     };
 
     const onSelect = (d: DrillableDonutSlice) => {
-        if (d.id.startsWith(ENVELOPE_ID_PREFIX)) {
-            setFocus(d.id);
-            return;
-        }
         if (d.id.startsWith(DIRECT_SLICE_PREFIX)) {
             const realId = d.id.slice(DIRECT_SLICE_PREFIX.length);
             navigate(`${ROUTES.spaceTransactions(space.id)}?category=${realId}`);
@@ -362,7 +265,7 @@ export default function CategoriesView() {
 
     /**
      * Rows for the ranked-spend list, normalized to a uniform shape
-     * regardless of which mode (envelope/category/no-focus) we're in.
+     * regardless of which mode (root / category focus) we're in.
      */
     type RankRow = {
         id: string;
@@ -377,24 +280,7 @@ export default function CategoriesView() {
         onClick: () => void;
     };
     const rankRows: RankRow[] = useMemo(() => {
-        if (!focus && !focusedEnvelopeId) {
-            return topLevelEnvelopes
-                .filter((e) => e.total > 0)
-                .map((e) => ({
-                    id: e.envelope.id,
-                    name: e.envelope.name,
-                    color: e.envelope.color,
-                    icon: e.envelope.icon,
-                    envelopeName: e.envelope.name,
-                    value: e.total,
-                    prevValue: prevTopLevelEnvelopes.get(e.envelope.id) ?? 0,
-                    drillable: true,
-                    onClick: () => setFocus(`${ENVELOPE_ID_PREFIX}${e.envelope.id}`),
-                }))
-                .sort((a, b) => b.value - a.value);
-        }
-        const source: Row[] = focus ? focusChildren : envelopeRootRows;
-        const env = focus ? envelopeMeta.get(focus.envelopId) : focusedEnvelope;
+        const source: Row[] = focus ? focusChildren : rootRows;
         const list: RankRow[] = source
             .filter((c) => c.subtreeTotal > 0)
             .map((c) => {
@@ -405,7 +291,7 @@ export default function CategoriesView() {
                     name: c.name,
                     color: c.color,
                     icon: c.icon,
-                    envelopeName: env?.name,
+                    envelopeName: envelopeMeta.get(c.envelopId)?.name,
                     value: c.subtreeTotal,
                     prevValue: prevById.get(c.id)?.subtreeTotal ?? 0,
                     drillable,
@@ -424,7 +310,7 @@ export default function CategoriesView() {
                 name: `${focus.name} (direct)`,
                 color: focus.color,
                 icon: focus.icon,
-                envelopeName: env?.name,
+                envelopeName: envelopeMeta.get(focus.envelopId)?.name,
                 value: focus.directTotal,
                 prevValue: prevById.get(focus.id)?.directTotal ?? 0,
                 drillable: false,
@@ -438,14 +324,10 @@ export default function CategoriesView() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         focus,
-        focusedEnvelopeId,
-        topLevelEnvelopes,
-        envelopeRootRows,
         focusChildren,
+        rootRows,
         prevById,
-        prevTopLevelEnvelopes,
         envelopeMeta,
-        focusedEnvelope,
         childrenByParent,
         space.id,
     ]);
@@ -457,12 +339,7 @@ export default function CategoriesView() {
         const total = rankRows.reduce((acc, r) => acc + r.value, 0);
         const prevTotal = focus
             ? prevById.get(focus.id)?.subtreeTotal ?? 0
-            : focusedEnvelopeId
-              ? prevTopLevelEnvelopes.get(focusedEnvelopeId) ?? 0
-              : Array.from(prevTopLevelEnvelopes.values()).reduce(
-                    (s, v) => s + v,
-                    0
-                );
+            : prevRootTotal;
         const top = rankRows[0];
         const largestPct = total > 0 && top ? (top.value / total) * 100 : 0;
         const momDelta =
@@ -475,25 +352,17 @@ export default function CategoriesView() {
             momDelta,
             count: rankRows.length,
         };
-    }, [rankRows, focus, focusedEnvelopeId, prevById, prevTopLevelEnvelopes]);
+    }, [rankRows, focus, prevById, prevRootTotal]);
 
     const kpiItems: KpiItem[] = [
         {
-            label: focus
-                ? `Total in ${focus.name}`
-                : focusedEnvelope
-                  ? `Total in ${focusedEnvelope.name}`
-                  : "Total spent",
+            label: focus ? `Total in ${focus.name}` : "Total spent",
             value: kpi.total,
             money: true,
             tone: "expense",
             sub:
                 kpi.count > 0
-                    ? `Across ${kpi.count} ${
-                          !focus && !focusedEnvelopeId
-                              ? "envelopes"
-                              : "categories"
-                      }`
+                    ? `Across ${kpi.count} categories`
                     : "No spend in period",
         },
         {
@@ -520,11 +389,7 @@ export default function CategoriesView() {
             label: "Categories",
             value: kpi.count,
             valueFormat: "integer",
-            sub: focus
-                ? "in this branch"
-                : focusedEnvelope
-                  ? "in this envelope"
-                  : "envelopes shown",
+            sub: focus ? "in this branch" : "top-level categories",
         },
     ];
 
@@ -550,15 +415,11 @@ export default function CategoriesView() {
                 />
                 {ancestors.map((a, i) => {
                     const isLast = i === ancestors.length - 1;
-                    const navId =
-                        "kind" in a && a.kind === "env"
-                            ? `${ENVELOPE_ID_PREFIX}${a.id}`
-                            : a.id;
                     return (
                         <span key={a.id} className="flex items-center gap-2">
                             <ChevronRight className="size-3 text-muted-foreground/50" />
                             <BreadcrumbItem
-                                onClick={() => setFocus(navId)}
+                                onClick={() => setFocus(a.id)}
                                 isLast={isLast}
                                 leading={
                                     <span
@@ -573,13 +434,11 @@ export default function CategoriesView() {
                 })}
                 <span className="ml-auto flex items-center gap-3">
                     <span className="text-[11px] text-muted-foreground">
-                        {!focus && !focusedEnvelopeId
-                            ? `${kpi.count} envelopes`
+                        {!focus
+                            ? `${kpi.count} categories`
                             : isLeaf
                               ? "Leaf — no sub-categories"
-                              : `${rankRows.length} sub-${
-                                    focus ? "categories" : "categories"
-                                }`}
+                              : `${rankRows.length} sub-categories`}
                     </span>
                     {ancestors.length > 0 && (
                         <Button
@@ -592,11 +451,7 @@ export default function CategoriesView() {
                                     setFocus(null);
                                     return;
                                 }
-                                if ("kind" in parent && parent.kind === "env") {
-                                    setFocus(`${ENVELOPE_ID_PREFIX}${parent.id}`);
-                                } else {
-                                    setFocus(parent.id);
-                                }
+                                setFocus(parent.id);
                             }}
                             className="h-7 gap-1 px-2 text-[11px]"
                         >
@@ -635,26 +490,6 @@ export default function CategoriesView() {
                             >
                                 View transactions
                             </Button>
-                            {(() => {
-                                const env = envelopeMeta.get(focus!.envelopId);
-                                if (!env) return null;
-                                return (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() =>
-                                            navigate(
-                                                ROUTES.spaceBudgetDetail(
-                                                    space.id,
-                                                    env.id
-                                                )
-                                            )
-                                        }
-                                    >
-                                        Open envelope · {env.name}
-                                    </Button>
-                                );
-                            })()}
                         </div>
                     </CardContent>
                 </Card>
@@ -674,9 +509,7 @@ export default function CategoriesView() {
                                 <p className="flex h-[280px] items-center justify-center text-sm text-muted-foreground">
                                     {focus
                                         ? `No spending in ${focus.name} for this period.`
-                                        : focusedEnvelope
-                                          ? `No spending in ${focusedEnvelope.name} for this period.`
-                                          : "No spending in this period."}
+                                        : "No spending in this period."}
                                 </p>
                             ) : (
                                 <DrillableDonut
@@ -687,13 +520,9 @@ export default function CategoriesView() {
                                             ? "Total"
                                             : centerLabel
                                     }
-                                    centerValue={
-                                        centerValue !== undefined
-                                            ? centerValue.toLocaleString("en-US", {
-                                                  maximumFractionDigits: 0,
-                                              })
-                                            : undefined
-                                    }
+                                    centerValue={centerValue.toLocaleString("en-US", {
+                                        maximumFractionDigits: 0,
+                                    })}
                                     onSelect={onSelect}
                                     size={240}
                                     thickness={28}

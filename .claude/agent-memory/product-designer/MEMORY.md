@@ -13,3 +13,5 @@
 - [DocsPage stale after merge](docs_page_stale_after_merge.md) — Concepts tile "Plan" + Envelopes section copy still pre-merge as of 2026-05-15.
 - [Account balance sign convention](account_balance_sign_convention.md) — balance is signed-from-owner; liabilities negative; UI uses label not minus.
 - [Anomaly pattern: sign conventions](anomaly_pattern_sign_conventions.md) — drift between SQL writers and JS readers on signed numeric columns is a recurring class.
+- [Budgeting overengineering audit](budgeting_overengineering_audit.md) — 2026-06-02: model overengineered; root cause is manual monthly allocation, not carry modes; two divergent unbudgeted formulas.
+- [Analytics categories = classification only](analytics_categories_classification_only.md) — Spending-by-category donut drills category tree only; envelope nav links break on /s/me (virtual space owns no envelopes).
