@@ -1,1 +1,0 @@
-- [App timezone conventions](feedback-app-tz-conventions.md) — APP_TIMEZONE=Asia/Dhaka; never call native Date getters/setters on Dates returned by `@/lib/dates` helpers; they're browser-local and silently wrong for non-Dhaka users.

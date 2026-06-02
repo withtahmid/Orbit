@@ -11,3 +11,5 @@
 - [Envelope ledger kinds](envelope_ledger_kinds.md) — Goal funding aggregates filter `kind IN ('allocate','borrow')`; cover/reckon/restructure stay excluded as internal reallocations.
 - [Lifetime funded numerator rule](lifetime_funded_numerator_rule.md) — Goal UI must pair `Money={lifetimeFunded}` with `Bar={pctSaved/100}`; both readers feed off the same SQL source.
 - [Envelope target lock-step cascade](envelope_target_lockstep_cascade.md) — Cascade only fires on explicit non-null→null with partner column undefined; preserves no-op echoes.
+- [Category breakdown semantics](category_breakdown_semantics.md) — directTotal vs subtreeTotal; why summing ROOT subtreeTotals never double-counts (strict forest via single parent_id FK)
+- [App timezone conventions](feedback-app-tz-conventions.md) — APP_TIMEZONE=Asia/Dhaka; never call native Date getters/setters on Dates returned by `@/lib/dates` helpers; they're browser-local and silently wrong for non-Dhaka users.

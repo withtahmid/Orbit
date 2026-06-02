@@ -1,2 +1,0 @@
-- [Transactions UI architecture](transactions_ui_architecture.md) — Page-level sheet ownership pattern (selectedTx + editingTx) prevents stacked right-side sheets.
-- [Orbit form primitives](orbit_form_primitives.md) — OrbitField/OrbitSelect/OrbitInfoPill conventions and the envelope-chip disclosure pattern.
