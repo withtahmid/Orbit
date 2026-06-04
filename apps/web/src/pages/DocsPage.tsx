@@ -314,7 +314,7 @@ function Overview() {
                     {
                         icon: Mail,
                         title: "Envelope budgeting",
-                        body: "Named buckets (Groceries, Rent, Fuel…) hold a logical allocation of your money. Spending is routed to envelopes via categories.",
+                        body: "Named buckets (Groceries, Rent, Fuel…) hold a logical allocation of your money. Each expense lands in an envelope, with its category suggesting which one.",
                     },
                     {
                         icon: Target,
@@ -417,7 +417,7 @@ function Concepts() {
                 />
                 <ConceptCard
                     title="Category"
-                    body="A label on a transaction that routes its spend into an envelope. Can be nested."
+                    body="A nestable label on an expense. It carries a default envelope that pre-fills the entry form — but the envelope you actually pick is saved on the transaction itself."
                 />
                 <ConceptCard
                     title="Allocation"
@@ -463,7 +463,7 @@ function GettingStarted() {
                 <StepCard
                     step={4}
                     title="Create envelopes & categories"
-                    body="Pick a cadence (monthly or none) for each envelope. Create expense categories mapped to those envelopes."
+                    body="Pick a cadence (monthly or none) for each envelope. Create expense categories, each with a default envelope to pre-fill the entry form."
                 />
                 <StepCard
                     step={5}
@@ -645,17 +645,21 @@ function Categories() {
         <section className="od-section">
             <SectionHeader id="categories" title="Categories" icon={FolderTree} />
             <Paragraph>
-                Categories are hierarchical labels that route expense
-                transactions to envelopes. Every category belongs to exactly
-                one envelope, and all categories in a subtree share the same
-                envelope — so when you pick &quot;Restaurants → Sushi&quot; the
-                whole chain maps cleanly to &quot;Food&quot;.
+                Categories are hierarchical labels for expenses. Each category
+                carries a <strong>default envelope</strong> that pre-fills the
+                envelope picker when you choose that category on the entry form.
+                The picker stays editable, and the envelope you actually pick is
+                frozen on the transaction — so a category describes{" "}
+                <i>what</i> you spent on, the envelope describes{" "}
+                <i>which budget</i> it came out of, and the two are recorded
+                independently.
             </Paragraph>
             <Paragraph>
-                You can move a category to a different parent (change its place
-                in the tree) or to a different envelope (changes the whole
-                subtree). Both actions are non-destructive — historical
-                transactions keep their category reference.
+                You can rename a category, move it to a different parent, or
+                change its default envelope. All three are non-destructive:
+                existing transactions keep both the category and the envelope
+                they were saved with, so reorganizing your category tree never
+                rewrites historical analytics.
             </Paragraph>
             <ScreenshotPlaceholder label="Categories tree with edit / move-parent / move-envelope actions" />
         </section>
@@ -678,7 +682,7 @@ function Transactions() {
                 />
                 <TxTypeCard
                     type="Expense"
-                    body="Money leaving a source account to outside the system. Requires a category, which routes the spend to an envelope."
+                    body="Money leaving a source account to outside the system. You pick both a category and an envelope — the category pre-fills the envelope, but you can override it, and the chosen envelope is frozen on the transaction."
                 />
                 <TxTypeCard
                     type="Transfer"
@@ -713,6 +717,15 @@ function Transactions() {
                     body="Cash flow, period net, balance trend, and the spending heatmap all read from the accounts shared into the space you're viewing. If an account is shared into two spaces, both spaces see every inflow and outflow on that account. An account you didn't share stays private — no info leaks to spaces that can't see it."
                 />
             </div>
+            <CalloutCard title="Pinned defaults">
+                Pin the values you reach for most so the new-transaction form
+                opens pre-filled. Your <strong>account</strong> pin is personal —
+                every member keeps their own default account in a space.{" "}
+                <strong>Envelope</strong> and <strong>event</strong> pins are
+                space-wide, so only an owner or editor can set them. Tap the
+                small pin glyph beside a field to set or clear a default; clear
+                it anytime.
+            </CalloutCard>
             <Paragraph>
                 You can attach image receipts to any transaction. See{" "}
                 <a href="#attachments" className="od-link">
