@@ -31,8 +31,6 @@ export const listEnvelopsBySpace = authorizedProcedure
                         "icon",
                         "description",
                         "cadence",
-                        "carry_over",
-                        "carry_policy",
                         "target_amount",
                         "target_date",
                         "archived",

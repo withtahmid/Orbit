@@ -30,7 +30,6 @@ const TransactionsPage = lazy(() => import("@/pages/space/transactions/Transacti
 const BudgetsPage = lazy(() => import("@/pages/space/budgets/BudgetsPage"));
 const BudgetDetailPage = lazy(() => import("@/pages/space/budgets/BudgetDetailPage"));
 const BudgetMonthPage = lazy(() => import("@/pages/space/budgets/BudgetMonthPage"));
-const ReckoningPage = lazy(() => import("@/pages/space/reckoning/ReckoningPage"));
 const YearReportPage = lazy(() => import("@/pages/space/year/YearReportPage"));
 const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
 const EventsPage = lazy(() => import("@/pages/space/events/EventsPage"));
@@ -56,9 +55,6 @@ const AnalyticsHeatmapView = lazy(
 );
 const AnalyticsAllocationsView = lazy(
     () => import("@/pages/space/analytics/views/AllocationsView")
-);
-const AnalyticsMatrixView = lazy(
-    () => import("@/pages/space/analytics/views/MatrixView")
 );
 const AnalyticsTrendsView = lazy(
     () => import("@/pages/space/analytics/views/TrendsView")
@@ -177,10 +173,6 @@ export const router = createBrowserRouter([
                                         element: withSuspense(<BudgetDetailPage />),
                                     },
                                     {
-                                        path: "reckoning",
-                                        element: withSuspense(<ReckoningPage />),
-                                    },
-                                    {
                                         path: "year/:year",
                                         element: withSuspense(<YearReportPage />),
                                     },
@@ -227,10 +219,6 @@ export const router = createBrowserRouter([
                                     {
                                         path: "analytics/allocations",
                                         element: withSuspense(<AnalyticsAllocationsView />),
-                                    },
-                                    {
-                                        path: "analytics/matrix",
-                                        element: withSuspense(<AnalyticsMatrixView />),
                                     },
                                     {
                                         path: "analytics/trends",

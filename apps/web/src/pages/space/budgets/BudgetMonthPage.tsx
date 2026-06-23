@@ -5,7 +5,15 @@ import { toast } from "sonner";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
-import { startOfMonth, endOfMonth, addMonths } from "@/lib/dates";
+import {
+    startOfMonth,
+    endOfMonth,
+    addMonths,
+    makeAppTzDate,
+    getAppTzYear,
+    getAppTzMonth,
+} from "@/lib/dates";
+import { formatInAppTz } from "@/lib/formatDate";
 import type { RouterOutput } from "@/trpc";
 
 type EnvRow = RouterOutput["analytics"]["envelopeUtilization"][number];
@@ -16,11 +24,14 @@ function parseMonthSlug(s: string | undefined): Date {
     if (!m) return startOfMonth(new Date());
     const year = Number(m[1]);
     const month = Number(m[2]) - 1;
-    return new Date(year, month, 1);
+    // Construct the month-start in APP_TZ so the displayed/edited month
+    // matches the slug for users in any browser timezone (native
+    // `new Date(y, m, 1)` would drift for users east of APP_TZ).
+    return makeAppTzDate(year, month, 1);
 }
 
 function monthSlug(d: Date): string {
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return `${getAppTzYear(d)}-${String(getAppTzMonth(d) + 1).padStart(2, "0")}`;
 }
 
 export default function BudgetMonthPage() {
@@ -35,13 +46,11 @@ export default function BudgetMonthPage() {
     const prevPeriodStart = useMemo(() => startOfMonth(prevDate), [prevDate]);
     const prevPeriodEnd = useMemo(() => endOfMonth(prevDate), [prevDate]);
 
-    const monthLabel = monthDate.toLocaleString("en-US", {
-        month: "long",
-        year: "numeric",
-    });
-    const prevMonthLabel = prevDate.toLocaleString("en-US", {
-        month: "short",
-    });
+    // Format in APP_TZ so the label matches the APP_TZ-constructed month
+    // for users in any browser timezone (native toLocaleString would render
+    // the previous month for browsers west of APP_TZ).
+    const monthLabel = formatInAppTz(monthDate, "MMMM yyyy");
+    const prevMonthLabel = formatInAppTz(prevDate, "MMM");
 
     const currentQuery = trpc.analytics.envelopeUtilization.useQuery({
         spaceId: space.id,
@@ -91,20 +100,19 @@ export default function BudgetMonthPage() {
     // cleanly across year boundaries (string compare on "YYYY-M" doesn't
     // sort right when months go single → double digit).
     const monthOrdinal =
-        monthDate.getFullYear() * 12 + monthDate.getMonth();
+        getAppTzYear(monthDate) * 12 + getAppTzMonth(monthDate);
     const nowOrdinal = (() => {
         const d = new Date();
-        return d.getFullYear() * 12 + d.getMonth();
+        return getAppTzYear(d) * 12 + getAppTzMonth(d);
     })();
     const isCurrentMonth = monthOrdinal === nowOrdinal;
     const isPast = monthOrdinal < nowOrdinal;
     const [unlocked, setUnlocked] = useState(false);
     const isLocked = isPast && !unlocked;
     // Past months are review-only by default. Editing them silently rewrites
-    // history: changes "spent vs allocated" charts retroactively, and for
-    // carry-over envelopes can shift this month's `carryIn` because that's
-    // derived from the previous period's remaining. Lock the inputs to avoid
-    // the foot-gun. The current and future months remain editable.
+    // history: changes "spent vs allocated" charts retroactively. Lock the
+    // inputs to avoid the foot-gun. The current and future months remain
+    // editable.
     //
     // The user can explicitly opt out of the lock via the unlock button —
     // see the lock banner below. `isLocked` is the single source of truth
@@ -142,7 +150,7 @@ export default function BudgetMonthPage() {
     const [drafts, setDrafts] = useState<Record<string, string>>({});
     const [hydrated, setHydrated] = useState(false);
 
-    const monthKey = `${monthDate.getFullYear()}-${monthDate.getMonth()}`;
+    const monthKey = `${getAppTzYear(monthDate)}-${getAppTzMonth(monthDate)}`;
     useEffect(() => {
         // Reset hydration whenever the month changes; the next effect picks
         // up fresh data and hydrates again.
@@ -182,9 +190,6 @@ export default function BudgetMonthPage() {
     const onSave = async () => {
         if (saving) return;
         setSaving(true);
-        const periodStartUtc = new Date(
-            Date.UTC(monthDate.getFullYear(), monthDate.getMonth(), 1)
-        );
         const errors: string[] = [];
         const successes: string[] = [];
         for (const e of envelopes) {
@@ -196,8 +201,7 @@ export default function BudgetMonthPage() {
                 await allocate.mutateAsync({
                     envelopId: e.envelopId,
                     amount: delta,
-                    accountId: null,
-                    periodStart: periodStartUtc,
+                    periodStart,
                     // Fresh idempotency key per row per attempt. If the
                     // user double-fires Save, each row's second call
                     // hits the cached result instead of double-allocating.
@@ -214,7 +218,6 @@ export default function BudgetMonthPage() {
             utils.envelop.allocationListBySpace.invalidate({ spaceId: space.id }),
             utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id }),
             utils.analytics.spaceSummary.invalidate(),
-            utils.analytics.accountAllocation.invalidate(),
         ]);
         setSaving(false);
         if (errors.length === 0) {
@@ -259,9 +262,9 @@ export default function BudgetMonthPage() {
                     </h1>
                     <p className="plan-sub">
                         {isLocked
-                            ? "Past month — view only. Editing settled allocations would rewrite history and shift carry-over."
+                            ? "Past month — view only. Each month's budget is independent, so editing it won't affect any other month."
                             : isPast
-                              ? "Reconciliation mode. Saving overwrites this month's budget and shifts carry-over into every later month."
+                              ? "Reconciliation mode. Saving overwrites this month's budget. Months are independent — later months are unaffected."
                               : "Set what you intend to spend on each envelope. The whole month in one screen."}
                     </p>
                 </div>
@@ -272,15 +275,13 @@ export default function BudgetMonthPage() {
                             monthSlug(addMonths(monthDate, -1))
                         )}
                         className="od-btn"
-                        title={`Go to ${addMonths(monthDate, -1).toLocaleString(
-                            "en-US",
-                            { month: "long", year: "numeric" }
+                        title={`Go to ${formatInAppTz(
+                            addMonths(monthDate, -1),
+                            "MMMM yyyy"
                         )}`}
                     >
                         <ChevronLeft className="size-3.5" />{" "}
-                        {addMonths(monthDate, -1).toLocaleString("en-US", {
-                            month: "short",
-                        })}
+                        {formatInAppTz(addMonths(monthDate, -1), "MMM")}
                     </Link>
                     {!isCurrentMonth && (
                         <Link
@@ -300,14 +301,12 @@ export default function BudgetMonthPage() {
                             monthSlug(addMonths(monthDate, 1))
                         )}
                         className="od-btn"
-                        title={`Go to ${addMonths(monthDate, 1).toLocaleString(
-                            "en-US",
-                            { month: "long", year: "numeric" }
+                        title={`Go to ${formatInAppTz(
+                            addMonths(monthDate, 1),
+                            "MMMM yyyy"
                         )}`}
                     >
-                        {addMonths(monthDate, 1).toLocaleString("en-US", {
-                            month: "short",
-                        })}{" "}
+                        {formatInAppTz(addMonths(monthDate, 1), "MMM")}{" "}
                         <ChevronRight className="size-3.5" />
                     </Link>
                     {isLocked ? (
@@ -353,9 +352,8 @@ export default function BudgetMonthPage() {
                         <AlertTriangle className="size-3.5" aria-hidden />
                         <span>
                             <strong>Reconciliation mode.</strong> Saving
-                            overwrites this month's budget and shifts
-                            carry-over into every later month, including the
-                            current one.
+                            overwrites this month's budget. Each month is
+                            independent — no other month is affected.
                         </span>
                         <button
                             type="button"
@@ -382,7 +380,7 @@ export default function BudgetMonthPage() {
                         value={
                             isLocked
                                 ? envelopes.reduce(
-                                      (s, e) => s + e.allocated + e.carryIn,
+                                      (s, e) => s + e.allocated,
                                       0
                                   )
                                 : totalPlanned
@@ -608,7 +606,7 @@ function PlanRow({
     const midSubSuffix = reconcileMode ? "allocated" : "planned";
     const target = Number(value) || 0;
     const delta = target - env.allocated;
-    const planned = env.allocated + env.carryIn;
+    const planned = env.allocated;
     // Coaching hint: if the proposed plan is meaningfully (>10%) below
     // the user's 3-month average actual spend, surface that. Threshold
     // avoids nagging on small differences. Only when not read-only.
@@ -635,32 +633,6 @@ function PlanRow({
                             }
                         )}`}
                     </div>
-                    {(env.borrowedIn > 0 || env.borrowedOut > 0) && (
-                        <div className="plan-row-borrow">
-                            {env.borrowedIn > 0 && (
-                                <span
-                                    className="plan-row-borrow-pill"
-                                    style={{ color: "var(--income)" }}
-                                    title={
-                                        "This period received funds borrowed from a future period."
-                                    }
-                                >
-                                    +{env.borrowedIn.toFixed(2)} borrowed in
-                                </span>
-                            )}
-                            {env.borrowedOut > 0 && (
-                                <span
-                                    className="plan-row-borrow-pill"
-                                    style={{ color: "var(--expense)" }}
-                                    title={
-                                        "A previous period borrowed from this one — its planning pool is reduced by this amount."
-                                    }
-                                >
-                                    −{env.borrowedOut.toFixed(2)} borrowed out
-                                </span>
-                            )}
-                        </div>
-                    )}
                     {showHint && (
                         <div className="plan-row-coach">
                             You've averaged{" "}
@@ -909,24 +881,6 @@ const PLAN_STYLES = `
     font-size: 11px;
     color: var(--fg-4);
     margin-top: 2px;
-}
-.plan-row-borrow {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 4px;
-}
-.plan-row-borrow-pill {
-    display: inline-flex;
-    align-items: center;
-    height: 18px;
-    padding: 0 8px;
-    border-radius: 999px;
-    border: 1px solid var(--line);
-    background: var(--bg-elev-1);
-    font-size: 10.5px;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
 }
 .plan-row-coach {
     margin-top: 4px;

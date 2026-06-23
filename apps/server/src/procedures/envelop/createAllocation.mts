@@ -1,4 +1,5 @@
 import { TRPCError } from "@trpc/server";
+import { sql } from "kysely";
 import { z } from "zod";
 import type { SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
@@ -9,27 +10,22 @@ import { effectivePeriodStart, type Cadence } from "./utils/periodWindow.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 /**
- * Create an envelope allocation — positive to allocate, negative to
- * deallocate. Allocations are *intent*: the user can plan more than
- * they currently have funded. Visibility lives on the envelope dashboard
- * (planned vs funded).
+ * Create or update an envelope allocation — positive to allocate, negative
+ * to deallocate. There is exactly ONE allocation row per (envelope, month)
+ * for monthly envelopes, and one lifetime row (period_start NULL) for
+ * rolling/goal envelopes. Allocating or deallocating UPSERTs that single
+ * row, accumulating the delta — there is no per-change history.
  *
- *   - `accountId` (optional, legacy): pin to a specific account. New UI
- *     no longer surfaces this; always passes null. Kept nullable for
- *     back-compat with existing rows.
- *   - `periodStart` (optional, for monthly cadence): which period this
- *     allocation applies to. Defaults to the period containing today
- *     for monthly envelopes; irrelevant for cadence='none'.
- *   - `idempotencyKey` (optional): client-supplied UUID. A second call
- *     with the same key returns the cached row instead of creating a
- *     duplicate allocation.
+ *   - `periodStart` (optional, monthly only): which month this applies to.
+ *     Defaults to the month containing today; ignored for cadence='none'.
+ *   - `idempotencyKey` (optional): a second call with the same key returns
+ *     the cached row instead of applying the delta twice.
  *
  * Balance checks:
- *   - Positive (allocating): no balance guard. Soft "over-allocation" is
- *     reported by the UI from `analytics.spaceSummary.unallocated`.
+ *   - Positive (allocating): no guard. Over-allocation is *intent*; the UI
+ *     reports the soft "planned > funded" status from analytics.
  *   - Negative (deallocating): can't pull more than the envelope's
- *     current-period remaining, to prevent it from going artificially
- *     negative via deallocation.
+ *     current-period remaining, so it never goes artificially negative.
  */
 export const createEnvelopAllocation = authorizedProcedure
     .input(
@@ -38,7 +34,6 @@ export const createEnvelopAllocation = authorizedProcedure
             amount: z.number().refine((v) => v !== 0, {
                 message: "Amount must not be zero",
             }),
-            accountId: z.string().uuid().nullable().optional(),
             periodStart: z.coerce.date().nullable().optional(),
             idempotencyKey: z.string().uuid().optional(),
         })
@@ -62,6 +57,14 @@ export const createEnvelopAllocation = authorizedProcedure
                                 "name",
                             ])
                             .where("envelops.id", "=", input.envelopId)
+                            // Lock the envelope row for this transaction so a
+                            // concurrent allocate/deallocate/transfer on the
+                            // same envelope serializes behind us — the
+                            // deallocation guard below reads-then-upserts, and
+                            // without the lock two concurrent pulls could both
+                            // pass the guard against a stale balance and drive
+                            // the row negative.
+                            .forUpdate()
                             .executeTakeFirst();
 
                         if (!envelop) {
@@ -91,61 +94,23 @@ export const createEnvelopAllocation = authorizedProcedure
                             });
                         }
 
-                        // Validate account-belongs-to-space if pinned
-                        if (input.accountId) {
-                            const sa = await trx
-                                .selectFrom("space_accounts")
-                                .select("account_id")
-                                .where("account_id", "=", input.accountId)
-                                .where("space_id", "=", envelop.space_id)
-                                .executeTakeFirst();
-                            if (!sa) {
-                                throw new TRPCError({
-                                    code: "BAD_REQUEST",
-                                    message:
-                                        "Account does not belong to this space",
-                                });
-                            }
-                        }
-
-                        // Compute effective period_start once so queries
-                        // + storage match.
+                        const cadence = envelop.cadence as Cadence;
                         const nowRef = new Date();
                         const effPeriod = effectivePeriodStart(
-                            envelop.cadence as Cadence,
+                            cadence,
                             input.periodStart ?? null,
                             nowRef
                         );
                         const storedPeriodStart =
-                            (envelop.cadence as Cadence) === "none"
-                                ? null
-                                : effPeriod;
+                            cadence === "none" ? null : effPeriod;
 
-                        if (input.amount > 0) {
-                            // Allocating is *intent* — over-allocation is
-                            // allowed. The UI reports the soft "planned >
-                            // funded" status from analytics.spaceSummary.
-                        } else {
-                            // Deallocating: target partition for this
-                            // period must have enough remaining to cover
-                            // the pull without going artificially negative.
-                            //
-                            // accountId scoping: the new UI always passes
-                            // `null` (intent is space-wide). For that case,
-                            // check against the envelope's top-line /
-                            // aggregate remaining so legacy account-pinned
-                            // allocations contribute their balance. Only
-                            // when an explicit string accountId is provided
-                            // (legacy partition-fixing flow) do we scope
-                            // to that specific partition.
-                            const accountScope =
-                                input.accountId == null
-                                    ? undefined
-                                    : input.accountId;
+                        if (input.amount < 0) {
+                            // Deallocating: the period must have enough
+                            // remaining to cover the pull without going
+                            // artificially negative.
                             const bal = await resolveEnvelopePeriodBalance({
                                 trx,
                                 envelopId: input.envelopId,
-                                accountId: accountScope,
                                 at: effPeriod,
                             });
                             if (bal.remaining + input.amount < 0) {
@@ -162,14 +127,21 @@ export const createEnvelopAllocation = authorizedProcedure
                                 envelop_id: input.envelopId,
                                 amount: input.amount,
                                 created_by: ctx.auth.user.id,
-                                account_id: input.accountId ?? null,
                                 period_start: storedPeriodStart,
                             })
+                            .onConflict((oc) =>
+                                oc
+                                    .columns(["envelop_id", "period_start"])
+                                    .doUpdateSet({
+                                        amount: sql`envelop_allocations.amount + excluded.amount`,
+                                        created_by: (eb) =>
+                                            eb.ref("excluded.created_by"),
+                                    })
+                            )
                             .returning([
                                 "id",
                                 "envelop_id",
                                 "amount",
-                                "account_id",
                                 "period_start",
                                 "created_at",
                                 "created_by",

@@ -64,23 +64,17 @@ export interface EmailVerificationCodes {
 }
 
 export interface EnvelopAllocations {
-  account_id: string | null;
   amount: Numeric;
-  borrowed_link_id: string | null;
   created_at: Generated<Timestamp>;
   created_by: string;
-  effective_at: Timestamp | null;
   envelop_id: string;
   id: Generated<string>;
-  kind: Generated<string>;
   period_start: Timestamp | null;
 }
 
 export interface Envelops {
   archived: Generated<boolean>;
   cadence: Generated<string>;
-  carry_over: Generated<boolean>;
-  carry_policy: Generated<string>;
   color: Generated<string>;
   created_at: Generated<Timestamp>;
   description: string | null;
@@ -158,15 +152,6 @@ export interface IdempotencyKeys {
   user_id: string;
 }
 
-export interface ReckoningAcknowledgments {
-  acknowledged_at: Generated<Timestamp>;
-  envelop_id: string;
-  period_start: Timestamp;
-  resolution: string;
-  space_id: string;
-  user_id: string;
-}
-
 export interface SpaceAccounts {
   account_id: string;
   created_at: Generated<Timestamp>;
@@ -205,7 +190,6 @@ export interface SpacePin {
 }
 
 export interface Spaces {
-  budget_mode: Generated<string>;
   created_at: Generated<Timestamp>;
   created_by: string;
   id: Generated<string>;
@@ -285,7 +269,6 @@ export interface DB {
   exported_reports: ExportedReports;
   files: Files;
   idempotency_keys: IdempotencyKeys;
-  reckoning_acknowledgments: ReckoningAcknowledgments;
   space_accounts: SpaceAccounts;
   space_invites: SpaceInvites;
   space_members: SpaceMembers;

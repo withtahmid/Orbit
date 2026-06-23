@@ -10,10 +10,7 @@ import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
  *
  * Income and absorbed-overspend are user-slice (only transactions on the
  * caller's owned accounts) so the personal trend doesn't fold a co-
- * member's cash flow into "my" drain on shared spaces. Allocation and
- * plan-allocation deltas are space-wide because under the new envelope-
- * as-intent model those rows aren't pinned to any account — they're
- * collective decisions and read identically for every member.
+ * member's cash flow into "my" drain on shared spaces.
  */
 export const personalUnbudgetedTrend = authorizedProcedure
     .input(
@@ -32,7 +29,6 @@ export const personalUnbudgetedTrend = authorizedProcedure
                     return {
                         windowDays: input.windowDays,
                         income: 0,
-                        allocationsNet: 0,
                         absorbedOverspend: 0,
                     };
                 }
@@ -63,17 +59,6 @@ export const personalUnbudgetedTrend = authorizedProcedure
                     .execute(trx)
                     .then((r) => Number(r.rows[0]?.total ?? 0));
 
-                const allocChange = await sql<{ total: string }>`
-                    SELECT COALESCE(SUM(a.amount), 0)::text AS total
-                    FROM envelop_allocations a
-                    JOIN envelops e ON e.id = a.envelop_id
-                    WHERE e.space_id = ANY(${memberSpaces}::uuid[])
-                      AND a.created_at >= ${windowStart}
-                      AND a.created_at < ${now}
-                `
-                    .execute(trx)
-                    .then((r) => Number(r.rows[0]?.total ?? 0));
-
                 const absorbed = await sql<{ total: string }>`
                     WITH months AS (
                         SELECT generate_series(
@@ -87,13 +72,10 @@ export const personalUnbudgetedTrend = authorizedProcedure
                             e.id AS envelop_id,
                             m.m_start,
                             COALESCE((
-                                SELECT SUM(a.amount)
+                                SELECT a.amount
                                 FROM envelop_allocations a
                                 WHERE a.envelop_id = e.id
-                                  AND COALESCE(
-                                        a.period_start,
-                                        DATE_TRUNC('month', a.created_at)::date
-                                      ) = m.m_start::date
+                                  AND a.period_start = m.m_start::date
                             ), 0) AS allocated,
                             COALESCE((
                                 SELECT SUM(t.amount)
@@ -108,7 +90,10 @@ export const personalUnbudgetedTrend = authorizedProcedure
                         CROSS JOIN months m
                         WHERE e.space_id = ANY(${memberSpaces}::uuid[])
                           AND e.cadence = 'monthly'
-                          AND e.carry_policy <> 'both'
+                          -- Only months fully inside the window (start on/after
+                          -- windowStart) so a partial leading month's
+                          -- pre-window spend isn't counted.
+                          AND m.m_start >= ${windowStart}
                           AND (m.m_start + INTERVAL '1 month') <= ${now}
                     )
                     SELECT COALESCE(SUM(GREATEST(0, consumed - allocated)), 0)::text AS total
@@ -120,7 +105,6 @@ export const personalUnbudgetedTrend = authorizedProcedure
                 return {
                     windowDays: input.windowDays,
                     income,
-                    allocationsNet: allocChange,
                     absorbedOverspend: absorbed,
                 };
             })

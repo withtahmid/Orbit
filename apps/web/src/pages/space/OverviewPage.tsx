@@ -328,45 +328,6 @@ export default observer(function OverviewPage() {
         return [...slices, ...unSlice];
     }, [utilization.data, summary.data]);
 
-    /* Borrow obligations banner — sums envelope.borrowedOut across the
-       current month so the overview surfaces "future periods owe X" the
-       same way the Envelopes view does. Replaces the legacy per-account
-       drift banner that the new envelope-as-intent model retired. */
-    const borrowAlerts = useMemo(() => {
-        const rows: Array<{
-            envelopId: string;
-            envelopName: string;
-            envelopColor: string;
-            envelopIcon: string;
-            owed: number;
-            // Personal-twin rows include a real space id; for in-space
-            // views the active space is the same as `space.id`.
-            spaceId: string;
-            spaceName?: string;
-        }> = [];
-        for (const e of utilization.data ?? []) {
-            const out = (e as { borrowedOut?: number }).borrowedOut ?? 0;
-            if (out > 0) {
-                const personalRow = e as {
-                    spaceId?: string;
-                    spaceName?: string;
-                };
-                rows.push({
-                    envelopId: e.envelopId,
-                    envelopName: e.name,
-                    envelopColor: e.color,
-                    envelopIcon: e.icon,
-                    owed: out,
-                    spaceId: personalRow.spaceId ?? space.id,
-                    spaceName: personalRow.spaceName,
-                });
-            }
-        }
-        rows.sort((a, b) => b.owed - a.owed);
-        const total = rows.reduce((s, r) => s + r.owed, 0);
-        return { rows, total };
-    }, [utilization.data, space.id]);
-
     const overAllocated = summary.data?.isOverAllocated ?? false;
 
     /* Picker for the "Net this month" eyebrow under the cash-flow
@@ -530,58 +491,6 @@ export default observer(function OverviewPage() {
                     they're in plus accounts only they own. */}
                 {isPersonal && spaceBreakdown.data && (
                     <PersonalSpaceBand data={spaceBreakdown.data} />
-                )}
-
-                {/* Reckoning banner — past-month overspends still
-                    awaiting resolution. Surfaces the same info the
-                    Envelopes page does so the Overview is complete on
-                    its own. Wired for both real spaces and personal. */}
-                <ReckoningOverviewBanner
-                    spaceId={space.id}
-                    isPersonal={isPersonal}
-                />
-
-                {/* Borrow obligations banner — envelopes that owe future
-                    periods. Replaces the retired per-account drift card. */}
-                {borrowAlerts.rows.length > 0 && (
-                    <div className="od-card ov-drift">
-                        <div className="ov-drift-head">
-                            <div className="ov-drift-headline">
-                                <span className="ov-drift-icon">
-                                    <BoltIcon />
-                                </span>
-                                <div>
-                                    <div className="ov-drift-title">
-                                        {borrowAlerts.rows.length} envelope
-                                        {borrowAlerts.rows.length === 1 ? "" : "s"} owe future periods
-                                    </div>
-                                    <div className="ov-drift-sub">
-                                        <Money amount={borrowAlerts.total} variant="warn" /> borrowed
-                                        from upcoming months. Future income covers it before it
-                                        spends.
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="ov-drift-rows">
-                            {borrowAlerts.rows.slice(0, 4).map((r) => (
-                                <Link
-                                    key={r.envelopId}
-                                    to={ROUTES.spaceBudgetDetail(r.spaceId, r.envelopId)}
-                                    className="ov-drift-row"
-                                >
-                                    <span className="ov-drift-row-left">
-                                        <EntityAvatar icon={r.envelopIcon} colorVar={r.envelopColor} size={26} />
-                                        <span className="ov-drift-row-name">{r.envelopName}</span>
-                                    </span>
-                                    <span className="ov-drift-row-right">
-                                        <Money amount={-r.owed} variant="expense" />
-                                        <ChevronRightIcon />
-                                    </span>
-                                </Link>
-                            ))}
-                        </div>
-                    </div>
                 )}
 
                 {/* Over-allocation banner */}
@@ -1190,55 +1099,6 @@ export default observer(function OverviewPage() {
 /* =============================================================
    Helper components
    ============================================================= */
-
-function ReckoningOverviewBanner({
-    spaceId,
-    isPersonal,
-}: {
-    spaceId: string;
-    isPersonal: boolean;
-}) {
-    const spaceQuery = trpc.reckoning.listPending.useQuery(
-        { spaceId },
-        { enabled: !isPersonal }
-    );
-    const personalQuery = trpc.personal.reckoning.listPending.useQuery(
-        {},
-        { enabled: isPersonal }
-    );
-    const items = (isPersonal ? personalQuery.data : spaceQuery.data) ?? [];
-    if (items.length === 0) return null;
-    const total = items.reduce((s, i) => s + i.overBy, 0);
-    const envelopeCount = new Set(items.map((i) => i.envelopId)).size;
-    return (
-        <Link
-            to={ROUTES.spaceReckoning(isPersonal ? "me" : spaceId)}
-            className="od-card ov-drift"
-            style={{ textDecoration: "none" }}
-        >
-            <div className="ov-drift-head">
-                <div className="ov-drift-headline">
-                    <span className="ov-drift-icon">
-                        <BoltIcon />
-                    </span>
-                    <div>
-                        <div className="ov-drift-title">
-                            {items.length} past-month overspend
-                            {items.length === 1 ? "" : "s"} need
-                            {items.length === 1 ? "s" : ""} attention
-                        </div>
-                        <div className="ov-drift-sub">
-                            <Money amount={total} variant="warn" /> across {envelopeCount}
-                            {" "}envelope{envelopeCount === 1 ? "" : "s"}. Decide how to
-                            settle.
-                        </div>
-                    </div>
-                </div>
-                <span className="od-btn">Settle →</span>
-            </div>
-        </Link>
-    );
-}
 
 function Money({
     amount,
@@ -2148,7 +2008,6 @@ const FilterIcon = () => <DesignIcon name="filter" size={13} color="var(--fg-3)"
 const ChartIcon = () => <DesignIcon name="chart" size={13} color="var(--fg-3)" />;
 const PlusIcon = () => <DesignIcon name="plus" size={13} color="var(--brand-fg)" />;
 const BoltIcon = () => <DesignIcon name="bolt" size={16} color="var(--warn)" />;
-const ChevronRightIcon = () => <DesignIcon name="chevronRight" size={13} color="var(--fg-4)" />;
 
 /* =============================================================
    New (design-driven) components
@@ -3687,22 +3546,10 @@ const OV_STYLES = `
    .orbit-design .od-card rule (specificity 0,2,0) — otherwise the
    default card background overrides the warm tint and the banner
    reads as a plain dark card with no amber/red signal. */
-.orbit-design .od-card.ov-drift {
-    padding: 18px;
-    border-color: color-mix(in oklab, var(--warn) 35%, var(--line));
-    background: color-mix(in oklab, var(--warn) 6%, var(--bg-elev-1));
-}
 .orbit-design .od-card.ov-over {
     padding: 18px;
     border-color: color-mix(in oklab, var(--expense) 35%, var(--line));
     background: color-mix(in oklab, var(--expense) 6%, var(--bg-elev-1));
-}
-.ov-drift-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
 }
 .ov-drift-headline { display: flex; gap: 14px; min-width: 0; }
 .ov-drift-icon {
@@ -3719,29 +3566,6 @@ const OV_STYLES = `
 }
 .ov-drift-title { font-size: 13.5px; color: var(--fg); font-weight: 500; }
 .ov-drift-sub { font-size: 12px; color: var(--fg-3); margin-top: 2px; }
-.ov-drift-rows {
-    margin-top: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-.ov-drift-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    background: var(--bg-elev-2);
-    border: 1px solid var(--line-soft);
-    border-radius: 10px;
-    text-decoration: none;
-    color: inherit;
-    transition: border-color 140ms ease;
-}
-.ov-drift-row:hover { border-color: var(--line-strong); }
-.ov-drift-row-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.ov-drift-row-name { font-size: 13px; color: var(--fg); }
-.ov-drift-row-acct { font-size: 11.5px; color: var(--fg-4); }
-.ov-drift-row-right { display: flex; align-items: center; gap: 12px; }
 
 /* Donut trio */
 .ov-trio {
@@ -4504,11 +4328,6 @@ const OV_STYLES = `
     .ov-glance-spark { display: none; }
     .ov-mover-delta,
     .ov-income-row-pct { display: none; }
-
-    /* Drift / over-allocation rows */
-    .ov-drift-head { gap: 10px; }
-    .ov-drift-row { padding: 10px; }
-    .ov-drift-row-right { gap: 8px; }
 
     /* Net worth composition */
     .ov-nwc { padding: 16px; }

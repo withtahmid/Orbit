@@ -1,11 +1,19 @@
 ---
 name: docs-page-stale-after-merge
-description: Plan->envelope-target rename cleanup tracker (2026-05-20). DocsPage/README/CLAUDE.md/marketing all clean; surviving stale surfaces are the contexts/ specs.
+description: DocsPage copy is the load-bearing stale surface after simplify-budgeting (2026-06-23). Analytics inventory, Allocations screen desc, and "legacy drift" note all pre-merge.
 metadata:
   type: project
 ---
 
-Tracks the remaining stale surfaces after the plan->envelope-target merge (see [[plan-envelope-merge-decision]], [[budgets-page-merge-goals-envelopes]]).
+**2026-06-23 (simplify-budgeting branch, post-fix-batch):** The four targeted fixes converged cleanly — AllocationsView "Drift" KPI (no "legacy", sub "Assets − envelopes"), UnbudgetedBanner breakdown (Income 90d + Silent overspend absorbed, both real `unbudgetedTrend` fields), BudgetDetailPage stale-id not-found state, NewTransactionSheet overspend copy ("Save as-is..."). No live `borrow/reckon/strict/matrix/2D` refs remain in apps/web/src. Remaining staleness is confined to `apps/web/src/pages/DocsPage.tsx`:
+- Analytics section (`:886-905`) says "Ten ... views" + lists Year-report/Matrix grid — Matrix deleted; recount + prune.
+- Allocations section (`:841-848`) describes "Budget this month" as a 3-column last-actual/last-budget/this-budget grid — verify against current `BudgetMonthPage`.
+- Drift/Overspend section (`:874-876`) keeps a "legacy per-account drift is retired" note — accurate but reads as residue; consider deleting or moving to FAQ.
+- Terminology: "Drift" is overloaded — AllocationsView (assets − allocations), BudgetsPage card flag (consumed > allocated), DocsPage (retired per-account). Future terminology pass, not fix-now.
+
+---
+
+**Historical (plan->envelope-target rename, 2026-05-20):** Tracks remaining stale surfaces after the plan->envelope-target merge (see [[plan-envelope-merge-decision]], [[budgets-page-merge-goals-envelopes]]).
 
 **Resolved as of 2026-05-20:**
 - DocsPage (Concepts tile, Envelopes section, Goal envelopes callout, symmetric-progress rule)

@@ -85,7 +85,6 @@ export function EnvelopeMoveDialog({
                     spaceId: space.id,
                 }),
                 utils.analytics.spaceSummary.invalidate(),
-                utils.analytics.accountAllocation.invalidate(),
             ]);
             setOpen(false);
             setAmount("");

@@ -1,3 +1,4 @@
+- [Simplified budgeting model (mig 048)](simplified_budgeting_model.md) — One row per (envelope, period); monthly resets, rolling/goal = NULL-period lifetime pool; held clamped per-envelope; pctSaved = lifetime_funded/target.
 - [Money storage convention](money_storage.md) — Orbit stores money as Postgres `numeric` cast to text in transit, then `Number()` on the client. No minor-unit ints.
 - [Envelope total denominator](envelope_total.md) — "% used" should use `consumed / (allocated + carryIn)`. EnvelopesPage urgency sort was fixed in branch `wrap`.
 - [Filtered-totals OUT formula](filtered_totals_out.md) — Per-space and personal procedures disagree on what counts in OUT (adjustments, account-flow scoping). Treat as ambiguous until product decides.

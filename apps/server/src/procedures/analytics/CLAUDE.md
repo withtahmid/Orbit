@@ -1,59 +1,51 @@
-# Envelope ledger direction
+# Envelope analytics — the simplified model
 
 This directory holds the on-read analytics for envelopes (`envelopeUtilization`,
-`spaceSummary`, etc.). It is **mid-refactor** toward a typed envelope ledger.
+`spaceSummary`, etc.). As of migration `048_simplify_budgeting`, the budgeting
+model is deliberately simple — the earlier "promote `envelop_allocations` to a
+typed ledger" direction was **abandoned**.
 
-## The target shape
+## The allocation shape
 
-`envelop_allocations` is being promoted to a first-class ledger. Migration
-[`045_envelop_allocation_kind.mts`](../../db/kysely/migrations/045_envelop_allocation_kind.mts)
-seeded two columns:
+`envelop_allocations` holds **exactly one row per (envelope, period)**, enforced
+by the unique index `(envelop_id, period_start) NULLS NOT DISTINCT`:
 
-- `kind text NOT NULL DEFAULT 'allocate'`, check-constrained to
-  `{'allocate', 'borrow', 'cover', 'reckon', 'restructure'}`
-- `effective_at timestamptz` (nullable; readers should `COALESCE(effective_at, created_at)`)
+- **Monthly** envelopes (`cadence='monthly'`): one row per calendar month.
+  `period_start` is the **APP_TZ (Asia/Dhaka) month-start** date. `amount` is the
+  ABSOLUTE allocated total for that month — not a delta.
+- **Rolling / goal** envelopes (`cadence='none'`): exactly one lifetime row with
+  `period_start IS NULL`. `amount` is the absolute lifetime pool.
 
-Today every row reads `kind = 'allocate'` (or `'borrow'` after migration backfill).
-The remaining kinds (`cover`, `reckon`, `restructure`) get their writers as the
-ledger work lands.
+There is no per-change history, no `kind`/`effective_at`/`borrowed_link_id`, and
+no `account_id` — allocations are space-wide. Allocating/deallocating UPSERTs the
+single row (`amount = amount + delta`); transfer is two such upserts.
 
-## The rule for new analytics readers
+## Reading allocations
 
-**Derive from the ledger.** Do not add new columns or side tables to express
-envelope state; express it as a filter or aggregate over `envelop_allocations`
-typed by `kind`. Examples once the ledger is fully expressed:
+- **Monthly** "allocated for month M" → the single row `WHERE period_start = M`.
+  Multi-month windows sum the per-month rows.
+- **Rolling/goal** → the single row `WHERE period_start IS NULL`. Always match on
+  `IS NULL`, never a date range (a date comparison drops the NULL row).
+- The PG session runs in `Asia/Dhaka` (see `db/index.mts`), so SQL
+  `date_trunc('month', NOW())::date` and `::date` casts align with the JS
+  `periodWindow.mts` boundaries.
 
-- "Net overspent" → `SUM(amount) FILTER (WHERE kind = 'reckon' AND ...)` against
-  the envelope's lifetime ledger (or zero if no reckon row exists).
-- "Borrowed in / owed out" → paired `kind = 'borrow'` rows (already true today).
-- "Carry-over recognised" → `kind = 'reckon'` row at period boundary.
+## Semantics (no carry, no borrow, no reckoning)
 
-## Stop-gaps to retire
+- **Monthly resets every period.** `remaining = allocated(month) − consumed(month)`.
+  Last month's surplus does NOT roll forward.
+- **Rolling/goal keep going.** `allocated` = lifetime pool, `consumed` = all-time
+  spend, `remaining = allocated − consumed`.
+- **Held** (the cash an envelope ties up, feeding space `unallocated`) is
+  `GREATEST(0, allocated − consumed)` per envelope, summed. Overspend shows as
+  drift but never inflates free cash. `spaceSummary` and `resolveSpaceUnallocated`
+  must produce the same held number — they feed the same `unallocated`.
+- **Overspend is shown, never blocked or nagged.** There is no strict mode and no
+  reckoning. `lifetimeOverrun` on rolling envelopes (`GREATEST(0, lifetime
+  consumed − lifetime allocated)`) is a permanent derived display field.
 
-Search the repo for `LEDGER-REPLACEABLE` comments. Each marker is a site that
-expresses some envelope state via a special-purpose column or pill instead of
-the ledger. The plan is to retire them as the ledger gains writers:
+## Rule for new readers
 
-- `lifetime_overrun` SQL column on `envelopeUtilization.mts` (space + personal twin)
-- The "net overspent (lifetime)" pills on EnvelopesPage card, EnvelopesPage list
-  row, and analytics EnvelopesView row
-- The `note` slot on the `HeroStat` component (`EnvelopeDetailPage.tsx`)
-
-When the ledger expresses these natively, the markers — and the columns/UI
-they tag — come out together.
-
-## First reader to migrate
-
-`envelopeUtilization.mts` is the smallest blast radius: single-envelope shape,
-two render sites (EnvelopesPage card + EnvelopesView row), and its
-`lifetime_overrun` column becomes a one-line `SUM(...) FILTER (WHERE kind=...)`
-once the ledger writers land. Start there, prove the pattern, then `spaceSummary`.
-
-## What's intentional, not a bug
-
-`spaceSummary.mts` rolling-envelope held formula uses a one-sided `MAX` — see
-the inline comment above the formula. Lifetime cushion absorbs a single-period
-overspend on rolling envelopes by design. The reverse case (lifetime overspent,
-period positive) is the bug the overlay was added to fix. If you ever want
-period overspend to surface for rolling envelopes, the replacement formula is
-documented inline.
+Express envelope state as a filter/aggregate over the one-row-per-period
+`envelop_allocations`. Do not reintroduce a delta ledger, per-account allocation,
+carry policies, borrowing, or side tables — those were removed on purpose.

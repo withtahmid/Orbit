@@ -6,18 +6,15 @@ import type { DB } from "../../../db/kysely/types.mjs";
  * On-read computation (the materialized balances table is gone).
  *
  * spendable = SUM(asset balances) − SUM(liability balances) (locked excluded)
- * held      = SUM(current-period envelope remaining, incl. carryIn)
+ * held      = SUM(current-period envelope remaining, clamped to ≥ 0)
  * free      = spendable − held
  *
  * Envelope held:
- *   Per-envelope current-period remaining, summed. For cadence='none' the
- *   window is [epoch, ∞) (this also covers goal envelopes, which carry a
- *   `target_amount` but the same rolling accumulation rules). For
- *   cadence='monthly' it's the current calendar month. When `carry_over =
- *   true`, the previous period's remaining (clamped to ≥ 0) is added in as
- *   `carryIn` — matching `resolveEnvelopePeriodBalance`. The whole held
- *   value per envelope is clamped to ≥ 0 so that overspend shows as drift
- *   but doesn't inflate free cash.
+ *   Per-envelope remaining = allocated − consumed, clamped to ≥ 0 so an
+ *   overspent envelope shows as drift but doesn't inflate free cash. Monthly
+ *   envelopes use the current calendar month (they reset each period, no
+ *   carry-over). cadence='none' (rolling/goal) envelopes use the lifetime
+ *   pool window [epoch, ∞). Matches `resolveEnvelopePeriodBalance`.
  */
 export async function resolveSpaceUnallocated({
     trx,
@@ -34,7 +31,6 @@ export async function resolveSpaceUnallocated({
             SELECT
                 e.id AS envelop_id,
                 e.cadence,
-                e.carry_policy,
                 CASE e.cadence
                     WHEN 'none' THEN DATE '1970-01-01'
                     WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
@@ -42,15 +38,7 @@ export async function resolveSpaceUnallocated({
                 CASE e.cadence
                     WHEN 'none' THEN DATE '9999-12-31'
                     WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
-                END AS p_end,
-                CASE e.cadence
-                    WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) - INTERVAL '1 month')::date
-                    ELSE NULL
-                END AS prev_start,
-                CASE e.cadence
-                    WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
-                    ELSE NULL
-                END AS prev_end
+                END AS p_end
             FROM envelops e
             WHERE e.space_id = ${spaceId}
         ),
@@ -59,10 +47,11 @@ export async function resolveSpaceUnallocated({
             FROM period p
             LEFT JOIN envelop_allocations a ON a.envelop_id = p.envelop_id
                 AND (
-                    p.cadence = 'none'
+                    (p.cadence = 'none' AND a.period_start IS NULL)
                     OR (
-                        COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.p_start
-                        AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.p_end
+                        p.cadence <> 'none'
+                        AND a.period_start >= p.p_start
+                        AND a.period_start < p.p_end
                     )
                 )
             GROUP BY p.envelop_id
@@ -75,33 +64,6 @@ export async function resolveSpaceUnallocated({
                 AND t.transaction_datetime >= p.p_start
                 AND t.transaction_datetime < p.p_end
             GROUP BY p.envelop_id
-        ),
-        env_prev_alloc AS (
-            -- Only include previous-period allocations for envelopes that
-            -- actually carry (positive_only OR both). 'reset' envelopes
-            -- contribute zero carryIn so the join is skipped.
-            SELECT p.envelop_id, COALESCE(SUM(a.amount), 0) AS allocated
-            FROM period p
-            LEFT JOIN envelop_allocations a ON a.envelop_id = p.envelop_id
-                AND p.cadence <> 'none'
-                AND p.carry_policy <> 'reset'
-                AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
-                AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
-            GROUP BY p.envelop_id
-        ),
-        env_prev_consume AS (
-            SELECT p.envelop_id, COALESCE(SUM(t.amount), 0) AS consumed
-            FROM period p
-            LEFT JOIN transactions t ON t.envelop_id = p.envelop_id
-                AND p.cadence <> 'none'
-                AND p.carry_policy <> 'reset'
-                AND t.type = 'expense'
-                AND t.transaction_datetime >= p.prev_start
-                AND t.transaction_datetime < p.prev_end
-            GROUP BY p.envelop_id
-        ),
-        env_policy AS (
-            SELECT envelop_id, carry_policy FROM period
         )
         SELECT
             (
@@ -118,32 +80,14 @@ export async function resolveSpaceUnallocated({
                 WHERE sa.space_id = ${spaceId}
             ) AS spendable,
             (
-                -- envelope_held per envelope, honoring carry_policy:
-                --   reset         → carryIn = 0
-                --   positive_only → carryIn = max(0, prev_remaining)
-                --   both          → carryIn = prev_remaining (signed)
-                -- Outer GREATEST(0, ...) clamps held to ≥ 0 because an
-                -- overspent envelope holds no cash; we don't want negative
-                -- holds inflating the unbudgeted pool.
+                -- Held per envelope, clamped to ≥ 0: an overspent envelope
+                -- holds no cash, so negative remaining doesn't inflate the
+                -- unbudgeted pool.
                 SELECT COALESCE(SUM(
-                    GREATEST(
-                        0,
-                        CASE
-                            WHEN ep.carry_policy = 'both' THEN
-                                COALESCE(epa.allocated, 0) - COALESCE(epc.consumed, 0)
-                            WHEN ep.carry_policy = 'positive_only' THEN
-                                GREATEST(0, COALESCE(epa.allocated, 0) - COALESCE(epc.consumed, 0))
-                            ELSE 0
-                        END
-                        + ea.allocated
-                        - ec.consumed
-                    )
+                    GREATEST(0, ea.allocated - ec.consumed)
                 ), 0)
                 FROM env_alloc ea
                 JOIN env_consume ec ON ec.envelop_id = ea.envelop_id
-                JOIN env_policy ep ON ep.envelop_id = ea.envelop_id
-                LEFT JOIN env_prev_alloc epa ON epa.envelop_id = ea.envelop_id
-                LEFT JOIN env_prev_consume epc ON epc.envelop_id = ea.envelop_id
             ) AS envelope_held
     `
         .execute(trx)

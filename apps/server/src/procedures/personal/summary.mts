@@ -98,10 +98,12 @@ export const personalSummary = authorizedProcedure
                     .execute(ctx.services.qb)
                     .then((r) => r.rows[0]);
 
-                // Envelope aggregates restricted to owned-account
-                // partitions — current-period allocated/consumed plus
-                // carry-in from the immediately-preceding equal-length
-                // window (same math as envelopeUtilization, summed).
+                // Envelope aggregates: allocation is space-wide (no per-
+                // account dimension), so p_allocated is the envelope's full
+                // current-period allocation; p_consumed is owned-account
+                // spend. Monthly envelopes reset each period; rolling/goal
+                // use the lifetime pool. No carry-over. Held = GREATEST(0,
+                // allocated − consumed). Matches analytics.spaceSummary.
                 const envelopeRow = await sql<{
                     allocated: string;
                     consumed: string;
@@ -111,7 +113,6 @@ export const personalSummary = authorizedProcedure
                         SELECT
                             e.id AS envelop_id,
                             e.cadence,
-                            e.carry_policy,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '1970-01-01'
                                 WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
@@ -119,15 +120,7 @@ export const personalSummary = authorizedProcedure
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '9999-12-31'
                                 WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
-                            END AS p_end,
-                            CASE e.cadence
-                                WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) - INTERVAL '1 month')::date
-                                ELSE NULL
-                            END AS prev_start,
-                            CASE e.cadence
-                                WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
-                                ELSE NULL
-                            END AS prev_end
+                            END AS p_end
                         FROM envelops e
                         WHERE e.space_id = ANY(${memberSpaces})
                     ),
@@ -138,12 +131,12 @@ export const personalSummary = authorizedProcedure
                                 SELECT SUM(a.amount)
                                 FROM envelop_allocations a
                                 WHERE a.envelop_id = p.envelop_id
-                                  AND (a.account_id IS NULL OR a.account_id = ANY(${owned}))
                                   AND (
-                                      p.cadence = 'none'
+                                      (p.cadence = 'none' AND a.period_start IS NULL)
                                       OR (
-                                          COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.p_start
-                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.p_end
+                                          p.cadence <> 'none'
+                                          AND a.period_start >= p.p_start
+                                          AND a.period_start < p.p_end
                                       )
                                   )
                             ), 0) AS p_allocated,
@@ -159,59 +152,13 @@ export const personalSummary = authorizedProcedure
                                   AND t.source_account_id = ANY(${owned})
                                   AND t.transaction_datetime >= p.p_start
                                   AND t.transaction_datetime < p.p_end
-                            ), 0) AS p_consumed,
-                            -- Three-mode carry policy:
-                            --   reset → 0; positive_only → max(0, prev_remaining);
-                            --   both → prev_remaining (signed; debt persists).
-                            CASE
-                                WHEN p.cadence = 'none' OR p.carry_policy = 'reset' THEN 0
-                                WHEN p.carry_policy = 'both' THEN (
-                                    COALESCE((
-                                        SELECT SUM(a.amount)
-                                        FROM envelop_allocations a
-                                        WHERE a.envelop_id = p.envelop_id
-                                          AND (a.account_id IS NULL OR a.account_id = ANY(${owned}))
-                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
-                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
-                                    ), 0)
-                                    -
-                                    COALESCE((
-                                        SELECT SUM(t.amount)
-                                        FROM transactions t
-                                        WHERE t.envelop_id = p.envelop_id
-                                          AND t.type = 'expense'
-                                          AND t.source_account_id = ANY(${owned})
-                                          AND t.transaction_datetime >= p.prev_start
-                                          AND t.transaction_datetime < p.prev_end
-                                    ), 0)
-                                )
-                                ELSE GREATEST(0, (
-                                    COALESCE((
-                                        SELECT SUM(a.amount)
-                                        FROM envelop_allocations a
-                                        WHERE a.envelop_id = p.envelop_id
-                                          AND (a.account_id IS NULL OR a.account_id = ANY(${owned}))
-                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= p.prev_start
-                                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < p.prev_end
-                                    ), 0)
-                                    -
-                                    COALESCE((
-                                        SELECT SUM(t.amount)
-                                        FROM transactions t
-                                        WHERE t.envelop_id = p.envelop_id
-                                          AND t.type = 'expense'
-                                          AND t.source_account_id = ANY(${owned})
-                                          AND t.transaction_datetime >= p.prev_start
-                                          AND t.transaction_datetime < p.prev_end
-                                    ), 0)
-                                ))
-                            END AS p_carry_in
+                            ), 0) AS p_consumed
                         FROM period p
                     )
                     SELECT
                         COALESCE(SUM(p_allocated), 0)::text AS allocated,
                         COALESCE(SUM(p_consumed), 0)::text AS consumed,
-                        COALESCE(SUM(GREATEST(0, p_allocated + p_carry_in - p_consumed)), 0)::text AS remaining
+                        COALESCE(SUM(GREATEST(0, p_allocated - p_consumed)), 0)::text AS remaining
                     FROM per_env
                 `
                     .execute(ctx.services.qb)

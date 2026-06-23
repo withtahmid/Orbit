@@ -17,15 +17,13 @@ One file per procedure namespace under `apps/server/src/procedures/<name>/`, mir
 | [space](server/space.md) | Spaces + members CRUD, role machinery via `resolveSpaceMembership`. Last-owner protection lives in `removeMember` and `changeMemberRole` only. |
 | [file](server/file.md) | Three-step R2 upload (createUploadUrl → client PUT → confirm). Avatar confirm re-encodes to webp. The `__placeholder__` r2_key trick threads the row id into the key. |
 | [account](server/account.md) | Accounts (`accounts` table), space-sharing via `space_accounts`, ownership via `user_accounts`. `user_accounts.role` is `owner|viewer` only — distinct from `space_members.role`. |
-| [envelop](server/envelop.md) | Envelope buckets per space, cadence (`none`/`monthly`), archived flag, carry policy. `envelop_balances` table **retired in migration 026** — period balance now computed on-read via `resolveEnvelopePeriodBalance`. |
-| [plan](server/plan.md) | Long-term savings goals. `plan_balances` table also **retired in 026** — totals computed on-read. |
+| [envelop](server/envelop.md) | Envelope buckets per space, cadence (`none`/`monthly`), archived flag, optional `target_amount`/`target_date` (goals — only on `cadence='none'`, migrations 046/047). `envelop_balances` table **retired in migration 026** — period balance now computed on-read via `resolveEnvelopePeriodBalance`. Goals are envelopes now; the separate `plan`/`plan_allocations` subtree was **dropped in migration 046**. |
 | [expenseCategory](server/expenseCategory.md) | Hierarchical categories pinned to envelopes. `priority` enum (essential/important/discretionary/luxury) inherited from ancestors via parent-walk CTE. |
-| [allocation](server/allocation.md) | Intentionally narrow — only `transfer`. Per-bucket CRUD lives under `envelop.*` and `plan.*`. |
+| [allocation](server/allocation.md) | Intentionally narrow — only `transfer` (the primary overspend remedy). Per-envelope allocate/deallocate lives under `envelop.*`. |
 | [transaction](server/transaction.md) | Four creation paths (income/expense/transfer/adjust), each gated by per-type CHECK constraints. Transfer fees (`fee_amount` + `fee_expense_category_id`) hit the source account. `account_balances` is the only trigger-maintained table. |
 | [event](server/event.md) | Recently extended (migration 038) with `status` (active/closed), `estimated_amount`, `closed_at`. `transactions.event_id` is `ON DELETE SET NULL`. New procedures: `getById`, `setStatus`. |
-| [analytics](server/analytics.md) | ~35 procedures grouped by surface (summary / cash-flow / categories / envelopes / plans / events / accounts / heatmaps / recurring / trends / anomalies). Transfer fees folded into expense sums via `UNION ALL` pattern. |
+| [analytics](server/analytics.md) | Procedures grouped by surface (summary / cash-flow / categories / envelopes / events / accounts / heatmaps / recurring / trends / anomalies). Transfer fees folded into expense sums via `UNION ALL` pattern. |
 | [personal](server/personal.md) | Virtual `/s/me` twin of analytics. Scoped by `resolveOwnedAccountIds` + `resolveMemberSpaceIds`. Owned→owned transfers excluded as "internal." |
-| [reckoning](server/reckoning.md) | YNAB-style overspend reconciliation. Two procedures (`listPending`, `acknowledge`). The strict-gate that enforces `spaces.budget_mode='strict'` lives in `space/utils/resolveStrictGate.mts` (not in reckoning). |
 | [pin](server/pin.md) | Transaction-entry defaults — three pinnable fields (Account per-user, Envelope/Event space-wide). Two tables (`user_space_pin`, `space_pin`) + a shared enum, owner/editor gate on the shared scopes. Migration 044 relaxed `set_by_user_id` from CASCADE → SET NULL so a setter leaving the space doesn't drop the team pin. |
 
 ---
@@ -39,14 +37,12 @@ One file per page module under `apps/web/src/pages/space/<name>/`.
 | [overview](web/overview.md) | `OverviewPage.tsx` — space dashboard with today summary, cash flow, top categories, upcoming, recent transactions. Personal-twin aware. |
 | [accounts](web/accounts.md) | `AccountsPage` (orbit-design CSS) + `AccountDetailPage` (still uses shadcn `Card`/`Tabs`). **Detail page is not personal-aware** — `/s/me/accounts/:id` would break. |
 | [transactions](web/transactions.md) | `TransactionsPage.tsx` (~1900 lines) — filter bar + list + detail sheet + totals card, with personal-twin dispatch. New/Edit sheets live under `features/transactions/`. |
-| [envelopes](web/envelopes.md) | `EnvelopesPage` + `EnvelopeDetailPage` — period state, overspend, allocations, borrow/carry. |
-| [plans](web/plans.md) | `PlansPage` + `PlanDetailPage` — long-term savings goals. |
+| [envelopes](web/envelopes.md) | `BudgetsPage` + `BudgetDetailPage` + `BudgetMonthPage` (under `pages/space/budgets/`) — period state, overspend, space-wide allocations. |
 | [categories](web/categories.md) | `CategoriesPage` — category tree pinned to envelopes, tree CRUD. |
 | [events](web/events.md) | `EventsPage` + `EventDetailPage` + supporting (`CreateOrEditEventDialog`, `DeleteEventDialog`, `EventStatusButton`, `eventUI.tsx`). Recently rewritten — segmented Active/Closed/All filter, estimate progress bar, detail page. |
-| [analytics](web/analytics.md) | `AnalyticsPage` + eleven explicit child view routes. **Three views lack personal twins** (`AllocationsView`, `MatrixView`, `PriorityView`) — they break on `/s/me`. Adding a view requires both an `ENTRIES` tile and a route entry. |
-| [reckoning](web/reckoning.md) | `ReckoningPage` — overspend reconciliation flow with a state machine. |
+| [analytics](web/analytics.md) | `AnalyticsPage` + ten explicit child view routes. **Two views lack personal twins** (`AllocationsView`, `PriorityView`) — they break on `/s/me`. Adding a view requires both an `ENTRIES` tile and a route entry. |
 | [year-report](web/year-report.md) | `YearReportPage` — annual summary. |
-| [settings](web/settings.md) | `SpaceSettingsPage` — space-level config (members, danger zone, budget mode). Still uses shadcn `Card`/`Tabs`. |
+| [settings](web/settings.md) | `SpaceSettingsPage` — space-level config (rename, members, danger zone). Still uses shadcn `Card`/`Tabs`. |
 
 ---
 
@@ -70,7 +66,7 @@ Topics that span server + web or live in shared infrastructure.
 Findings from the agents that documented current code; the older `engineering-specification.md` and `project-specification.md` may still claim otherwise.
 
 ### Retired or never-implemented
-- `envelop_balances` and `plan_balances` tables (and their triggers) **retired in migration 026** — only `account_balances` is still trigger-maintained.
+- `envelop_balances` and `plan_balances` tables (and their triggers) **retired in migration 026** — only `account_balances` is still trigger-maintained. The whole `plans`/`plan_allocations` subtree was later **dropped in migration 046**; goals are now `cadence='none'` envelopes with `target_amount`/`target_date`.
 - `user` router exposes **only `updateAvatar`** — no password change, email change, name edit, or account delete procedures.
 - **No `PublicRoute` guard** — the file doesn't exist.
 - `mutationLoggerMiddleware` is **effectively a no-op** — insert into `mutation_logs` commented out.
@@ -79,15 +75,13 @@ Findings from the agents that documented current code; the older `engineering-sp
 - `exported_report` file purpose exists in the enum and `getDownloadUrl` authz, but **no client-driven upload path** (`uploadablePurposeSchema` excludes it).
 
 ### Personal-space gaps
-- Analytics views `AllocationsView`, `MatrixView`, `PriorityView` **lack personal twins** — break on `/s/me`.
+- Analytics views `AllocationsView`, `PriorityView` **lack personal twins** — break on `/s/me`.
 - `AccountDetailPage` is **not personal-aware** — uses `account.listBySpace` with `space.id`, fails for `/s/me/accounts/:id`.
 
 ### Subtle invariants worth knowing
 - Two role enums: `user_accounts.role = owner|viewer`, `space_members.role = owner|editor|viewer`. Edit on a space ≠ edit on its accounts.
-- `envelops.carry_over` and `envelops.carry_policy` **coexist** — `carry_policy` is canonical (migration 035), but writers keep `carry_over` in sync as back-compat.
 - `changeExpenseCategoryParent` **does not enforce envelope sharing** — only `create` does. Cross-envelope reparenting is silently callable.
 - Envelope archive is **asymmetric**: allocate-in blocked, transfer-out/deallocate allowed → trapped cash can always be freed.
-- Strict-gate (`spaces.budget_mode='strict'`) is called on expense/transfer/adjust but **not** income.
 - Migration 038 added event `status`/`estimated_amount`/`closed_at`. `transactions.event_id` FK is `ON DELETE SET NULL`.
 - `resolveEventBelongsToSpace` now takes an opt-in `requireActive?: boolean` (`procedures/event/utils/resolveEventBelongsToSpace.mts:14`). Set on the four creation paths (expense/income/transfer/adjustment) so a stale pin or UI bug can't land a transaction against a closed event. Update path stays lenient so legacy rows with now-closed events remain editable.
 - Migrations 043 (pin tables) and 044 (`space_pin.set_by_user_id` nullable + SET NULL) shipped together. The pin tables are wiped via TRUNCATE CASCADE from `spaces`/`users` — they're not in the seed's explicit wipe list, that's fine.

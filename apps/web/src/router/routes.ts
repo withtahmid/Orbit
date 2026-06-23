@@ -16,7 +16,6 @@ export const ROUTES = {
     spaceBudgets: (id: string) => `/s/${id}/budgets`,
     spaceBudgetDetail: (id: string, envId: string) => `/s/${id}/budgets/${envId}`,
     spaceBudgetMonth: (id: string, month: string) => `/s/${id}/budgets/month/${month}`,
-    spaceReckoning: (id: string) => `/s/${id}/reckoning`,
     spaceYearReport: (id: string, year: number) => `/s/${id}/year/${year}`,
     spaceCategories: (id: string) => `/s/${id}/categories`,
     spaceEvents: (id: string) => `/s/${id}/events`,

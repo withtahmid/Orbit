@@ -1,6 +1,6 @@
 # DB layer
 
-> Postgres via `pg.Pool` + Kysely with a code-generated `DB` type; migrations are file-based (Kysely `FileMigrationProvider`) and applied manually; trigger-driven account balances; on-read computation for envelope/plan balances; `safeAwait` tuples for ergonomic error handling.
+> Postgres via `pg.Pool` + Kysely with a code-generated `DB` type; migrations are file-based (Kysely `FileMigrationProvider`) and applied manually; trigger-driven account balances; on-read computation for envelope balances; `safeAwait` tuples for ergonomic error handling.
 
 ## Components
 
@@ -32,6 +32,7 @@
 - Triggers (still live): **018** creates `__sync_account_balance_from_transactions` on `transactions` (account balances are materialised). **030** rewrites the `__apply_transaction_balance_effect` function so transfer fees debit `source` by `amount + fee_amount`.
 - Triggers (retired): **019** created envelope-balance triggers; **021** added the plan-balance trigger; **026** drops all of them along with the `envelop_balances` and `plan_balances` tables. After 026, envelope and plan balances are computed on read by the procedure code, not maintained by triggers. `down()` in 026 restores everything for rollback.
 - Later migrations: 027 (FK on-delete restrict), 028 (`files`), 029 (`transaction_attachments`, `event_attachments`, `exported_reports`, `users.avatar_file_id`), 030 (transfer fees), 031 (category priority), 032 (envelope borrow), 033 (envelope archived), 034 (`idempotency_keys`), 035 (envelop carry policy), 036 (`reckoning_acknowledgments`), 037 (`spaces.budget_mode`), 038 (event lifecycle + estimate).
+- **Budgeting simplified later — much of the above was undone.** Migration **046** drops the `plans`/`plan_allocations` subtree and adds `envelops.target_amount`/`target_date` (goals are now just `cadence='none'` envelopes with an optional target). Migration **048** (`048_simplify_budgeting`) reverses the borrow/carry/strict/reckoning machinery: it drops the borrow link (`borrowed_link_id`) + borrow rows, the typed-ledger seam (`kind`, `effective_at`), per-account allocation (`envelop_allocations.account_id`), carry-over (`envelops.carry_policy`/`carry_over`), strict mode (`spaces.budget_mode`), and the `reckoning_acknowledgments` table. It collapses `envelop_allocations` to **one absolute row per (envelope, period)** — one row per month for monthly envelopes, one lifetime row (`period_start` NULL) for rolling/goal — enforced by a `(envelop_id, period_start) NULLS NOT DISTINCT` unique index. So treat the 032/035/036/037 columns/tables above as historical: they no longer exist after 048.
 
 ### Live trigger (migration 018 + 030)
 
@@ -66,7 +67,7 @@ Key rules:
 
 ### Idempotency cache (migration 034)
 
-Generic `idempotency_keys(key PK, user_id, operation, response jsonb, expires_at)`. Used by mutations that touch multiple tables in one call (transfer, borrow) via `apps/server/src/utils/withIdempotency.mts`. A periodic cleanup is started from `services/idempotencyCleanup.mts` (1 hour cadence, first sweep 30 s after boot).
+Generic `idempotency_keys(key PK, user_id, operation, response jsonb, expires_at)`. Used by mutations that touch multiple tables in one call (transfer) via `apps/server/src/utils/withIdempotency.mts`. A periodic cleanup is started from `services/idempotencyCleanup.mts` (1 hour cadence, first sweep 30 s after boot).
 
 ## Conventions & gotchas
 

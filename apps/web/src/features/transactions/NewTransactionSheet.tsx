@@ -41,11 +41,13 @@ import type { RouterOutput } from "@/trpc";
 import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { cn } from "@/lib/utils";
 import { useCurrentSpaceId } from "@/hooks/useCurrentSpace";
-import { Link } from "react-router-dom";
-import { ROUTES } from "@/router/routes";
-import { AlertTriangle } from "lucide-react";
 import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
-import { toInputDateTime, fromInputDateTime } from "@/lib/dates";
+import {
+    toInputDateTime,
+    fromInputDateTime,
+    startOfMonth,
+    endOfMonth,
+} from "@/lib/dates";
 import { getIcon } from "@/lib/entityIcons";
 
 type SpaceAccount = RouterOutput["account"]["listBySpace"][number];
@@ -140,36 +142,6 @@ const TAB_META: Record<
 
 const TAB_ORDER: TxTab[] = ["expense", "income", "transfer", "adjustment"];
 
-/**
- * Reads the current space's strict-mode status + pending reckoning count
- * once at the sheet level so both the banner AND the Save button can
- * react. Without this, the banner could show "you're blocked" while the
- * button stays enabled — the user submits, gets a server toast, and has
- * to navigate manually. Hoisting consolidates the truth.
- */
-function useSheetStrictGate(open: boolean) {
-    const spaceId = useCurrentSpaceId();
-    const isPersonal = spaceId === "me";
-    const spacesQuery = trpc.space.list.useQuery(undefined, {
-        enabled: !isPersonal && open,
-    });
-    const space = spacesQuery.data?.find((s) => s.id === spaceId);
-    const isStrict = space?.budgetMode === "strict";
-    const reckoningQuery = trpc.reckoning.listPending.useQuery(
-        { spaceId },
-        { enabled: !isPersonal && isStrict && open }
-    );
-    const items = reckoningQuery.data ?? [];
-    const blocked = !isPersonal && isStrict && items.length > 0;
-    return {
-        isPersonal,
-        isStrict: !!isStrict,
-        items,
-        blocked,
-        spaceId,
-    };
-}
-
 export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } = {}) {
     const [open, setOpen] = useState(false);
     const [activeType, setActiveType] = useState<TxTab>("expense");
@@ -179,11 +151,6 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
        surfaced upward — otherwise the click is silent until the server
        responds. */
     const [isSaving, setIsSaving] = useState(false);
-    const strict = useSheetStrictGate(open);
-    // Save is only disabled when strict-blocked AND the user is on a
-    // spending tab. Income always records (server allows it) so the
-    // button stays usable on that tab.
-    const saveBlocked = strict.blocked && activeType !== "income";
     /* When true, the next successful submit re-renders the form with a fresh
        key (resetting all field state) instead of closing the sheet. Held in a
        ref because the mutation's onSuccess fires before React would observe
@@ -247,12 +214,7 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                                     type="button"
                                     className="nt-btn"
                                     onClick={submitAddAnother}
-                                    disabled={saveBlocked || isSaving}
-                                    title={
-                                        saveBlocked
-                                            ? "Settle past-month overspends first"
-                                            : undefined
-                                    }
+                                    disabled={isSaving}
                                 >
                                     {isSaving ? "Saving…" : "Save & add another"}
                                 </button>
@@ -261,10 +223,7 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                                 type="submit"
                                 form="nt-form"
                                 className="nt-btn nt-btn-primary"
-                                disabled={saveBlocked || isSaving}
-                                title={
-                                    saveBlocked ? "Settle past-month overspends first" : undefined
-                                }
+                                disabled={isSaving}
                             >
                                 {isSaving ? (
                                     <span className="nt-spinner" aria-hidden />
@@ -308,14 +267,6 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
                         })}
                     </div>
 
-                    {open && strict.blocked && (
-                        <StrictModeBanner
-                            activeType={activeType}
-                            spaceId={strict.spaceId}
-                            items={strict.items}
-                        />
-                    )}
-
                     <Tabs value={activeType} onValueChange={(v) => setActiveType(v as TxTab)}>
                         <TabsContent value="income">
                             <IncomeForm
@@ -352,103 +303,9 @@ export function NewTransactionSheet({ trigger }: { trigger?: React.ReactNode } =
     );
 }
 
-/**
- * Pre-flight banner: shows when the current space is in Strict mode and
- * there are unresolved past-month overspends. Reading the strict gate
- * BEFORE the user fills out the form is much better UX than letting them
- * write a transaction, hit Save, and only then learn the request is
- * blocked. Income still records (server allows it), so we soften the
- * copy when the user is on that tab.
- *
- * State is fetched once in the parent (`useSheetStrictGate`) and passed
- * in as props so the Save button + this banner share a single source of
- * truth.
- */
-function StrictModeBanner({
-    activeType,
-    spaceId,
-    items,
-}: {
-    activeType: TxTab;
-    spaceId: string;
-    items: { overBy: number }[];
-}) {
-    const total = items.reduce((s, i) => s + i.overBy, 0);
-    const incomeOk = activeType === "income";
-
-    return (
-        <div className="nt-strict-banner">
-            <AlertTriangle className="size-4" />
-            <div className="nt-strict-banner-text">
-                <div className="nt-strict-banner-title">
-                    Strict mode: {items.length} past-month overspend
-                    {items.length === 1 ? "" : "s"} unresolved
-                </div>
-                <div className="nt-strict-banner-sub">
-                    Total {total.toFixed(2)}.{" "}
-                    {incomeOk
-                        ? "Income still records — but expense / transfer / adjust will be blocked until you settle."
-                        : "Expense / transfer / adjust are blocked until you settle. Income still records."}
-                </div>
-            </div>
-            <Link to={ROUTES.spaceReckoning(spaceId)} className="nt-strict-banner-cta">
-                Settle now →
-            </Link>
-        </div>
-    );
-}
-
 /* Exported so EditTransactionSheet — which shares the .nt-form / .nt-btn /
    .nt-swap layout — can mount the same rules without duplicating them. */
 export const NT_STYLES = `
-.nt-strict-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 12px 14px;
-    margin: 12px 0 4px;
-    border-radius: 12px;
-    background: color-mix(in oklab, var(--expense) 10%, var(--bg-elev-2));
-    border: 1px solid color-mix(in oklab, var(--expense) 35%, transparent);
-    color: var(--fg);
-}
-.nt-strict-banner > svg {
-    color: var(--expense);
-    margin-top: 1px;
-    flex-shrink: 0;
-}
-.nt-strict-banner-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-}
-.nt-strict-banner-title {
-    font-size: 12.5px;
-    font-weight: 500;
-    color: var(--fg);
-}
-.nt-strict-banner-sub {
-    font-size: 11px;
-    color: var(--fg-3);
-    line-height: 1.4;
-}
-.nt-strict-banner-cta {
-    align-self: center;
-    padding: 6px 12px;
-    border-radius: 8px;
-    background: var(--expense);
-    color: var(--bg);
-    font-size: 11.5px;
-    font-weight: 600;
-    text-decoration: none;
-    white-space: nowrap;
-    transition: opacity 140ms ease;
-}
-.nt-strict-banner-cta:hover {
-    opacity: 0.9;
-}
 .nt-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr 1fr;
@@ -599,16 +456,6 @@ export const NT_STYLES = `
 }
 
 /* Envelope-draw chip (expense only) */
-.nt-env-row {
-    padding: 10px 12px;
-    background: var(--bg-elev-2);
-    border: 1px solid var(--line-soft);
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-.nt-env-row-label { font-size: 11.5px; color: var(--fg-3); flex: 1; }
 .nt-env-chip {
     display: inline-flex;
     align-items: center;
@@ -950,8 +797,6 @@ export const NT_STYLES = `
     .nt-tabs { padding: 3px; gap: 3px; }
     .nt-tab { height: 30px; font-size: 11.5px; gap: 5px; padding: 0 6px; }
     .nt-form { gap: 14px; margin-top: 12px; }
-    .nt-env-row { padding: 8px 10px; gap: 8px; }
-    .nt-env-row-label { font-size: 11px; }
     /* Footer buttons fill the row on phone for big tap targets. */
     .nt-btn { flex: 1 1 auto; justify-content: center; height: 40px; }
 }
@@ -1137,9 +982,9 @@ function EventSelect({
 
 /** Rich status card under the category dropdown — shows the envelope's
  *  current period spent/planned/remaining, and if this transaction would
- *  push it negative, offers two recovery actions: Pull from another
- *  envelope, or Borrow from next month. The transaction can also be saved
- *  as overspend (the warning is informational, not a block). */
+ *  push it negative, offers to pull cover from another envelope. The
+ *  transaction can also be saved as overspend (the warning is
+ *  informational, not a block). */
 function EnvelopeStatusCard({
     spaceId,
     envelopeId,
@@ -1153,14 +998,11 @@ function EnvelopeStatusCard({
 }) {
     const env = envelopeId ? envelopes.find((e) => e.id === envelopeId) : null;
 
-    const periodStart = useMemo(() => {
-        const d = new Date();
-        return new Date(d.getFullYear(), d.getMonth(), 1);
-    }, []);
-    const periodEnd = useMemo(() => {
-        const d = new Date();
-        return new Date(d.getFullYear(), d.getMonth() + 1, 1);
-    }, []);
+    // APP_TZ month window so the envelope's spent/remaining and the
+    // overspend warning reflect the right month for users in any browser
+    // timezone (native getFullYear/getMonth would drift near the boundary).
+    const periodStart = useMemo(() => startOfMonth(new Date()), []);
+    const periodEnd = useMemo(() => endOfMonth(new Date()), []);
 
     const utilizationQuery = trpc.analytics.envelopeUtilization.useQuery(
         { spaceId, periodStart, periodEnd },
@@ -1169,23 +1011,10 @@ function EnvelopeStatusCard({
 
     const utils = trpc.useUtils();
     const pullIdem = useIdempotencyKey();
-    const borrowIdem = useIdempotencyKey();
     const transferMutation = trpc.allocation.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Pulled funds");
             pullIdem.rotate();
-            await Promise.all([
-                utils.envelop.allocationListBySpace.invalidate({ spaceId }),
-                utils.analytics.envelopeUtilization.invalidate({ spaceId }),
-                utils.analytics.spaceSummary.invalidate(),
-            ]);
-        },
-        onError: (e) => toast.error(e.message),
-    });
-    const borrowMutation = trpc.envelop.borrowFromNextMonth.useMutation({
-        onSuccess: async () => {
-            toast.success("Borrowed from next month");
-            borrowIdem.rotate();
             await Promise.all([
                 utils.envelop.allocationListBySpace.invalidate({ spaceId }),
                 utils.analytics.envelopeUtilization.invalidate({ spaceId }),
@@ -1202,10 +1031,9 @@ function EnvelopeStatusCard({
     const Icon = getIcon(env.icon ?? null);
 
     const utilRow = utilizationQuery.data?.find((u) => u.envelopId === env.id);
-    const allocated = utilRow ? utilRow.allocated + utilRow.carryIn : 0;
+    const allocated = utilRow ? utilRow.allocated : 0;
     const consumed = utilRow?.consumed ?? 0;
     const remaining = utilRow?.remaining ?? 0;
-    const isMonthly = env.cadence === "monthly";
 
     const overBy = pendingAmount > remaining ? pendingAmount - remaining : 0;
     const willOverspend = overBy > 0 && pendingAmount > 0;
@@ -1254,7 +1082,9 @@ function EnvelopeStatusCard({
                                 <span className="tabular">{overBy.toFixed(2)}</span>
                             </span>
                             <span className="nt-env-warn-sub">
-                                Save as-is, or recover with one of these:
+                                {pullCandidates.length > 0
+                                    ? "Save as-is, or pull cover from another envelope:"
+                                    : "Save as-is — no other envelope has budget to pull from."}
                             </span>
                         </div>
                     </div>
@@ -1308,37 +1138,6 @@ function EnvelopeStatusCard({
                         </div>
                     )}
 
-                    {isMonthly && (
-                        <div className="nt-recover-card">
-                            <div className="nt-recover-card-head">
-                                <span className="nt-recover-card-title">
-                                    Borrow from next month
-                                </span>
-                                <span className="nt-recover-card-hint">
-                                    Adds {overBy.toFixed(2)} to {env.name} now and removes the same
-                                    from next month's budget.
-                                </span>
-                            </div>
-                            <div className="nt-recover-card-row nt-recover-card-row--end">
-                                <button
-                                    type="button"
-                                    className="nt-recover-btn"
-                                    disabled={borrowMutation.isPending}
-                                    onClick={() =>
-                                        borrowMutation.mutate({
-                                            envelopId: env.id,
-                                            amount: overBy,
-                                            idempotencyKey: borrowIdem.key,
-                                        })
-                                    }
-                                >
-                                    {borrowMutation.isPending
-                                        ? "Borrowing…"
-                                        : `Borrow ${overBy.toFixed(2)}`}
-                                </button>
-                            </div>
-                        </div>
-                    )}
                 </div>
             )}
         </div>

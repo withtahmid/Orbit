@@ -28,7 +28,6 @@ export const listEnvelopAllocationsBySpace = authorizedProcedure
                         "envelop_allocations.id",
                         "envelop_allocations.envelop_id",
                         "envelop_allocations.amount",
-                        "envelop_allocations.account_id",
                         "envelop_allocations.period_start",
                         "envelop_allocations.created_at",
                         "envelop_allocations.created_by",

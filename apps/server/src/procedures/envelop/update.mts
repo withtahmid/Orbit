@@ -18,10 +18,6 @@ export const updateEnvelop = authorizedProcedure
                 icon: z.string().min(1).max(48).optional(),
                 description: z.string().max(2000).nullable().optional(),
                 cadence: z.enum(["none", "monthly"]).optional(),
-                carryOver: z.boolean().optional(),
-                carryPolicy: z
-                    .enum(["reset", "positive_only", "both"])
-                    .optional(),
                 targetAmount: z.number().positive().nullable().optional(),
                 targetDate: z.coerce.date().nullable().optional(),
             })
@@ -32,8 +28,6 @@ export const updateEnvelop = authorizedProcedure
                     d.icon !== undefined ||
                     d.description !== undefined ||
                     d.cadence !== undefined ||
-                    d.carryOver !== undefined ||
-                    d.carryPolicy !== undefined ||
                     d.targetAmount !== undefined ||
                     d.targetDate !== undefined,
                 { message: "At least one field must be provided" }
@@ -67,23 +61,6 @@ export const updateEnvelop = authorizedProcedure
                     userId: ctx.auth.user.id,
                     roles: ["owner"] as unknown as SpaceMembers["role"][],
                 });
-
-                // carryPolicy is the source of truth in the new model;
-                // we keep carry_over in sync so legacy callers / queries
-                // that still read the boolean don't break.
-                const carryUpdates: {
-                    carry_policy?: "reset" | "positive_only" | "both";
-                    carry_over?: boolean;
-                } = {};
-                if (input.carryPolicy !== undefined) {
-                    carryUpdates.carry_policy = input.carryPolicy;
-                    carryUpdates.carry_over = input.carryPolicy !== "reset";
-                } else if (input.carryOver !== undefined) {
-                    carryUpdates.carry_over = input.carryOver;
-                    carryUpdates.carry_policy = input.carryOver
-                        ? "positive_only"
-                        : "reset";
-                }
 
                 // Targets only apply when the envelope is (or is being
                 // moved to) cadence='none'. The effective cadence after
@@ -160,7 +137,6 @@ export const updateEnvelop = authorizedProcedure
                         icon: input.icon,
                         description: input.description,
                         cadence: input.cadence,
-                        ...carryUpdates,
                         ...targetUpdates,
                         updated_at: sql`now()`,
                     })
@@ -173,8 +149,6 @@ export const updateEnvelop = authorizedProcedure
                         "icon",
                         "description",
                         "cadence",
-                        "carry_over",
-                        "carry_policy",
                         "target_amount",
                         "target_date",
                         "created_at",

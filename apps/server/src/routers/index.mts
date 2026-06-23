@@ -13,7 +13,6 @@ import { fileRouter } from "./file.mjs";
 import { userRouter } from "./user.mjs";
 import { personalRouter } from "./personal.mjs";
 import { pinRouter } from "./pin.mjs";
-import { reckoningRouter } from "./reckoning.mjs";
 
 export const appRouter = router({
     health: healthProcedure,
@@ -30,6 +29,5 @@ export const appRouter = router({
     user: userRouter,
     personal: personalRouter,
     pin: pinRouter,
-    reckoning: reckoningRouter,
 });
 export type AppRouter = typeof appRouter;

@@ -4,7 +4,7 @@
 
 ## Router
 
-- File: `apps/server/src/routers/personal.mts:46`. Top-level keys plus `trends`, `reckoning`, and `anomalies` sub-routers (mirrors `analytics`).
+- File: `apps/server/src/routers/personal.mts:42`. Top-level keys plus `trends` and `anomalies` sub-routers (mirrors `analytics`).
 
 The router docstring (`personal.mts:38-45`) states the anchoring rule explicitly: every procedure is anchored on `user_accounts.role = 'owner'` (the caller's personally-owned accounts) unioned across every space they're currently a member of.
 
@@ -19,7 +19,7 @@ All `.query`, all `authorizedProcedure`. Roughly parallel to `analytics.*` but i
 
 ### Summary cards
 
-- **`personalSummary`** (`procedures/personal/summary.mts:27`) — Same shape as `analytics.spaceSummary` (`totalBalance`/`spendableBalance`/`lockedBalance` from owned accounts; envelope `allocated/consumed/remaining` restricted to owned-account partitions; `planAllocated`; dual `period*`/`operational*` flow). Extras: `ownedAccountsCount`, `memberSpacesCount`. Early-return zeros when `owned.length === 0 || memberSpaces.length === 0` (`summary.mts:46`).
+- **`personalSummary`** (`procedures/personal/summary.mts:27`) — Same shape as `analytics.spaceSummary` (`totalBalance`/`spendableBalance`/`lockedBalance` from owned accounts; envelope `allocated/consumed/remaining` with consumption restricted to owned accounts (allocations are space-wide); dual `period*`/`operational*` flow). Extras: `ownedAccountsCount`, `memberSpacesCount`. Early-return zeros when `owned.length === 0 || memberSpaces.length === 0` (`summary.mts:46`).
 - **`personalTodaySummary`** (`procedures/personal/todaySummary.mts`) — Today's IN/OUT/count across owned accounts.
 
 ### Cash flow
@@ -37,17 +37,15 @@ All `.query`, all `authorizedProcedure`. Roughly parallel to `analytics.*` but i
 - **`personalTopMerchants`** (`procedures/personal/topMerchants.mts`)
 - **`personalListCategories`** (`procedures/personal/listCategories.mts`) — Returns every expense category across all the caller's member spaces. No input; returns `[]` when `memberSpaces.length === 0`.
 
-### Envelopes / plans
+### Envelopes
 
-- **`personalEnvelopeUtilization`** (`procedures/personal/envelopeUtilization.mts`) — Personal-slice envelope utilization. Allocations include rows with `account_id IS NULL` (space-wide pot) OR `account_id = ANY(owned)`; consumption restricted to `source_account_id = ANY(owned)`. Carry-over math identical to analytics.
+- **`personalEnvelopeUtilization`** (`procedures/personal/envelopeUtilization.mts`) — Personal-slice envelope utilization. Allocations are space-wide (the single per-envelope+period row, monthly window-scoped or the rolling lifetime pool); consumption restricted to `source_account_id = ANY(owned)`. No carry-over. Mirrors `analytics.envelopeUtilization`.
 - **`personalEnvelopeRecentAverages`** (`procedures/personal/envelopeRecentAverages.mts`)
 - **`personalUnbudgetedTrend`** (`procedures/personal/unbudgetedTrend.mts`)
-- **`personalPlanProgress`** (`procedures/personal/planProgress.mts`)
 
 ### Accounts
 
 - **`personalAccountDistribution`** (`procedures/personal/accountDistribution.mts`) — Per-account balance for owned accounts, joined with `account_balances`.
-- **`personalAccountAllocation`** (`procedures/personal/accountAllocation.mts`) — Input `{ accountId }`. Pre-checks the account is in the caller's owned set; returns the same envelope/plan partition shape as `analytics.accountAllocation`.
 - **`personalBalanceHistory`** (`procedures/personal/balanceHistory.mts`) — Multi-account history filtered to owned accounts. Optional `accountIds[]` further narrows.
 - **`personalNetWorthHistory`** (`procedures/personal/netWorthHistory.mts`) — Sum of balances over owned accounts with liabilities flipped.
 - **`personalOwnedAccounts`** (`procedures/personal/accounts.mts`) — Plain listing of the caller's owned accounts with current balance and account metadata. No input.
@@ -60,10 +58,6 @@ All `.query`, all `authorizedProcedure`. Roughly parallel to `analytics.*` but i
 ### Spaces
 
 - **`personalSpaceBreakdown`** (`procedures/personal/spaceBreakdown.mts:25`) — Per-space split of the caller's personal net worth. Each owned account contributes to exactly one bucket (`DISTINCT ON` the earliest `space_accounts.created_at` for accounts shared into multiple member spaces); accounts not shared into any member space fall into a `bucket_kind = 'personal'` residual. Liability balances are sign-flipped to reconcile with `personalSummary.totalBalance`.
-
-### Reckoning
-
-- **`personalReckoningListPending`** (`procedures/personal/reckoningListPending.mts:14`) — Cross-space pending past-month overspends. Restricts consumption to `source_account_id = ANY(owned)` so a co-member's spending in a shared space doesn't show up on this user's queue (`reckoningListPending.mts:88-110`). Returns rows enriched with `spaceId` + `spaceName` so the UI can group/disambiguate. The companion mutation `reckoning.acknowledge` lives on the per-space `reckoning` router (see reckoning module doc) — `personal.reckoning` only exposes `listPending` because the resolution always targets a specific space.
 
 ### Heatmaps & report
 
@@ -116,7 +110,7 @@ See `summary.mts:269-281` for the inline reference.
 
 ### Envelope partitions
 
-Envelope `allocated` includes allocations with `account_id IS NULL` (space-wide pot, shared with co-members) OR `account_id = ANY(owned)` (`summary.mts:140`). Consumption is the unioned expense + transfer-fee population restricted to `source_account_id = ANY(owned)` (`summary.mts:153-173`). Carry-in uses the immediately-preceding equal-length window with the same `carry_policy` clamping as the analytics module.
+Envelope `allocated` is the single space-wide allocation row for the envelope's period — monthly window-scoped, rolling/goal the lifetime NULL-period pool (`summary.mts:127-156`). Consumption is restricted to `source_account_id = ANY(owned)`. Monthly envelopes reset each period (no carry-over); held is `GREATEST(0, allocated − consumed)`. Matches the analytics module.
 
 ### Liability handling
 
@@ -126,14 +120,13 @@ Mirrors analytics: `account_type = 'liability'` balances are sign-flipped in `to
 
 - Personal procedures do NOT go through `resolveSpaceMembership` — the caller's identity IS the auth surface. Make sure new procedures still gate by `owned` / `memberSpaces` lookups rather than directly trusting a client-supplied `spaceId`.
 - Empty result early-return: when `owned.length === 0 || memberSpaces.length === 0`, several procedures (`personalSummary`, `personalCashFlow`) return zero-filled or empty shapes. New procedures should follow the same convention so the UI doesn't break on a fresh account.
-- Where the SQL needs a non-empty array parameter (e.g. `ANY(:ownedParam::uuid[])` for the reckoning queries), the code injects a sentinel UUID `00000000-0000-0000-0000-000000000000` rather than letting the query receive an empty array (`reckoningListPending.mts:37-40`, `reckoning/acknowledge.mts:98-101`). Postgres `ANY(empty array)` doesn't error but the alternative form sometimes does — keep the sentinel pattern.
+- Where the SQL needs a non-empty array parameter (e.g. `ANY(:ownedParam::uuid[])`), the code injects a sentinel UUID `00000000-0000-0000-0000-000000000000` rather than letting the query receive an empty array (`yearReport.mts:38-40`, `envelopeRecentAverages.mts:35-37`, `unbudgetedTrend.mts:40-42`). Postgres `ANY(empty array)` doesn't error but the alternative form sometimes does — keep the sentinel pattern.
 - The internal-transfer exclusion uses `<>= ALL(:owned)` rather than `NOT = ANY(:owned)` because SQL's three-valued logic makes the latter behave wrong with nulls (`cashFlow.mts:96`). Don't simplify.
 - `personalListCategories`, `personalOwnedAccounts`, `personalSpaceBreakdown`, `personalAccountDistribution` have NO input arg — they read everything from `ctx.auth.user.id`. Don't add params unless you mean it.
 - `personalTransactions` filters can target a single `spaceId`. When the UI is in personal scope but wants "transactions in Space X" the same procedure serves — don't switch to `transaction.listBySpace` for that path because the personal procedure additionally applies the owned-account filter.
 
 ## Cross-references
 
-- `analytics/*` — per-space twins of nearly every procedure here. Cash/operational, transfer-fee folding, and carry-over math are intentionally identical so the UI components are agnostic.
-- `reckoning` module — `reckoning.acknowledge` is the only mutation path for past-month resolutions, accessible from either the per-space or personal reckoning surface. `personalReckoningListPending` provides the cross-space inventory.
+- `analytics/*` — per-space twins of nearly every procedure here. Cash/operational and envelope period math are intentionally identical so the UI components are agnostic.
 - `transaction.listBySpace` / `filteredTotals` — `personalTransactions` / `personalTransactionFilteredTotals` accept the same filter set; the only differences are the owned-account scope and that `spaceId` is optional rather than required.
-- `shared.mts` exports `resolveOwnedAccountIds` and `resolveMemberSpaceIds`; `reckoning/acknowledge.mts:8` also imports `resolveOwnedAccountIds` to evaluate the caller's user-slice overspend.
+- `shared.mts` exports `resolveOwnedAccountIds` and `resolveMemberSpaceIds`, the anchors for every personal view.

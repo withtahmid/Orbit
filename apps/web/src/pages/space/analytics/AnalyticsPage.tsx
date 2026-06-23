@@ -6,7 +6,6 @@ import {
     Layers as LayersIcon,
     Flame,
     Network,
-    Grid3x3,
     Activity,
     AlertTriangle,
     Star,
@@ -68,16 +67,8 @@ const ENTRIES: Entry[] = [
         view: "allocations",
         title: "Allocation map",
         description:
-            "Which accounts fund which envelopes — the money-partitioning view.",
+            "Where each envelope's budget is committed — your space-wide spending intent.",
         icon: Network,
-        color: "var(--ent-4)",
-    },
-    {
-        view: "matrix",
-        title: "Allocation matrix",
-        description:
-            "Every envelope × every account in one grid — a heatmap of where money is partitioned.",
-        icon: Grid3x3,
         color: "var(--ent-4)",
     },
     {

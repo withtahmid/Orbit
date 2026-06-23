@@ -7,15 +7,13 @@ import {
     ChevronRight,
     Coins,
     Pencil,
-    Trash2,
 } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
-import { addMonths, startOfMonth, endOfMonth } from "@/lib/dates";
-import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
+import { startOfMonth, endOfMonth } from "@/lib/dates";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { PermissionGate } from "@/components/shared/PermissionGate";
-import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
+import { TransactionTypeBadge } from "@/components/shared/TransactionTypeBadge";
 import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateDialog";
 import { EnvelopeMoveDialog } from "@/features/allocations/EnvelopeMoveDialog";
 import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog";
@@ -27,7 +25,6 @@ import { CreateOrEditEnvelopeDialog } from "./BudgetsPage";
 export default function BudgetDetailPage() {
     const { space } = useCurrentSpace();
     const { envelopeId } = useParams<{ envelopeId: string }>();
-    const utils = trpc.useUtils();
     const [editOpen, setEditOpen] = useState(false);
 
     const periodStart = useMemo(() => startOfMonth(new Date()), []);
@@ -38,32 +35,18 @@ export default function BudgetDetailPage() {
         periodStart,
         periodEnd,
     });
-    const allocationsQuery = trpc.envelop.allocationListBySpace.useQuery({
-        spaceId: space.id,
-    });
-    const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId: space.id });
 
     const envelope = utilizationQuery.data?.find((e) => e.envelopId === envelopeId);
-    const allocations = (allocationsQuery.data ?? []).filter(
-        (a) => a.envelop_id === envelopeId
+
+    const txQuery = trpc.transaction.listBySpace.useQuery(
+        { spaceId: space.id, envelopId: envelopeId, limit: 10 },
+        { enabled: !!envelopeId }
     );
 
-    const accountsById = useMemo(() => {
-        const m = new Map<
-            string,
-            { id: string; name: string; color: string; icon: string }
-        >();
-        for (const a of accountsQuery.data ?? []) m.set(a.id, a);
-        return m;
-    }, [accountsQuery.data]);
-
-    // Period-scoped pool: this-period allocation + positive carry only.
-    // Negative carry (carry='both' debt) is already deducted from net
-    // worth — it doesn't reduce period spendability and shouldn't trip
-    // the "over" state for envelopes that haven't overspent this period.
+    // Period-scoped pool: this-period allocation.
     // The hero "Remaining" stat below uses cumulative `envelope.remaining`,
     // which is the separate concept.
-    const total = envelope ? envelope.allocated + Math.max(0, envelope.carryIn) : 0;
+    const total = envelope ? envelope.allocated : 0;
     const periodRemaining = envelope ? total - envelope.consumed : 0;
     const over = !!envelope && envelope.consumed > total;
     const drainPct =
@@ -88,77 +71,6 @@ export default function BudgetDetailPage() {
             Math.ceil((monthEnd.getTime() - now.getTime()) / 86_400_000)
         );
     }, []);
-
-    const deleteAlloc = trpc.envelop.allocationDelete.useMutation({
-        onSuccess: async () => {
-            toast.success("Allocation removed");
-            await Promise.all([
-                utils.envelop.allocationListBySpace.invalidate({ spaceId: space.id }),
-                utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id }),
-                utils.analytics.spaceSummary.invalidate(),
-                utils.analytics.accountAllocation.invalidate(),
-            ]);
-        },
-        onError: (e) => toast.error(e.message),
-    });
-
-    // Active borrow obligations attached to this envelope. Drives the
-    // "Active borrows" card with its per-link Cancel buttons.
-    const borrowsQuery = trpc.envelop.listBorrows.useQuery(
-        { envelopId: envelopeId ?? "" },
-        { enabled: !!envelopeId }
-    );
-    const undoBorrowIdem = useIdempotencyKey();
-    const undoBorrow = trpc.envelop.undoBorrow.useMutation({
-        onSuccess: async () => {
-            toast.success("Borrow cancelled");
-            undoBorrowIdem.rotate();
-            await Promise.all([
-                utils.envelop.allocationListBySpace.invalidate({
-                    spaceId: space.id,
-                }),
-                utils.envelop.listBorrows.invalidate({
-                    envelopId: envelopeId ?? "",
-                }),
-                utils.analytics.envelopeUtilization.invalidate({
-                    spaceId: space.id,
-                }),
-                utils.analytics.spaceSummary.invalidate(),
-            ]);
-        },
-        onError: (e) => toast.error(e.message),
-    });
-
-    /* Per-envelope 6-month allocation/consumption history. App-tz
-       boundaries so each bucket lands on Dhaka midnight, matching
-       the server's `date_trunc('month', ...)` output. */
-    const trendStart = useMemo(
-        () => addMonths(startOfMonth(new Date()), -5),
-        []
-    );
-    const trendEnd = periodEnd;
-    const historyQuery = trpc.analytics.envelopeHistory.useQuery(
-        {
-            envelopId: envelopeId ?? "",
-            periodStart: trendStart,
-            periodEnd: trendEnd,
-            bucket: "month",
-        },
-        { enabled: !!envelopeId }
-    );
-    const trendBars = useMemo(() => {
-        const data = historyQuery.data ?? [];
-        if (data.length === 0) {
-            return Array.from({ length: 6 }, () => ({
-                allocated: 0,
-                consumed: 0,
-            }));
-        }
-        return data.map((r) => ({
-            allocated: r.allocated,
-            consumed: r.consumed,
-        }));
-    }, [historyQuery.data]);
 
     return (
         <div className="orbit-design ed-root">
@@ -201,13 +113,11 @@ export default function BudgetDetailPage() {
                     <p className="ed-sub">
                         {envelope
                             ? `${envelope.cadence === "monthly" ? "Monthly" : "Rolling"}${
-                                  envelope.carryOver ? " · carries over" : ""
-                              }${
                                   envelope.description
                                       ? ` · ${envelope.description}`
                                       : ""
                               }`
-                            : "Allocation history and utilization"}
+                            : "Utilization and recent activity"}
                     </p>
                 </div>
                 <div className="ed-topbar-actions">
@@ -242,7 +152,6 @@ export default function BudgetDetailPage() {
                             <EnvelopeTopUpDialog
                                 envelopId={envelope.envelopId}
                                 envelopeName={envelope.name}
-                                envelopeCadence={envelope.cadence}
                                 envelopeColor={envelope.color}
                                 trigger={
                                     <button
@@ -311,8 +220,6 @@ export default function BudgetDetailPage() {
                                     icon: envelope.icon,
                                     description: envelope.description,
                                     cadence: envelope.cadence,
-                                    carryOver: envelope.carryOver,
-                                    carryPolicy: envelope.carryPolicy,
                                     targetAmount: envelope.targetAmount,
                                     targetDate: envelope.targetDate,
                                 }}
@@ -384,8 +291,20 @@ export default function BudgetDetailPage() {
                             </div>
                         </div>
                     </div>
-                ) : (
+                ) : utilizationQuery.isLoading ? (
                     <Skeleton height={140} />
+                ) : (
+                    <div className="od-card vignette ed-hero">
+                        <p style={{ color: "var(--fg-3)", fontSize: 13 }}>
+                            This envelope no longer exists.{" "}
+                            <Link
+                                to={ROUTES.spaceBudgets(space.id)}
+                                className="ed-crumb"
+                            >
+                                Back to budgets
+                            </Link>
+                        </p>
+                    </div>
                 )}
 
                 {/* Goal progress — rendered when this rolling envelope
@@ -401,13 +320,10 @@ export default function BudgetDetailPage() {
                                 </h2>
                                 <span className="ed-sect-sub">
                                     {envelope.targetDate
-                                        ? `Target by ${new Date(
-                                              envelope.targetDate
-                                          ).toLocaleDateString("en-US", {
-                                              month: "short",
-                                              day: "numeric",
-                                              year: "numeric",
-                                          })}`
+                                        ? `Target by ${formatInAppTz(
+                                              envelope.targetDate,
+                                              "MMM d, yyyy"
+                                          )}`
                                         : "No deadline set"}
                                 </span>
                             </div>
@@ -436,235 +352,66 @@ export default function BudgetDetailPage() {
                     </div>
                 )}
 
-                {/* Active borrow obligations — appears only when there
-                    are open links. Each row offers a Cancel button that
-                    deletes both sides of the borrow atomically. */}
-                {envelope && (borrowsQuery.data ?? []).length > 0 && (
-                    <div className="od-card ed-section">
-                        <div className="ed-sect-head">
-                            <div className="ed-sect-text">
-                                <h2 className="display ed-sect-title">
-                                    Active borrows
-                                </h2>
-                                <span className="ed-sect-sub">
-                                    Future-period reductions tied to past
-                                    borrows from this envelope.
-                                </span>
-                            </div>
-                        </div>
-                        <div className="ed-borrow-list">
-                            {(borrowsQuery.data ?? []).map((b) => {
-                                // Wire format serializes Date as ISO string;
-                                // accept either to satisfy TS without losing
-                                // formatting at runtime.
-                                const fmtMonth = (d: Date | string | null) =>
-                                    d
-                                        ? new Date(d).toLocaleString("en-US", {
-                                              month: "short",
-                                              year: "numeric",
-                                          })
-                                        : "—";
-                                return (
-                                    <div
-                                        key={b.linkId}
-                                        className="ed-borrow-row"
-                                    >
-                                        <div className="ed-borrow-text">
-                                            <div className="ed-borrow-amount">
-                                                {b.amount.toFixed(2)}
-                                            </div>
-                                            <div className="ed-borrow-meta">
-                                                Borrowed in{" "}
-                                                {fmtMonth(b.currentPeriodStart)}{" "}
-                                                from{" "}
-                                                {fmtMonth(b.nextPeriodStart)}
-                                            </div>
-                                        </div>
-                                        <PermissionGate
-                                            roles={["owner", "editor"]}
-                                        >
-                                            <button
-                                                type="button"
-                                                className="od-btn"
-                                                disabled={undoBorrow.isPending}
-                                                onClick={() =>
-                                                    undoBorrow.mutate({
-                                                        envelopId:
-                                                            envelope.envelopId,
-                                                        linkId: b.linkId,
-                                                        idempotencyKey:
-                                                            undoBorrowIdem.key,
-                                                    })
-                                                }
-                                            >
-                                                {undoBorrow.isPending
-                                                    ? "Cancelling…"
-                                                    : "Cancel borrow"}
-                                            </button>
-                                        </PermissionGate>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                )}
-
-                {/* Trend */}
+                {/* Recent transactions — the activity feed for this
+                    envelope. Renders for every envelope (goal or not) so the
+                    page stays substantive below the hero. */}
                 {envelope && (
                     <div className="od-card ed-section">
                         <div className="ed-sect-head">
                             <div className="ed-sect-text">
-                                <h2 className="display ed-sect-title">Trend</h2>
-                                <span className="ed-sect-sub">Last 6 months</span>
+                                <h2 className="display ed-sect-title">
+                                    Recent transactions
+                                </h2>
+                                <span className="ed-sect-sub">
+                                    The latest activity tagged to this envelope.
+                                </span>
                             </div>
                         </div>
-                        <TrendChart bars={trendBars} />
-                        <div className="ed-trend-foot">
-                            <span>
-                                Avg allocated{" "}
-                                <Money
-                                    amount={
-                                        trendBars.reduce(
-                                            (s, x) => s + x.allocated,
-                                            0
-                                        ) / trendBars.length
-                                    }
-                                    size={11.5}
-                                    variant="muted"
-                                />
-                            </span>
-                            <span>
-                                Avg consumed{" "}
-                                <Money
-                                    amount={
-                                        trendBars.reduce(
-                                            (s, x) => s + x.consumed,
-                                            0
-                                        ) / trendBars.length
-                                    }
-                                    size={11.5}
-                                    variant="muted"
-                                />
-                            </span>
-                        </div>
-                    </div>
-                )}
-
-                {/* Allocation history */}
-                <div className="od-card ed-section">
-                    <div className="ed-sect-head">
-                        <div className="ed-sect-text">
-                            <h2 className="display ed-sect-title">
-                                Allocation history
-                            </h2>
-                            <span className="ed-sect-sub">
-                                Every allocation and rebalance for this envelope.
-                            </span>
-                        </div>
-                    </div>
-                    {allocations.length === 0 ? (
-                        <div className="ed-empty">No allocations yet.</div>
-                    ) : (
-                        <table className="ed-table">
-                            <thead>
-                                <tr>
-                                    <th className="ed-th ed-th-l">Date</th>
-                                    <th className="ed-th ed-th-l">Account</th>
-                                    <th className="ed-th ed-th-l">Period</th>
-                                    <th className="ed-th">Amount</th>
-                                    <PermissionGate roles={["owner"]}>
-                                        <th className="ed-th"></th>
-                                    </PermissionGate>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {allocations.map((a) => {
-                                    const account = a.account_id
-                                        ? accountsById.get(a.account_id)
-                                        : null;
+                        {txQuery.isLoading ? (
+                            <div className="ed-empty">Loading…</div>
+                        ) : !txQuery.data ||
+                          txQuery.data.items.length === 0 ? (
+                            <div className="ed-empty">
+                                No transactions tagged to this envelope yet.
+                            </div>
+                        ) : (
+                            <div className="ed-tx-list">
+                                {txQuery.data.items.map((t) => {
+                                    const txType = t.type as unknown as string;
                                     return (
-                                        <tr key={a.id} className="ed-tr">
-                                            <td className="ed-td ed-td-l">
-                                                <span style={{ color: "var(--fg-3)" }}>
-                                                    {formatInAppTz(
-                                                        a.created_at,
-                                                        "MMM d, yyyy HH:mm"
-                                                    )}
-                                                </span>
-                                            </td>
-                                            <td className="ed-td ed-td-l">
-                                                {account ? (
-                                                    <span className="ed-td-name">
-                                                        <Avatar
-                                                            icon={account.icon}
-                                                            color={account.color}
-                                                            size={20}
-                                                        />
-                                                        {account.name}
-                                                    </span>
-                                                ) : (
-                                                    <span style={{ color: "var(--fg-4)" }}>
-                                                        Unassigned
-                                                    </span>
-                                                )}
-                                            </td>
-                                            <td className="ed-td ed-td-l">
-                                                <span style={{ color: "var(--fg-3)" }}>
-                                                    {a.period_start
-                                                        ? formatInAppTz(
-                                                              a.period_start,
-                                                              "MMM yyyy"
-                                                          )
-                                                        : envelope?.cadence === "monthly"
-                                                          ? formatInAppTz(
-                                                                a.created_at,
-                                                                "MMM yyyy"
-                                                            )
-                                                          : "—"}
-                                                </span>
-                                            </td>
-                                            <td className="ed-td ed-td-r">
-                                                <Money
-                                                    amount={Number(a.amount)}
-                                                    variant={
-                                                        Number(a.amount) < 0
-                                                            ? "expense"
-                                                            : "income"
-                                                    }
-                                                    signed
+                                        <div key={t.id} className="ed-tx-row">
+                                            <div className="ed-tx-main">
+                                                <TransactionTypeBadge
+                                                    type={txType as any}
                                                 />
-                                            </td>
-                                            <PermissionGate roles={["owner"]}>
-                                                <td className="ed-td ed-td-r">
-                                                    <ConfirmDialog
-                                                        trigger={
-                                                            <Button
-                                                                size="icon"
-                                                                variant="ghost"
-                                                                className="size-7"
-                                                            >
-                                                                <Trash2 className="size-3.5 text-destructive" />
-                                                            </Button>
-                                                        }
-                                                        title="Delete allocation?"
-                                                        description="Balances will be recomputed."
-                                                        destructive
-                                                        confirmLabel="Delete"
-                                                        onConfirm={() =>
-                                                            deleteAlloc.mutate({
-                                                                allocationId: a.id,
-                                                            })
-                                                        }
-                                                    />
-                                                </td>
-                                            </PermissionGate>
-                                        </tr>
+                                                <span className="ed-tx-desc">
+                                                    {t.description ?? "—"}
+                                                </span>
+                                            </div>
+                                            <span className="ed-tx-date">
+                                                {formatInAppTz(
+                                                    t.transaction_datetime,
+                                                    "MMM d"
+                                                )}
+                                            </span>
+                                            <MoneyDisplay
+                                                amount={Number(t.amount)}
+                                                variant={
+                                                    txType === "income"
+                                                        ? "income"
+                                                        : txType === "expense"
+                                                          ? "expense"
+                                                          : "neutral"
+                                                }
+                                                className="ed-tx-amt"
+                                            />
+                                        </div>
                                     );
                                 })}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -736,10 +483,8 @@ function HeroStat({
                     maximumFractionDigits: 2,
                 })}
             </span>
-            {/* LEDGER-REPLACEABLE: the lifetime-overrun note is a
-                stop-gap until the envelop_allocations ledger expresses
-                overspend via 'reckon' rows. Icon paired with the red
-                text so colorblind users get a non-color cue too. */}
+            {/* Lifetime-overrun note for rolling envelopes. Icon paired
+                with the red text so colorblind users get a non-color cue. */}
             {note && (
                 <span className="ed-hero-note">
                     <AlertTriangle
@@ -751,53 +496,6 @@ function HeroStat({
                 </span>
             )}
         </div>
-    );
-}
-
-function TrendChart({
-    bars,
-}: {
-    bars: Array<{ allocated: number; consumed: number }>;
-}) {
-    const w = 800;
-    const h = 160;
-    const p = 18;
-    const max = Math.max(1, ...bars.flatMap((b) => [b.allocated, b.consumed]));
-    const slot = (w - p * 2) / bars.length;
-    const bw = Math.max(3, slot / 2 - 4);
-    const sx = (i: number) => p + i * slot;
-    const sy = (v: number) => h - p - (v / max) * (h - p * 2);
-    return (
-        <svg
-            viewBox={`0 0 ${w} ${h}`}
-            width="100%"
-            height={h}
-            preserveAspectRatio="none"
-            style={{ display: "block" }}
-        >
-            {bars.map((b, i) => (
-                <g key={i}>
-                    <rect
-                        x={sx(i) + 4}
-                        y={sy(b.allocated)}
-                        width={bw}
-                        height={Math.max(2, h - p - sy(b.allocated))}
-                        fill="var(--income)"
-                        opacity="0.85"
-                        rx="2"
-                    />
-                    <rect
-                        x={sx(i) + 4 + bw + 3}
-                        y={sy(b.consumed)}
-                        width={bw}
-                        height={Math.max(2, h - p - sy(b.consumed))}
-                        fill="var(--expense)"
-                        opacity="0.85"
-                        rx="2"
-                    />
-                </g>
-            ))}
-        </svg>
     );
 }
 
@@ -872,48 +570,6 @@ function DesignIcon({
         >
             <path d={d} />
         </svg>
-    );
-}
-
-function Money({
-    amount,
-    variant = "neutral",
-    signed = false,
-    size = 13,
-    weight = 500,
-    decimals = 2,
-}: {
-    amount: number;
-    variant?: "neutral" | "income" | "expense" | "muted";
-    signed?: boolean;
-    size?: number;
-    weight?: number;
-    decimals?: number;
-}) {
-    const colorMap: Record<string, string> = {
-        income: "var(--income)",
-        expense: "var(--expense)",
-        muted: "var(--fg-3)",
-        neutral: "var(--fg)",
-    };
-    const abs = Math.abs(amount).toLocaleString("en-US", {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-    });
-    let text = abs;
-    if (amount < 0) text = "−" + abs;
-    else if (signed && amount > 0) text = "+" + abs;
-    return (
-        <span
-            className="tabular"
-            style={{
-                color: colorMap[variant],
-                fontSize: size,
-                fontWeight: weight,
-            }}
-        >
-            {text}
-        </span>
     );
 }
 
@@ -1081,47 +737,7 @@ const ED_STYLES = `
     color: var(--fg-3);
 }
 
-.ed-grid-2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-}
-@media (max-width: 1100px) {
-    .ed-grid-2 { grid-template-columns: 1fr; }
-}
-
 .ed-section { padding: 22px; }
-.ed-borrow-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.ed-borrow-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 10px;
-    background: var(--bg-elev-2);
-    border: 1px solid var(--line-soft);
-}
-.ed-borrow-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-.ed-borrow-amount {
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--fg);
-    font-variant-numeric: tabular-nums;
-}
-.ed-borrow-meta {
-    font-size: 11.5px;
-    color: var(--fg-3);
-}
 .ed-sect-head {
     display: flex;
     align-items: flex-end;
@@ -1150,72 +766,45 @@ const ED_STYLES = `
     font-variant-numeric: tabular-nums;
 }
 .ed-goal-saved { color: var(--fg); font-weight: 600; }
-.ed-rebalance-link {
-    font-size: 12px;
-    color: var(--brand);
-    text-decoration: none;
-}
-.ed-rebalance-link:hover { text-decoration: underline; }
 
-/* Tables */
-.ed-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12.5px;
+/* Recent transactions list */
+.ed-tx-list {
+    display: flex;
+    flex-direction: column;
 }
-.ed-th {
-    text-align: right;
-    padding: 8px 0;
-    font-size: 10.5px;
-    font-weight: 500;
-    color: var(--fg-4);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    border-bottom: 1px solid var(--line);
-}
-.ed-th-l { text-align: left; }
-.ed-tr { transition: background 120ms ease; }
-.ed-tr:hover { background: var(--bg-elev-2); }
-.ed-td {
+.ed-tx-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 14px;
     padding: 12px 0;
     border-bottom: 1px solid var(--line-soft);
+}
+.ed-tx-row:last-child { border-bottom: none; }
+.ed-tx-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.ed-tx-desc {
+    font-size: 13px;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ed-tx-date {
+    font-size: 12px;
+    color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.ed-tx-amt {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
     text-align: right;
-}
-.ed-tr:last-child .ed-td { border-bottom: none; }
-.ed-td-l { text-align: left; }
-.ed-td-r { text-align: right; }
-.ed-td-name {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-.ed-td-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 999px;
-    flex-shrink: 0;
-}
-.ed-drift-chip {
-    display: inline-flex;
-    align-items: center;
-    height: 18px;
-    padding: 0 6px;
-    border-radius: 999px;
-    font-size: 10px;
-    font-weight: 500;
-    color: var(--expense);
-    border: 1px solid color-mix(in oklab, var(--expense) 30%, transparent);
-    background: transparent;
-}
-
-.ed-trend-foot {
-    display: flex;
-    justify-content: space-between;
-    margin-top: 12px;
-    font-size: 11.5px;
-    color: var(--fg-4);
-    flex-wrap: wrap;
-    gap: 8px;
+    white-space: nowrap;
 }
 
 .ed-empty {
@@ -1233,9 +822,6 @@ const ED_STYLES = `
     .orbit-design .od-card.ed-hero { padding: 16px; gap: 14px; }
     .ed-section { padding: 14px; }
     .ed-sect-head { margin-bottom: 10px; }
-    .ed-borrow-row { padding: 10px 12px; gap: 8px; }
-    .ed-table { font-size: 12px; }
-    .ed-td { padding: 10px 0; }
-    .ed-th { padding: 6px 0; }
+    .ed-tx-row { gap: 10px; }
 }
 `;

@@ -5,20 +5,35 @@
 > or running reviews. If a fact in this spec contradicts the code, **the
 > code wins** — but flag the drift so the spec gets updated.
 
-**Last rewritten:** 2026-05-12, after migrations 030–040 landed:
-transfer fees (030), category priority tiers (031), envelope borrowing
-across months (032), envelope archival (033), generic idempotency-key
-cache (034), three-value carry policy replacing the old `carry_over`
-boolean (035), per-user reckoning acknowledgments (036), per-space
-budget mode (`flexible | strict`, 037), event lifecycle + estimated
-amounts (038), token-credentialed space invites (039), and soft-delete
-+ JWT token-version invalidation on `users` (040). Also: full
-self-service account surface (`profile`, `security` pages with
-change-email / change-password / delete-account), the public
-invite-acceptance route at `/invite/:token`, the reckoning page and
-month-plan / year-report pages, and four new analytics views
-(`matrix`, `trends`, `anomalies`, `priority`). Orbit is deployed to
-production at [orbit.withtahmid.com](https://orbit.withtahmid.com).
+**Last rewritten:** 2026-06-23, after the budgeting simplification
+(migrations 046–048) landed on top of 030–040. The earlier additions
+of envelope borrowing across months (032), a three-value carry policy
+(035), per-user reckoning acknowledgments (036), and per-space budget
+mode (`flexible | strict`, 037) were all **subsequently removed** by
+migration 048 — see below. The features that remain from that batch:
+transfer fees (030), category priority tiers (031), envelope archival
+(033), generic idempotency-key cache (034), event lifecycle +
+estimated amounts (038), token-credentialed space invites (039), and
+soft-delete + JWT token-version invalidation on `users` (040).
+
+Two later changes reshaped budgeting:
+- **Goals folded into envelopes; plans removed** (migrations 046/047).
+  The separate `plans` / `plan_allocations` tables, the `plan` router,
+  and the web Plans pages are gone. A "goal" is now just a
+  `cadence='none'` envelope with optional `target_amount` / `target_date`
+  columns, gated by a CHECK that targets only ride on rolling envelopes.
+- **Budgeting simplified** (migration 048). The allocation ledger
+  collapses to exactly one absolute row per (envelope, period);
+  per-account allocation, carry-over, borrowing-from-next-month, strict
+  budget mode, and the reckoning system are all dropped. Overspend is
+  now **shown** in analytics, never blocked or nagged; the primary
+  remedy is a transfer between envelopes.
+
+Also: full self-service account surface (`profile`, `security` pages
+with change-email / change-password / delete-account), the public
+invite-acceptance route at `/invite/:token`, the year-report page, and
+three analytics views (`trends`, `anomalies`, `priority`). Orbit is
+deployed to production at [orbit.withtahmid.com](https://orbit.withtahmid.com).
 
 ---
 
@@ -32,11 +47,13 @@ into a single coherent ledger:
 - **Envelope budgeting** — named buckets (Groceries, Rent…) hold a
   logical allocation of that money; spending is routed to envelopes via
   categories.
-- **Goal-based planning** — plans hold money earmarked for long-horizon
-  targets (House down-payment, Vacation).
+- **Goal-based saving** — a rolling (`cadence='none'`) envelope can carry
+  an optional `target_amount` / `target_date`, turning it into a goal
+  bucket for long-horizon targets (House down-payment, Vacation). Goals
+  are not a separate entity — they're an envelope feature.
 
 Collaboration happens inside a **Space**. A space has members with roles
-(owner / editor / viewer) and its own set of envelopes, plans, categories,
+(owner / editor / viewer) and its own set of envelopes, categories,
 and transactions. **Accounts are a horizontal resource** — they exist
 globally and can be shared into multiple spaces.
 
@@ -130,9 +147,10 @@ always trust migrations + `generate-types` over ad-hoc type edits.
 - **`tmp_users`** — pre-verification signup shell. `is_email_verified` flag.
 - **`email_verification_codes`** — 6-digit codes for signup / password-reset /
   change-email.
-- **`spaces`** — `id`, `name`, timestamps, `created_by`, `updated_by`,
-  plus (migration 037) `budget_mode text NOT NULL DEFAULT 'flexible'`
-  CHECK in `('flexible', 'strict')`. See §11.7.
+- **`spaces`** — `id`, `name`, timestamps, `created_by`, `updated_by`.
+  (Migration 037 once added a `budget_mode` column for strict-mode
+  budgeting; migration 048 dropped it — overspend is shown, never
+  blocked.)
 - **`space_members`** — composite PK `(space_id, user_id)` + `role` (owner /
   editor / viewer). Cascade delete on both sides.
 - **`space_invites`** (migration 039) — `id`, `space_id` (FK CASCADE),
@@ -158,24 +176,31 @@ always trust migrations + `generate-types` over ad-hoc type edits.
   maintained by a DB trigger on `transactions` (INSERT/UPDATE/DELETE).
   Source of truth for the cash balance.
 
-### 3.3 Envelopes (periodic budgets)
+### 3.3 Envelopes (periodic budgets + goals)
 
 - **`envelops`** — `id`, `space_id`, `name`, `color`, `icon`, `description`,
-  `cadence` ∈ `'none' | 'monthly'` (CHECK-constrained), `carry_over boolean`
-  (legacy, kept for one release cycle for backwards compat — see
-  migration 035), `carry_policy text NOT NULL DEFAULT 'reset'` CHECK in
-  `('reset', 'positive_only', 'both')` (migration 035), `archived
-  boolean NOT NULL DEFAULT false` (migration 033), timestamps.
-  Space-scoped. Partial index `idx_envelops_active (space_id) WHERE
-  archived = false` keeps the hot list-query path fast.
-- **`envelop_allocations`** — append-only ledger of allocations. Signed
-  `amount` (negative = deallocation). Optional `account_id` (earmark to a
-  specific account; NULL = unassigned pool). Optional `period_start date`
-  (NULL = derive from `created_at` via the envelope's cadence). Optional
-  `borrowed_link_id uuid` (migration 032) — both legs of a
-  "borrow from next month" pair share the same group UUID. Indexed on
-  `(envelop_id, account_id, period_start)` and partial-indexed on
-  `borrowed_link_id WHERE borrowed_link_id IS NOT NULL`.
+  `cadence` ∈ `'none' | 'monthly'` (CHECK-constrained), `target_amount
+  numeric(20,2) NULL` and `target_date date NULL` (migration 046 — the
+  optional goal target), `archived boolean NOT NULL DEFAULT false`
+  (migration 033), timestamps. Space-scoped. Partial index
+  `idx_envelops_active (space_id) WHERE archived = false` keeps the hot
+  list-query path fast. CHECK `envelops_target_only_on_rolling_check`
+  (migration 047): a target may be set only when `cadence = 'none'` —
+  i.e. only a rolling envelope can be a goal. (Migration 048 dropped the
+  old `carry_over` boolean and `carry_policy` enum entirely — monthly
+  envelopes **reset** each period, there is no carry-over.)
+- **`envelop_allocations`** — **exactly one row per (envelope, period)**.
+  `amount numeric(20,2)` is the **absolute allocated total** for that
+  period (not a signed delta). `period_start date` is NULL for
+  rolling/goal envelopes (`cadence='none'` → one lifetime row) and the
+  APP_TZ (Asia/Dhaka) month-start for monthly envelopes (one row per
+  calendar month). Unique index `envelop_allocations_envelop_period_uq
+  (envelop_id, period_start) NULLS NOT DISTINCT` enforces the one-row
+  rule (the NULL period of a rolling envelope is also unique). Allocate /
+  deallocate is an accumulating UPSERT under a row lock; transfer is two
+  upserts. Migration 048 dropped the previous `account_id`, `kind`,
+  `effective_at`, and `borrowed_link_id` columns — **allocations are now
+  space-wide**, with no per-account earmarking and no timestamped history.
 
 **No `envelop_balances` table.** Retired in migration `026`. All envelope
 metrics are computed on-read (see §5).
@@ -185,15 +210,13 @@ envelope can legitimately span tiers (most groceries are essential, a
 premium leaf category might be luxury), so tagging at the category level
 with inheritance from ancestors gives the right granularity.
 
-### 3.4 Plans (rolling goal buckets)
+### 3.4 Plans (removed)
 
-- **`plans`** — `id`, `space_id`, `name`, `color`, `icon`, `description`,
-  `target_amount numeric(20,2) NULL`, `target_date date NULL`, timestamps.
-- **`plan_allocations`** — signed amount, optional `account_id`. Plans
-  have **no cadence** — they're rolling by design. Balance is simply
-  `SUM(amount)` filtered by optional account.
-
-**No `plan_balances` table.** Also retired in migration `026`.
+The separate `plans` and `plan_allocations` tables were **dropped in
+migration 046**. Goal-based saving is now an envelope feature: a
+`cadence='none'` envelope with optional `target_amount` / `target_date`
+(see §3.3). There is no `plan` router, no `plan_balances`, and no Plans
+pages in the web app.
 
 ### 3.5 Categories
 
@@ -278,19 +301,12 @@ Per-purpose upload limits and allowed MIME types live in
 | `event_attachment` | 10 MB | `image/*` |
 | `exported_report` | 50 MB | `application/pdf` |
 
-### 3.9 Reckoning acknowledgments
+### 3.9 Reckoning acknowledgments (removed)
 
-- **`reckoning_acknowledgments`** (migration 036) — composite PK
-  `(space_id, envelop_id, user_id, period_start)`, plus `resolution
-  text NOT NULL` CHECK in `('pulled', 'borrowed', 'absorbed')` and
-  `acknowledged_at timestamptz`. Records "user U has resolved the
-  past-month overspend on envelope E for period P". The resolution is
-  performed via the existing transfer / borrow / no-op procedures; this
-  table only records the *acknowledgment* so the dashboard banner can
-  clear and so strict-mode budgets know which past months have been
-  reckoned with. Per-user — sharing a space doesn't force you to wait
-  on a co-owner's resolution. Indexed on `(space_id, user_id,
-  period_start)`. See §8.1.
+The `reckoning_acknowledgments` table (migration 036) was **dropped in
+migration 048** along with the rest of the reckoning system. Past-month
+overspend is no longer something a user must resolve or acknowledge —
+overspend is simply shown in analytics.
 
 ### 3.10 Idempotency keys
 
@@ -298,7 +314,7 @@ Per-purpose upload limits and allowed MIME types live in
   `user_id` (FK CASCADE), `operation text`, `response jsonb`,
   `created_at`, `expires_at` (default `NOW() + INTERVAL '7 days'`).
   Generic operation-level idempotency cache. Compound write paths
-  (transfer, borrow) opt in via the `withIdempotency` helper instead of
+  (e.g. transfer) opt in via the `withIdempotency` helper instead of
   carrying per-table idempotency columns. PK on `key` makes
   claim-or-fail atomic; a second concurrent request with the same key
   either reads the cached response or fails with CONFLICT if the first
@@ -345,18 +361,21 @@ Migrations are append-only; each has an `up` and `down`. Apply with
 | 029 | swaps `users.avatar_url` for `users.avatar_file_id` (FK → `files`, SET NULL); adds `transaction_attachments`, `event_attachments`, `exported_reports`. |
 | 030 | transfer fees: `transactions.fee_amount` + `fee_expense_category_id`, CHECK gating to `type='transfer'`, balance-sync trigger updated so a fee debits source by `amount + fee_amount`. See §11.6. |
 | 031 | `expense_categories.priority` CHECK in `('essential','important','discretionary','luxury')`. NULL inherits from the nearest non-NULL ancestor via recursive CTE in `priorityBreakdown`. |
-| 032 | `envelop_allocations.borrowed_link_id uuid` — groups the two rows of a "borrow from next month" pair (+amount in current period, −amount in next period of the same envelope). Partial index on non-NULL values. |
+| 032 | `envelop_allocations.borrowed_link_id uuid` — groups the two rows of a "borrow from next month" pair (+amount in current period, −amount in next period of the same envelope). Partial index on non-NULL values. **Reversed by 048** (borrowing removed). |
 | 033 | `envelops.archived boolean DEFAULT false` + partial index `idx_envelops_active`. Soft-retire envelopes — they disappear from default lists / can't accept new categories / transactions, but historical data stays intact for past-period analytics. |
 | 034 | `idempotency_keys` table — generic operation-level idempotency cache (see §3.10). |
-| 035 | `envelops.carry_policy` replaces the boolean `carry_over` with a three-value enum `('reset', 'positive_only', 'both')`. Backfills `false → reset`, `true → positive_only`. Legacy column kept for one release. See §9.4. |
-| 036 | `reckoning_acknowledgments` table — per-user past-month overspend acknowledgments (see §3.9 and §8.1). |
-| 037 | `spaces.budget_mode` CHECK in `('flexible', 'strict')`. Strict mode blocks new transactions until past-month overspends are reckoned with. Default flexible. See §11.7. |
+| 035 | `envelops.carry_policy` replaces the boolean `carry_over` with a three-value enum `('reset', 'positive_only', 'both')`. **Reversed by 048** — both columns dropped, carry-over removed (monthly envelopes reset). |
+| 036 | `reckoning_acknowledgments` table — per-user past-month overspend acknowledgments. **Reversed by 048** (reckoning system removed). |
+| 037 | `spaces.budget_mode` CHECK in `('flexible', 'strict')`. **Reversed by 048** — strict mode removed; overspend is shown, never blocked. |
 | 038 | `events.status` (`active`/`closed`), `estimated_amount`, `closed_at`. Closed events drop out of the picker but stay in history. Partial index over active events. |
 | 039 | `space_invites` table — token-credentialed invitations with rotating partial-unique index on pending rows. See §6.6. |
 | 040 | `users.deleted_at` + `users.token_version`. Soft-delete tombstone + per-user JWT-invalidation. See §3.1 + §6.7. |
+| 046 | **Drops `plans` + `plan_allocations`** (goals fold into envelopes) and **adds `envelops.target_amount` + `envelops.target_date`**. `down` intentionally throws — the plans subtree isn't reconstituted. See §3.3, §3.4. |
+| 047 | CHECK `envelops_target_only_on_rolling_check` — a target may be set only when `cadence = 'none'`. Makes a stale target on a monthly envelope unrepresentable. |
+| 048 | **Simplify budgeting.** Collapses `envelop_allocations` to one absolute row per (envelope, period) — unique `(envelop_id, period_start) NULLS NOT DISTINCT`; drops `account_id` / `kind` / `effective_at` / `borrowed_link_id` (allocations now space-wide, no history); drops `envelops.carry_over` + `carry_policy` (no carry-over); drops `spaces.budget_mode` (no strict mode); drops `reckoning_acknowledgments`. Reverses 032/035/036/037. `down` is structural only — lost data is not recoverable. |
 
 **Account balance** is still maintained by the trigger from migration 018.
-Envelope and plan balances are computed on-read only.
+Envelope balances are computed on-read only.
 
 ---
 
@@ -365,72 +384,53 @@ Envelope and plan balances are computed on-read only.
 ### 5.1 Envelope period balance
 
 [`resolveEnvelopePeriodBalance`](../apps/server/src/procedures/envelop/utils/resolveEnvelopePeriodBalance.mts)
-computes `{allocated, consumed, remaining, carriedIn}` for an envelope
-within the current period, optionally narrowed to a single account partition.
-Given an envelope's cadence:
+computes `{allocated, consumed, remaining}` for an envelope within a
+period. Given the envelope's cadence:
 
-- `cadence = 'none'` → window is `[epoch, +∞)`. `carry_over` does nothing.
-- `cadence = 'monthly'` → window is the current calendar month in UTC
-  (`DATE_TRUNC('month', NOW())`).
+- `cadence = 'none'` → single lifetime window `[epoch, +∞)`; the one
+  allocation row has `period_start IS NULL`.
+- `cadence = 'monthly'` → window is the current calendar month in APP_TZ
+  (`DATE_TRUNC('month', NOW())`, Asia/Dhaka); the period's one allocation
+  row has `period_start` = that month-start.
 
-Allocations inside the window are those whose `COALESCE(period_start,
-DATE_TRUNC('month', created_at))` falls in `[start, end)`. Expenses inside
-are `transactions` with `type = 'expense'`, category rolling up to this
-envelope, `transaction_datetime` in window, and (if account-scoped)
-`source_account_id = accountId`.
+`allocated` is read directly from the **single** allocation row for the
+period (one row per envelope per period — see §3.3), so it's the absolute
+allocated total, not a sum of deltas. `consumed` is the sum of
+`transactions` with `type = 'expense'` whose category rolls up to this
+envelope and whose `transaction_datetime` falls in the window (plus any
+transfer fees whose `fee_expense_category_id` rolls up to it).
+`remaining = allocated − consumed`.
 
-Carry policy (`envelops.carry_policy`, migration 035):
+There is **no carry-over and no `carriedIn`**: monthly envelopes reset
+each period; rolling envelopes are a single open window. When `consumed >
+allocated`, `remaining` goes negative — this overspend is shown in the
+UI and analytics, never blocked. The remedy is a transfer of allocation
+from another envelope (§7 / §8).
 
-- `'reset'` — fresh slate every period. Both surplus and debt forgotten.
-  (Equivalent to the legacy `carry_over = false`.)
-- `'positive_only'` — surplus carries forward as `carriedIn`, debt
-  forgotten. The default "drift is display state" mode.
-  (Equivalent to the legacy `carry_over = true`.)
-- `'both'` — surplus AND debt carry forward. The honest mode where
-  overspend persists as a real obligation against the next period's
-  allocation.
-
-In all three modes the helper computes the **previous period's
-remaining**, then either clamps to ≥ 0 (`positive_only`), preserves the
-sign (`both`), or skips the lookup entirely (`reset`). Drift is always
-a display state inside a period; `'both'` is the only mode that makes
-last period's drift propagate.
-
-**Known limitation:** the helper only looks back one period. If an
-envelope accumulates carry-over across many months, the compounding is
-not reflected. Fixing this requires a recursive CTE walking from the
-envelope's first allocation forward. Deferred.
-
-### 5.2 Plan balance
-
-[`resolvePlanBalance`](../apps/server/src/procedures/plan/utils/resolvePlanBalance.mts)
-is just `SUM(plan_allocations.amount)` filtered by optional `account_id`.
-Plans have no cadence, no consumption — only allocations and deallocations.
-
-### 5.3 Space-level unallocated cash
+### 5.2 Space-level unallocated cash
 
 [`resolveSpaceUnallocated`](../apps/server/src/procedures/allocation/utils/resolveSpaceUnallocated.mts)
 returns a **signed** value: negative means the space is over-allocated.
 
 ```
-spendable = SUM(asset.balance) − SUM(liability.balance)   [locked excluded]
-held      = SUM(current-period envelope remaining, clamped ≥ 0)
-          + SUM(plan allocated, all time)
-free      = spendable − held
+spendable   = SUM(asset.balance) − SUM(liability.balance)   [locked excluded]
+held        = Σ GREATEST(0, allocated − consumed)  over current-period envelopes
+unallocated = spendable − held
 ```
 
 **Locked accounts are excluded from the spendable pool** because money
 there (FDs, DPS) can't be drawn on. They still count toward net worth.
 
-The envelope held is clamped to ≥ 0 per envelope so that overspending in
-one envelope doesn't inflate another envelope's available pool.
+The per-envelope held is clamped to ≥ 0 (`GREATEST(0, allocated −
+consumed)`) so that overspending in one envelope doesn't inflate another
+envelope's available pool.
 
-### 5.4 Space summary
+### 5.3 Space summary
 
 [`analytics.spaceSummary`](../apps/server/src/procedures/analytics/spaceSummary.mts)
 returns `totalBalance` (net worth, all account types),
 `spendableBalance` (assets − liabilities, no locked), `lockedBalance`,
-envelope aggregates, plan allocated, period income/expense/net, and
+envelope aggregates, period income/expense/net, and
 `unallocated` (signed) + `isOverAllocated` flag.
 
 ---
@@ -443,7 +443,7 @@ envelope aggregates, plan allocated, period income/expense/net, and
   role change. Can do everything the other roles can.
 - **editor** — create/edit transactions, allocate, unallocate, transfer,
   create events. Cannot delete the space, cannot change members, cannot
-  create envelopes/plans/categories (those are owner-only).
+  create envelopes/categories (those are owner-only).
 - **viewer** — read-only. Cannot mutate anything.
 
 Checked via
@@ -487,8 +487,10 @@ An account can live in many spaces via multiple `space_accounts` rows.
 **Unshare guards** (enforced in the procedure):
 - must leave the account in ≥ 1 space (delete the account entirely if
   you want to remove it from everywhere);
-- refuses if the space still has transactions, envelope allocations, or
-  plan allocations tagged to the account — user must remove those first.
+- refuses if the space still has transactions tagged to the account —
+  user must remove those first. (Envelope allocations are now space-wide
+  and no longer carry an `account_id`, so they don't guard unshare; see
+  §3.3 / §7.)
 
 ### 6.4 UI surface
 
@@ -523,8 +525,8 @@ paradigm — just a new anchor for the queries.
 **Anchor**: accounts the caller owns
 (`user_accounts.role = 'owner'`). The virtual space contains transactions
 from every space the caller is currently a member of that touch one
-of those accounts. Categories, envelopes, and plans from those real
-spaces fold in too, restricted to the caller's owned-account partition.
+of those accounts. Categories and envelopes from those real spaces fold
+in too, restricted to the caller's owned-account partition.
 
 **Personal cash-flow semantics** (same rules as the per-space analytics,
 adapted to a multi-space union):
@@ -551,14 +553,13 @@ dispatch to the `personal.*` trpc procedures instead of their
 query pattern uses react-query's `enabled` flag so only one variant
 fires per render.
 
-**Nav items hidden in the virtual space**: Envelopes, Plans,
-Categories, Events, Settings.
+**Nav items hidden in the virtual space**: Envelopes, Categories,
+Events, Settings.
 [`SpaceLayout`](../apps/web/src/layouts/SpaceLayout.tsx) filters its
 sidebar to Overview / Accounts / Transactions / Analytics only, because
 those are mutation-oriented entities (`/s/me/envelopes/new` wouldn't
 know which real space to create in). Their *analytics* — envelope
-utilization, plan progress, category breakdown — still fold in via the
-seven analytics views.
+utilization, category breakdown — still fold in via the analytics views.
 
 **Server procedures**: under
 [`apps/server/src/procedures/personal/`](../apps/server/src/procedures/personal/),
@@ -567,16 +568,14 @@ Every analytics procedure has a personal counterpart:
 
 | analytics.* | personal.* |
 |---|---|
-| `spaceSummary` | `summary` (full shape — balances, envelope/plan aggregates, unallocated, period income/expense) |
+| `spaceSummary` | `summary` (full shape — balances, envelope aggregates, unallocated, period income/expense) |
 | `cashFlow` | `cashFlow` |
 | `topCategories` | `topCategories` (each row tagged `space_id`/`space_name`) |
 | `categoryBreakdown` | `categoryBreakdown` (flat rows across spaces, tagged with space) |
-| `envelopeUtilization` | `envelopeUtilization` ("my slice" — partitions filtered to owned accounts, tagged with space) |
-| `planProgress` | `planProgress` (same) |
+| `envelopeUtilization` | `envelopeUtilization` ("my slice" — owned-account expenses, tagged with space) |
 | `balanceHistory` | `balanceHistory` |
 | `spendingHeatmap` | `spendingHeatmap` |
 | `accountDistribution` | `accountDistribution` |
-| `accountAllocation` | `accountAllocation` (no `spaceId` — unions all the real spaces the account lives in) |
 | `transaction.listBySpace` | `transactions` (snake-case shape parity, full filter parity with `transaction.list`: type, category, envelope, event, account, user, amount range, search, date range, cursor — plus `is_internal_transfer` / `direction` / space annotations) |
 | `expenseCategory.listBySpace` | `listCategories` |
 | — | `ownedAccounts` (used by the virtual `AccountsPage`) |
@@ -671,126 +670,73 @@ so the invite return-path threading can't be hijacked.
 
 ---
 
-## 7. Allocations — the 2D matrix
+## 7. Allocations — one absolute row per (envelope, period)
 
-Allocations are the core of Orbit's mental model. Two orthogonal axes:
-
-- **Which envelope (or plan) is the money earmarked for?**
-- **Which account does the money live in? (optional)**
+Allocations earmark spendable cash to an envelope for a period. There is
+**one axis** — which envelope — and the money is **space-wide** (no
+per-account earmarking; that was dropped in migration 048).
 
 ### 7.1 Allocation row
 
 ```
-envelop_allocations: (id, envelop_id, account_id NULL, amount, period_start NULL, created_by, created_at)
-plan_allocations:    (id, plan_id,    account_id NULL, amount, created_by, created_at)
+envelop_allocations: (id, envelop_id, amount, period_start NULL, created_by, created_at)
 ```
 
-`amount` is signed: positive allocates, negative deallocates. This is
-append-only — allocations are never updated, only inserted with compensating
-amounts.
+`amount` is the **absolute allocated total** for the period, and there is
+**exactly one row** per `(envelop_id, period_start)` (unique index, NULLS
+NOT DISTINCT — see §3.3). Monthly envelopes get one row per calendar
+month (`period_start` = APP_TZ month-start); rolling/goal envelopes get a
+single lifetime row (`period_start IS NULL`). Rows are **upserted in
+place**, never appended — there is no per-change history.
 
-### 7.2 What the axes mean
+### 7.2 Allocate / deallocate
+([`envelop.allocationCreate`](../apps/server/src/procedures/envelop/createAllocation.mts))
 
-- `account_id IS NOT NULL`: "this amount of Account A is earmarked as
-  envelope E's budget". Counts against Account A's unallocated pool and
-  against envelope E's total.
-- `account_id IS NULL`: **unassigned pool** — "envelope E has $X in it,
-  from wherever." Reduces the space-level unallocated but doesn't pin to
-  any specific account.
+The procedure takes a **signed delta** (`amount`: positive allocates,
+negative deallocates) and applies it as an **accumulating UPSERT** under a
+row lock on the period's allocation row:
+
+- **Positive delta** (allocating): the space's signed unallocated (§5.2)
+  must be ≥ the delta — you can't earmark cash you don't have.
+- **Negative delta** (deallocating): the envelope period's current
+  `remaining` must be ≥ |delta|, so the row never goes artificially
+  negative from a pull.
+
+The UPSERT keys on `(envelop_id, period_start)`; a repeated idempotency
+key reads the cached response instead of applying the delta twice.
 
 ### 7.3 Consumption rule (for expense transactions)
 
-When a transaction of type `expense` with `source_account_id = A` and
-`expense_category_id = C` (rolling up to envelope `E`) is recorded:
-
-> Consumption hits the `(E, A)` partition for the transaction's period.
-> Never touches unassigned or other-account partitions.
-
-If `(E, A)` had no allocation, its `remaining` goes **negative** — this
-is **drift**. Envelope total consumption is still correct; only the
-per-account partition shows the drift.
-
-### 7.4 Balance-check guards
-
-`envelop.createAllocation` and `plan.createAllocation` enforce:
-
-- **Positive amounts** (allocating): space's signed unallocated must be ≥ amount.
-- **Negative amounts** (deallocating): the target partition's current
-  remaining must be ≥ |amount| (can't pull more than is there).
-
-`allocation.transfer` enforces the source partition has enough to give
-before writing both rows atomically in a transaction.
-
-### 7.5 What sharing an account affects
-
-Allocating "from Account A" requires Account A to be in the current
-space. Validated in allocation create:
-
-```
-SELECT 1 FROM space_accounts
- WHERE account_id = $accountId AND space_id = $envelopeSpaceId
-```
-
-When an account is unshared from a space, lingering allocations in that
-space would orphan; the unshare procedure refuses to proceed until those
-are cleaned up.
+When an `expense` with `expense_category_id = C` (rolling up to envelope
+`E`) lands in period `P`, it adds to `E`'s `consumed` for `P`. If
+`consumed > allocated`, the envelope's `remaining` for that period goes
+**negative** — overspend. This is a shown state, never blocked (§5.1).
 
 ---
 
-## 8. Drift & rebalancing
+## 8. Overspend & rebalancing
 
-**Drift** is `allocated − consumed < 0` for a `(envelope, account, period)`
-partition. It is surfaced as a UI state, not an error (the
-exception is strict-mode budgets — see §11.7).
+**Overspend** is `allocated − consumed < 0` for an `(envelope, period)`.
+It is **surfaced as a UI state, never blocked or nagged** — Orbit shows it
+in analytics and on envelope cards and lets the user decide.
 
-- Badge on envelope cards on the [`EnvelopesPage`](../apps/web/src/pages/space/envelopes/EnvelopesPage.tsx).
-- Drift alerts card on the [`OverviewPage`](../apps/web/src/pages/space/OverviewPage.tsx)
+- Badge on envelope cards on the [`BudgetsPage`](../apps/web/src/pages/space/budgets/BudgetsPage.tsx).
+- Overspend alerts card on the [`OverviewPage`](../apps/web/src/pages/space/OverviewPage.tsx)
   lists the worst offenders.
-- Per-account breakdown table on the
-  [`EnvelopeDetailPage`](../apps/web/src/pages/space/envelopes/EnvelopeDetailPage.tsx)
-  shows drift with a "Rebalance" button.
-- `AccountDetailPage` "Allocations" tab marks drifting envelopes.
+- The [`BudgetDetailPage`](../apps/web/src/pages/space/budgets/BudgetDetailPage.tsx)
+  shows the period's allocated / consumed / remaining with a "Transfer"
+  action.
 
-**Rebalancing UI** is a pre-scoped
-[`allocation.transfer`](../apps/server/src/procedures/allocation/transfer.mts)
-call: transfer allocation from a healthy partition (`E@B` with positive
-remaining) to the drifting partition (`E@A`). Same envelope, different
-account. The procedure also supports cross-envelope and envelope↔plan
-transfers.
-
-### 8.1 The reckoning — past-month overspends
-
-Once a calendar month closes, this-month drift becomes last-month
-drift. The product's stance is that ignoring it is fine for honest
-users but a one-way ratchet toward fictional budgets, so Orbit
-surfaces every past-month overspend as a **pending reckoning** and
-asks the user to choose how to settle it. The settlement choice is
-recorded so the dashboard banner can clear and so future analytics can
-distinguish silent absorption from active rebalancing.
-
-| Procedure | What it returns / does |
-|---|---|
-| [`reckoning.listPending`](../apps/server/src/procedures/reckoning/listPending.mts) | pending overspends for the caller across the last 90 days: rows of `{envelopeId, periodStart, allocated, consumed, overspend, allowedResolutions}` where allowed resolutions reflect cross-envelope availability and whether the next month exists |
-| [`reckoning.acknowledge`](../apps/server/src/procedures/reckoning/acknowledge.mts) | inserts a `reckoning_acknowledgments` row tagging which resolution the user took (`pulled` / `borrowed` / `absorbed`); the resolution itself is performed by the existing transfer / `envelop.borrowFromNextMonth` / no-op procedures, this is just the bookkeeping |
-| `personal.reckoningListPending` | cross-space view that powers the personal-space reckoning banner |
-
-The reckoning page lives at `/s/:spaceId/reckoning`
-([`ReckoningPage`](../apps/web/src/pages/space/reckoning/ReckoningPage.tsx))
-and is the canonical destination for the banner-link on the overview
-page. Each pending row offers three buttons:
-
-- **Pull cover** — opens the rebalance dialog with the drifting
-  partition pre-selected; uses `allocation.transfer`.
-- **Borrow from next month** — only if the next month exists in
-  the envelope's cadence — fires `envelop.borrowFromNextMonth`
-  (see §11.7) which writes the paired `+amount/−amount` allocation
-  rows sharing a `borrowed_link_id`.
-- **Absorb** — accepts the drift silently; records the
-  acknowledgment with `resolution = 'absorbed'`.
-
-Acknowledgment scope is `(space_id, envelop_id, user_id, period_start)`
-— each user reckons with their own view; co-owners don't block each
-other.
+**The primary remedy is a transfer between envelopes** — pull allocation
+from a healthy envelope into the overspent one via
+[`allocation.transfer`](../apps/server/src/procedures/allocation/transfer.mts).
+The transfer is re-expressed as **two upserts** against the
+one-row-per-(envelope, period) model — it deallocates from the source
+envelope's current period and allocates to the destination envelope's
+current period, both inside one transaction with the source-has-enough
+guard and a lock on both rows. Same-envelope and into-archived-envelope
+transfers are rejected. (Cross-account and envelope↔plan transfers no
+longer exist — there's no account axis and plans are gone.)
 
 ---
 
@@ -803,8 +749,10 @@ number. The fix was explicit periods.
 ### 9.1 Cadence values
 
 - `'none'` (default for pre-existing envelopes) — single open window
-  `[epoch, +∞)`. Identical to the old lifetime model.
-- `'monthly'` — window resets on the 1st of each calendar month in UTC.
+  `[epoch, +∞)`. Identical to the old lifetime model. Also the cadence a
+  goal envelope must use (target columns ride only on `'none'`; §3.3).
+- `'monthly'` — window resets on the 1st of each calendar month in APP_TZ
+  (Asia/Dhaka).
 
 New cadences (weekly, yearly) can be added by widening the
 `envelops_cadence_check` constraint and the `Cadence` union in
@@ -820,43 +768,32 @@ all propagate automatically because metrics are derived from
 `transaction_datetime` and `period_start`, not from a materialized
 snapshot. This is why the `envelop_balances` table was retired.
 
-### 9.3 Carry policy (replaces the legacy `carry_over` boolean)
+### 9.3 No carry-over
 
-Per migration 035, the boolean `carry_over` is superseded by a
-three-value enum `envelops.carry_policy ∈ ('reset', 'positive_only',
-'both')`:
-
-- **`reset`** — fresh slate; previous period's outcome is ignored.
-- **`positive_only`** — previous period's *surplus* carries forward
-  clamped to ≥ 0; drift forgotten. The behavior most users want by
-  default.
-- **`both`** — previous period's signed remaining carries forward.
-  This is the honest mode: an underspend boosts next month, an
-  overspend cuts into it. Pairs naturally with the reckoning UI for
-  users who'd rather propagate debt than acknowledge it.
-
-The helper exposes both `carriedIn` (signed under `'both'`, clamped
-under `'positive_only'`, zero under `'reset'`) and the period's
-allocated/consumed/remaining. **Single-step look-back only**;
-multi-month compounding is a known limitation. The legacy `carry_over`
-column is still populated alongside `carry_policy` for one release
-cycle in case a pre-deploy server instance runs against the new
-schema — drop in a follow-up migration once that's safe.
+Monthly envelopes **reset** each period: each calendar month is an
+independent budget, and a previous month's surplus or overspend does
+**not** propagate. The earlier three-value `carry_policy` (migration 035)
+and the legacy `carry_over` boolean were both dropped in migration 048,
+and there is no `carriedIn` in the balance shape (§5.1). A surplus you
+want to keep using is moved with `allocation.transfer` (§8); an overspend
+is simply shown.
 
 ---
 
-## 10. Plans
+## 10. Goals (rolling envelopes with a target)
 
-Plans are long-horizon. Characteristics:
+Goal-based saving is **not a separate entity** — it's a `cadence='none'`
+envelope carrying optional target columns (migrations 046/047; the
+standalone `plans` table was dropped). Characteristics:
 
-- No cadence. All allocations count all time.
-- `target_amount` optional — enables `pctComplete` in
-  [`analytics.planProgress`](../apps/server/src/procedures/analytics/planProgress.mts).
+- A goal must be a **rolling** envelope (`cadence='none'`); the CHECK
+  `envelops_target_only_on_rolling_check` forbids a target on a monthly
+  envelope.
+- `target_amount` optional — enables a "% complete" progress read against
+  the envelope's lifetime `allocated`.
 - `target_date` optional — UI shows "N days left" / "N days overdue."
-- Gains the same `account_id` column on `plan_allocations` for per-account
-  partitioning. Symmetric with envelopes on the Account detail page.
-- Cannot be spent from directly. To use plan money, transfer allocation
-  from plan → envelope first, then spend via a regular expense transaction.
+- Like any envelope, a goal can't be spent from directly: spend lands via
+  an expense whose category rolls up to the envelope.
 
 ---
 
@@ -961,7 +898,7 @@ all respect the fee (swap OLD for NEW on updates, reverse on delete).
 | Procedure | Where the fee lands |
 |---|---|
 | `topCategories`, `categoryBreakdown` | added to totals under `fee_expense_category_id` |
-| `envelopeUtilization`, `accountAllocation` | consumed includes fees on the envelope their category rolls up to; carry-over math respects fees on prior periods |
+| `envelopeUtilization` | consumed includes fees on the envelope their category rolls up to |
 | `cashFlow`, `spendingHeatmap`, `spaceSummary` (`periodExpense`) | fees count as period expense alongside regular `type='expense'` rows, **gated to transfers whose source is in the space** (see §12) |
 
 **Personal twins** — same additions on every `personal.*` counterpart.
@@ -988,64 +925,16 @@ or other members' accounts.
 [`resolveTransactionPermission`](../apps/server/src/procedures/transaction/utils/resolveTransactionPermission.mts)
 mirrors this on the server: destination needs only space-member access.
 
-### 11.7 Borrow from next month
+### 11.7 No transaction-time budget gate
 
-Some overspends are timing problems, not budgeting problems — the
-phone bill landed two days early, the household ran out of detergent
-on the 31st. Rather than force the user to pull cover from a
-neighboring envelope (which muddles category accounting) or absorb the
-overspend (which fudges history), Orbit offers a third path:
-**borrow allocation from the same envelope's next period**.
-
-[`envelop.borrowFromNextMonth`](../apps/server/src/procedures/envelop/borrowFromNextMonth.mts)
-writes two paired allocation rows atomically inside a transaction:
-
-- `+amount` in the *current* period (resolving the drift),
-- `−amount` in the *next* period (creating a head-start deficit on that
-  period's allocation).
-
-Both rows share the same `borrowed_link_id` (migration 032) so the UI
-can render "borrowed from May 2026" on the next month's envelope and
-offer an Undo button.
-
-| Procedure | What it does |
-|---|---|
-| `envelop.borrowFromNextMonth` | writes the paired rows; refuses if envelope is `cadence = 'none'` or `archived`; participates in the idempotency-key cache (§3.10) so a double-click doesn't double-borrow |
-| [`envelop.listBorrows`](../apps/server/src/procedures/envelop/listBorrows.mts) | lists the borrows attached to a given envelope+period for the EnvelopeDetailPage |
-| [`envelop.undoBorrow`](../apps/server/src/procedures/envelop/undoBorrow.mts) | deletes both legs by `borrowed_link_id`; refuses if doing so would drive any partition negative |
-
-Borrowing also satisfies the reckoning flow as `resolution =
-'borrowed'` — `reckoning.acknowledge` is called alongside the borrow.
-
-### 11.8 Budget mode (flexible vs. strict)
-
-`spaces.budget_mode` (migration 037) is `'flexible'` (default) or
-`'strict'`. Mode is per-space; owners flip it on the Settings page.
-
-- **`flexible`** — Orbit's default behavior since day one: drift is a
-  display state, the reckoning is offered after the month ends but
-  skippable, transactions always record. Recommended for personal
-  spaces and casual shared spaces.
-- **`strict`** — YNAB-style accountability. Every transaction-creating
-  procedure (`transaction.expense`, `transaction.transfer`,
-  `transaction.adjust`) runs the
-  [`resolveStrictGate`](../apps/server/src/procedures/space/utils/resolveStrictGate.mts)
-  guard, which queries unresolved past-month overspends within the
-  90-day window and throws `PRECONDITION_FAILED` if any exist. The
-  caller must visit the Reckoning page and acknowledge each one before
-  new spend goes through. **Per-user gating** — your own past-month
-  unreckoned overspends block you, not anyone else's.
-
-The strict gate folds transfer-fee categories into the consumed sum so
-a fee-only overspend correctly trips the gate. The 90-day window is
-deliberate: ancient drift shouldn't hold a strict-mode user hostage
-forever.
-
-Strict mode has **no story on the personal space** (`/s/me`) — the
-personal space is a synthesized view, not a real space, and its
-`budget_mode` is not a meaningful concept. The personal space always
-behaves flexibly regardless of what mode the underlying real spaces
-are in.
+Orbit never blocks a transaction on the budget. Migration 048 removed
+both the **borrow-from-next-month** mechanism (which wrote paired
+`+/−` allocation rows across months) and **strict budget mode**
+(`spaces.budget_mode`, which gated `transaction.expense` /
+`transaction.transfer` / `transaction.adjust` on unresolved past-month
+overspends). Transactions always record; an overspend is simply shown in
+analytics (§5.1, §8) and resolved, if the user chooses, with a transfer
+between envelopes.
 
 ---
 
@@ -1058,7 +947,7 @@ and registered in [`routers/analytics.mts`](../apps/server/src/routers/analytics
 
 | Procedure | What it returns |
 | --- | --- |
-| `spaceSummary` | top-line net worth / spendable / locked / envelope agg / plan agg / signed unallocated / month income+expense+net |
+| `spaceSummary` | top-line net worth / spendable / locked / envelope agg / signed unallocated / month income+expense+net |
 | `todaySummary` | "today vs typical" snapshot for the Overview hero strip |
 | `cashFlow` | income vs expense bucketed by day/week/month |
 | `balanceHistory` | bucketed running total-balance over time |
@@ -1079,18 +968,15 @@ and registered in [`routers/analytics.mts`](../apps/server/src/routers/analytics
 | `categoryWoW` | week-over-week per-category deltas |
 | `priorityBreakdown` | expense per priority tier (essential / important / discretionary / luxury / unclassified) for the window. Tier lives on the category (§3.5); descendants inherit from the nearest non-NULL ancestor via a recursive CTE. Transfer principal excluded; transfer fees counted via `fee_expense_category_id` |
 
-**Envelopes / plans / accounts**
+**Envelopes / accounts**
 
 | Procedure | What it returns |
 | --- | --- |
-| `envelopeUtilization` | per-envelope totals + `breakdown[]` of per-account partitions (`allocated`, `consumed`, `remaining`, `isDrift`) |
-| `envelopeHistory` | per-envelope allocated vs consumed across recent periods (used by EnvelopeDetailPage trend block) |
+| `envelopeUtilization` | per-envelope `allocated` / `consumed` / `remaining` for the period (space-wide; no per-account partitions) + goal-target progress for rolling envelopes that carry a target |
 | `envelopeRecentAverages` | trailing-N-period averages used by the envelope card "typical month" line |
-| `unbudgetedTrend` | 90-day breakdown of what drained the unbudgeted pool — income, allocations, plan allocations, **silent overspend absorption** (the surprising one) |
+| `unbudgetedTrend` | 90-day breakdown of what drained the unbudgeted pool — income, allocations, **silent overspend absorption** (the surprising one) |
 | `allocations` | flat list of allocations for the AllocationsView |
-| `accountAllocation` | for one account: envelope partitions + plan partitions + balance/allocated/unallocated |
 | `accountDistribution` | per-account balance with color/icon for the assets donut |
-| `planProgress` | per-plan allocated + pctComplete + per-account breakdown |
 
 **Events**
 
@@ -1126,7 +1012,7 @@ All accept `spaceId` and validate membership before running.
 | `balanceHistory` | account | current balance is account-derived; deltas must match or the chart contradicts today |
 | `spendingHeatmap` | account | a day's cell should match that day's cash-flow expense bar |
 | `categoryBreakdown`, `topCategories` | `space_id` | expense categories are space-local; the category tree only contains rows stamped with this space |
-| `envelopeUtilization`, `accountAllocation`, `planProgress` | `space_id` | envelopes and plans are space entities |
+| `envelopeUtilization` | `space_id` | envelopes are space entities |
 | `eventTotals` | `space_id` | events are space entities |
 | `priorityBreakdown` | account | mirrors `cashFlow`: inflow/outflow is per-account, classified via envelope's `priority` column |
 
@@ -1141,8 +1027,7 @@ delta stream diverged from its `current_balance` when a row touched a
 scope account but was stamped with a neighboring space. Under the
 account-flow rule, both problems disappear: every query derives its
 population from `space_accounts` via a scope CTE, and `space_id`
-becomes purely a categorization tag for the category/envelope/plan
-graph.
+becomes purely a categorization tag for the category/envelope graph.
 
 **The combination table** (for any row, from Space X's viewpoint,
 where `scope = space_accounts` for X):
@@ -1180,10 +1065,10 @@ Every analytics procedure has a personal twin (same output shape, same
 SQL pattern, different anchor) so the pages and analytics views swap
 data sources via a single `space.isPersonal` branch:
 `summary`, `cashFlow`, `topCategories`, `categoryBreakdown`,
-`envelopeUtilization`, `planProgress`, `balanceHistory`,
-`spendingHeatmap`, `accountDistribution`, `accountAllocation`, plus
-`transactions` (full filter parity with `transaction.list`),
-`listCategories`, and `ownedAccounts`. See §6.5 for the semantics.
+`envelopeUtilization`, `balanceHistory`, `spendingHeatmap`,
+`accountDistribution`, plus `transactions` (full filter parity with
+`transaction.list`), `listCategories`, and `ownedAccounts`. See §6.5 for
+the semantics.
 
 ---
 
@@ -1212,26 +1097,23 @@ and the ROUTES constant is in [`router/routes.ts`](../apps/web/src/router/routes
 - `/me` — legacy alias, redirects to `/s/me`
 - `/s/:spaceId` — space overview (handles both real spaces and the
   virtual `"me"` sentinel; see §6.5 for the virtual-space dispatch).
-  Pages that depend on real space data (`settings`, `reckoning`,
-  `plan/:month`, `year/:year`) redirect to the overview when
-  `space.isPersonal`.
+  Pages that depend on real space data (`settings`, `budgets/month/:month`,
+  `year/:year`) redirect to the overview when `space.isPersonal`.
   - `/accounts`, `/accounts/:accountId` — space accounts (detail has
     **Allocations / Transactions / Shared with / Members / Settings** tabs)
-  - `/transactions`, `/envelopes`, `/envelopes/:envelopeId`,
-    `/plans`, `/plans/:planId`, `/categories`, `/events`,
-    `/events/:eventId`, `/settings`
-  - `/plan/:month` — month-allocation editor
-    ([`PlanMonthPage`](../apps/web/src/pages/space/plan/PlanMonthPage.tsx))
-    for setting the next month's envelope budgets in one screen
-  - `/reckoning` — past-month overspend resolution
-    ([`ReckoningPage`](../apps/web/src/pages/space/reckoning/ReckoningPage.tsx))
-    (see §8.1)
+  - `/transactions`, `/budgets`, `/budgets/:envelopeId`, `/categories`,
+    `/events`, `/events/:eventId`, `/settings`. (Envelopes are surfaced
+    under the "Budgets" label; there are no separate Plans pages — goals
+    are rolling envelopes, §10.)
+  - `/budgets/month/:month` — month-allocation editor
+    ([`BudgetMonthPage`](../apps/web/src/pages/space/budgets/BudgetMonthPage.tsx))
+    for setting a month's envelope budgets in one screen
   - `/year/:year` — annual roll-up
     ([`YearReportPage`](../apps/web/src/pages/space/year/YearReportPage.tsx))
     powered by `analytics.yearReport`
   - `/analytics` — index of analytics sub-views
   - `/analytics/:view` where `view` ∈ `cash-flow | categories |
-    envelopes | balance | accounts | heatmap | allocations | matrix |
+    envelopes | balance | accounts | heatmap | allocations |
     trends | anomalies | priority`
 
 Guards in [`router/guards/`](../apps/web/src/router/guards/):
@@ -1241,9 +1123,9 @@ values starting with `/` and not containing `//` or `\` are honored
 (see §6.7).
 
 The `ROUTES` constant in [`router/routes.ts`](../apps/web/src/router/routes.ts)
-also exports `spacePlanMonth(id, month)`, `spaceReckoning(id)`,
-`spaceYearReport(id, year)`, and `inviteAccept(token)`. **Never
-hardcode paths in components** — use `ROUTES.*`.
+also exports `spaceBudgetMonth(id, month)`, `spaceYearReport(id, year)`,
+and `inviteAccept(token)`. **Never hardcode paths in components** — use
+`ROUTES.*`.
 
 ### 13.2 Component catalog (shared building blocks)
 
@@ -1253,8 +1135,8 @@ All under [`apps/web/src/components/`](../apps/web/src/components/).
   always shows `−` on negatives. `signed` flag prefixes `+` for positives.
   Variants `income / expense / transfer / neutral / muted`.
 - [`EntityAvatar`](../apps/web/src/components/shared/EntityAvatar.tsx) —
-  tinted color chip with an icon. Used everywhere an envelope/plan/
-  account/category/event appears.
+  tinted color chip with an icon. Used everywhere an envelope/account/
+  category/event appears.
 - [`ColorPicker`](../apps/web/src/components/shared/ColorPicker.tsx) +
   [`IconPicker`](../apps/web/src/components/shared/IconPicker.tsx) +
   [`EntityStyleFields`](../apps/web/src/components/shared/EntityStyleFields.tsx) —
@@ -1272,8 +1154,7 @@ All under [`apps/web/src/components/`](../apps/web/src/components/).
   breaks recharts rendering on some versions. No white stroke between
   segments.
 - [`AllocationFlowBar`](../apps/web/src/components/shared/charts/AllocationFlowBar.tsx) —
-  horizontal stacked bars for (envelope × account) and (account × envelope/plan)
-  matrices.
+  horizontal stacked bars for the per-envelope allocation breakdown.
 - [`ConfirmDialog`](../apps/web/src/components/shared/ConfirmDialog.tsx),
   [`PermissionGate`](../apps/web/src/components/shared/PermissionGate.tsx),
   [`EmptyState`](../apps/web/src/components/shared/EmptyState.tsx),
@@ -1293,7 +1174,7 @@ All under [`apps/web/src/components/`](../apps/web/src/components/).
 
 ### 13.3 Entity visual system
 
-Envelopes, plans, accounts, categories, and events all carry `color` and
+Envelopes, accounts, categories, and events all carry `color` and
 `icon` (see §3). The `EntityAvatar`, donut slices, progress bars, flow-bar
 segments all pull directly from these fields — the same entity reads the
 same color everywhere. Defaults are deterministic by `hashtext(id)` so a
@@ -1324,13 +1205,13 @@ The [`OverviewPage`](../apps/web/src/pages/space/OverviewPage.tsx) reads
 top-down as a narrative:
 
 1. Header with "All analytics" shortcut
-2. Attention strip — over-allocation banner + drift alerts (conditional)
+2. Attention strip — over-allocation banner + overspend alerts (conditional)
 3. 4 stat cards with month-over-month deltas
 4. Balance trend (full-width area chart, 30 days)
 5. Paired donuts — Allocation map + Top categories
 6. Cash flow (full-width bars, 3 months weekly)
 7. Month-progress bar with net-this-month + envelope-spend sidebar
-8. Envelope utilization + Plan progress (6/6)
+8. Envelope utilization
 9. Recent transactions + Upcoming events (7/5)
 
 Every section has a "Details →" chip linking to the corresponding
@@ -1378,7 +1259,7 @@ which stringify identically across renders within the same month.
   month-truncated (§13.6).
 - Date handling at UI edges: always `new Date(str)` before `date-fns`,
   because tRPC HTTP serializes `Date → string` even though the type
-  claims `Date`. Seen in plans, events, transactions.
+  claims `Date`. Seen in budgets, events, transactions.
 - Route persistence: filter/period state is URL-synced via `useSearchParams`
   so deep-linking and back-button work.
 
@@ -1397,30 +1278,32 @@ These should never break. If your change might violate one, think hard or
 don't do it.
 
 **Accounting**
-1. Money exists only in accounts. Envelopes and plans are labels, not
-   money.
+1. Money exists only in accounts. Envelopes are labels, not money.
 2. `account_balances.balance` = Σ deltas from transactions where this
    account is source/destination. The trigger enforces this; handwritten
    balance updates are forbidden.
-3. Sum of `envelop_allocations.amount` for an envelope = that envelope's
-   total allocated (no materialized column to drift from).
+3. There is exactly one `envelop_allocations` row per `(envelop_id,
+   period_start)` and its `amount` is that period's absolute allocated
+   total (no materialized balance column to drift from).
 
 **Periods**
-4. Allocation `period_start` is stable: an allocation written on Jan 25
-   with default `period_start` stays in January even when viewed in
-   March. Editing the row's `created_at` must not change which period it
-   belongs to (use `period_start` explicitly when moving).
-5. Cadence = 'none' envelopes ignore `period_start` entirely.
+4. A monthly envelope's allocation row is keyed by `period_start`
+   (APP_TZ month-start); a rolling/goal envelope has a single
+   `period_start IS NULL` row. Periods don't carry over — each monthly
+   period is independent.
+5. Cadence = 'none' envelopes use the single NULL-period lifetime row.
 6. `resolveEnvelopePeriodBalance` is the only way to compute envelope
    remaining. Don't re-implement on the client.
 
-**Partitioning**
-7. An expense with `source_account_id = A` and category → envelope E
-   hits *only* the `(E, A)` partition. Never creates an allocation.
-8. The unassigned pool (`account_id IS NULL`) is not consumed by
-   transactions automatically.
-9. Drift (`allocated < consumed`) is legal state, not an error. Envelope
-   total consumption still equals sum of matching transactions.
+**Allocations & overspend**
+7. An expense whose category rolls up to envelope E adds to E's
+   `consumed` for the transaction's period. It never writes an
+   allocation row. Allocations are space-wide (no `account_id`).
+8. Allocate/deallocate and transfer mutate the single period row via an
+   accumulating UPSERT under a row lock — never append.
+9. Overspend (`allocated < consumed`) is legal state, not an error, and
+   is never blocked. Envelope consumption equals the sum of matching
+   transactions (incl. transfer fees).
 
 **Permissions**
 10. Space isolation: every procedure that reads/writes space data calls
@@ -1436,11 +1319,12 @@ don't do it.
     - `expense_categories.parent_id` (can't delete parent with children)
     - `expense_categories.envelop_id` (can't delete envelope with
       categories)
-    - `envelop_allocations.account_id` / `plan_allocations.account_id` (can't
-      delete an account that has allocations)
-    - `envelop_allocations.created_by` / `plan_allocations.created_by`
+    - `envelop_allocations.created_by`
+    (Note: `envelop_allocations.account_id` no longer exists — migration
+    048 dropped per-account allocation — so allocations no longer guard
+    account deletion.)
 14. `ON DELETE CASCADE` on space_members, space_accounts (when account
-    unshared from space), envelops/plans (when space deleted).
+    unshared from space), envelops (when space deleted).
 
 **UI**
 15. `MoneyDisplay` is the only component that renders currency. Never
@@ -1470,12 +1354,11 @@ don't do it.
     `DetailsStep` are validated to start with `/`, not start with `//`,
     and not contain `\` before being honored.
 
-**Strict mode**
-23. `transaction.expense`, `transaction.transfer`, `transaction.adjust`
-    all call `resolveStrictGate` before writing. Strict-mode spaces
-    with unresolved past-month overspends (per-user, 90-day window)
-    throw `PRECONDITION_FAILED`. Adding new transaction-creating
-    procedures requires the same guard.
+**Budgeting**
+23. No transaction is ever blocked on the budget. There is no strict
+    mode, no reckoning, no borrow-from-next-month, and no carry-over
+    (all removed in migration 048). Overspend is shown, never gated; the
+    remedy is a transfer between envelopes.
 
 ---
 
@@ -1492,7 +1375,7 @@ When reviewing a PR, run this mental scan:
   `MoneyDisplay`.
 - A new procedure that doesn't call `resolveSpaceMembership` or
   `resolveAccountPermission` — probably missing an authorization check.
-- Materialized balance tables creeping back in. Envelope/plan balance
+- Materialized balance tables creeping back in. Envelope balance
   computation should stay on-read.
 - Hardcoded colors in components. Use entity `color` fields or
   semantic CSS vars (`--income`, `--expense`, etc).
@@ -1503,26 +1386,27 @@ When reviewing a PR, run this mental scan:
 ### 16.2 Must-test scenarios for any allocation/transaction change
 
 1. Monthly envelope: allocate $500, spend $100 with matching category,
-   verify `(E, A, Jan)` remaining = $400. Roll to Feb (manually change
-   system date or use test fixture), verify Jan preserved and Feb is
-   fresh.
-2. Carry-over: enable `carry_over`, underspend Jan by $200, verify Feb
-   shows `carriedIn: 200` and total remaining includes it.
-3. Drift: allocate $500 to `E@A`, spend $700 from `A`, verify
-   `(E, A)` remaining = `−200`, envelope total = `−200`, overview Drift
-   Alerts shows the row.
-4. Rebalance: with `E@A` at `−200` and `E@B` at `+300`, transfer $200
-   from `E@B` to `E@A` via the transfer dialog. Verify drift clears.
-5. Edit expense's `source_account_id` from A → B: partition
-   `(E, A)` grows by |amount|, `(E, B)` shrinks by |amount|. Envelope
-   total unchanged.
+   verify `(E, Jan)` remaining = $400. Roll to Feb (manually change
+   system date or use test fixture), verify Jan preserved and Feb is a
+   fresh, empty period (no carry-over).
+2. No carry-over: underspend Jan by $200, verify Feb starts at the new
+   month's allocation only — Jan's surplus does **not** appear in Feb.
+3. Overspend: allocate $500 to envelope E, spend $700 against it, verify
+   E's period remaining = `−200` and the overview Overspend alerts shows
+   the row. The transaction still records (never blocked).
+4. Rebalance: with E at `−200` and a healthy envelope F at `+300`,
+   transfer $200 from F to E via the transfer dialog (one upsert each).
+   Verify E's overspend clears and F drops by $200.
+5. Allocate exceeding unallocated → blocked (signed unallocated must be
+   ≥ the positive delta).
 6. Edit expense's `transaction_datetime` across months: previous month's
    consumption reverses, new month's consumption applies.
 7. Delete envelope with categories → should fail with a clear message.
-8. Delete allocation → balance recomputes; over-deallocation (remaining
-   would go negative from user action alone) must be blocked.
-9. Unshare account from space where allocations exist → blocked with
-   typed error mentioning what to clean up.
+8. Deallocate more than the period's remaining → blocked (row can't go
+   artificially negative from a pull).
+9. Goal envelope: create a `cadence='none'` envelope with a
+   `target_amount`; verify a target on a `monthly` envelope is rejected
+   by `envelops_target_only_on_rolling_check`.
 10. Share an account, then try sharing again → blocked with CONFLICT.
 
 ### 16.3 Smoke test on the web
@@ -1531,9 +1415,9 @@ When reviewing a PR, run this mental scan:
 - Overview: balance trend, allocation donut, top categories donut all
   render (not stuck on skeleton)
 - Click a slice — no white border artifact
-- Open envelope detail, see per-account breakdown
-- Click drift row → redirects to envelope detail
-- Rebalance drift → dialog works, drift clears
+- Open envelope detail, see this period's allocated / consumed / remaining
+- Click overspend row → redirects to envelope detail
+- Transfer between envelopes → dialog works, overspend clears
 - "My accounts" global page loads with correct space chips
 - New transaction sheet: all 4 tabs (income/expense/transfer/adjustment)
   work; event picker appears if events exist; category picker is
@@ -1568,21 +1452,18 @@ implementers don't accidentally ship fixes without context.
 - **Weekly / yearly cadence** — schema is ready (just a CHECK widen), but
   the period-math helper only understands `'none' | 'monthly'`. Adding
   weekly requires extending `resolvePeriodWindow`.
-- **Compounding carry-over** — current helper looks back one period. For
-  accurate multi-month rollover under `carry_policy ∈ ('positive_only',
-  'both')`, swap to a recursive CTE.
 - **Envelope balance table retired** — do **not** reintroduce
-  `envelop_balances` / `plan_balances`. If read performance becomes an
-  issue, memoize in React Query or add a view, not a materialized
-  trigger-fed table.
+  `envelop_balances` (or any plan-balance table). If read performance
+  becomes an issue, memoize in React Query or add a view, not a
+  materialized trigger-fed table.
 - **Kysely enum codegen quirk** — `ArrayType<...>` on enum columns forces
   `as unknown as T["col"]` casts. Replacing the codegen or hand-editing
   the types would remove ~40 casts; not yet done.
 - **Soft delete is users-only** — migration 040 added `users.deleted_at`
   + token-version invalidation, but every other resource (spaces,
-  envelopes, plans, accounts, transactions, allocations) is still hard
-  delete. Envelopes have an `archived` boolean (migration 033) as a
-  middle ground but it's not the same as a tombstone.
+  envelopes, accounts, transactions, allocations) is still hard delete.
+  Envelopes have an `archived` boolean (migration 033) as a middle
+  ground but it's not the same as a tombstone.
 - **`user.deleteAccount` leaves `user_accounts` ownership behind** — the
   procedure tombstones the user row and drops `space_members`, but
   rows in `user_accounts` where the tombstoned user is the sole owner
@@ -1608,9 +1489,6 @@ implementers don't accidentally ship fixes without context.
   timezone override is not yet implemented.
 - **Testing** — no automated test suite yet. Trigger correctness is
   critical and should get integration tests first.
-- **`envelops.carry_over` legacy column** — kept alongside
-  `carry_policy` for one release cycle (migration 035). A follow-up
-  migration should drop it once no running server reads it.
 - **Splitwise-style per-user splits** — a single shared-space
   transaction has no per-member split. Tracked here for visibility;
   requires a `transaction_splits` table or equivalent.
@@ -1622,21 +1500,22 @@ implementers don't accidentally ship fixes without context.
 ```
 apps/server/src/
 ├── db/kysely/
-│   ├── migrations/         # all schema history (0001–040)
+│   ├── migrations/         # all schema history (0001–048)
 │   ├── migrator.mts        # applies migrations on pnpm migrate
 │   └── types.mts           # kysely-codegen output — don't hand-edit
 ├── procedures/
 │   ├── account/            # create, update, delete, list*, share/unshare,
 │   │                       # addMember/removeMember/listUsers (account ACL)
 │   ├── allocation/
-│   │   ├── transfer.mts    # (envelope|plan, optional account) tuple transfer
+│   │   ├── transfer.mts    # two-upsert transfer between two envelopes
 │   │   └── utils/resolveSpaceUnallocated.mts
 │   ├── analytics/          # all read-only read models (see §12)
 │   ├── auth/               # signup, login, password reset
 │   ├── envelop/            # create|update|delete|archive|listBySpace,
-│   │                       # createAllocation|deleteAllocation|listAllocationsBySpace,
-│   │                       # borrowFromNextMonth|listBorrows|undoBorrow,
-│   │                       # utils/{periodWindow, resolveEnvelopePeriodBalance}
+│   │                       # createAllocation (accumulating upsert),
+│   │                       # listAllocationsBySpace,
+│   │                       # utils/{periodWindow, resolveEnvelopePeriodBalance,
+│   │                       # resolveEnvelopActive}
 │   ├── event/              # create, update, delete, listBySpace, close/reopen
 │   ├── expenseCategory/    # create, update, delete, changeParent, changeEnvelop
 │   ├── file/               # createUploadUrl, confirm, delete, getDownloadUrl,
@@ -1644,21 +1523,19 @@ apps/server/src/
 │   │                       # removeFromTransaction, shared.mts (limits)
 │   ├── personal/           # cross-space twins of analytics + transaction procedures
 │   │                       # (see §6.5 and §12)
-│   ├── plan/               # mirrors envelop minus cadence
-│   ├── reckoning/          # listPending, acknowledge — past-month overspend flow (§8.1)
+│   ├── pin/                # transaction-entry default pins (Account/Envelope/Event)
 │   ├── space/              # create, update, delete, list, memberList,
 │   │                       # addMembers, removeMember, changeMemberRole, leave,
 │   │                       # sendInvite, listInvites, revokeInvite,
 │   │                       # inviteInfo (public), acceptInvite (§6.6),
-│   │                       # utils/{resolveSpaceMembership, resolveStrictGate}
+│   │                       # utils/resolveSpaceMembership
 │   ├── transaction/        # income, expense, transfer, adjust, update, delete, list
 │   └── user/               # updateAvatar, updateProfile, changeEmail,
 │                           # changePassword, deleteAccount (§6.7)
 ├── routers/                # one file per feature, composes procedures
-│                           # (15 routers: auth, space, account, event,
-│                           # envelop, plan, expenseCategory, transaction,
-│                           # allocation, analytics, file, user, personal,
-│                           # reckoning, health)
+│                           # (auth, space, account, event, envelop,
+│                           # expenseCategory, transaction, allocation,
+│                           # analytics, file, user, personal, pin, health)
 ├── services/
 │   ├── mail/
 │   │   ├── mailer.mts      # nodemailer transport
@@ -1683,8 +1560,8 @@ apps/web/src/
 │   ├── DocsPage.tsx           # public /docs
 │   ├── auth/               # login, signup steps, forgot-password steps
 │   ├── app/                # space selector, profile, security, MyAccounts
-│   └── space/              # overview, accounts, transactions, envelopes,
-│                           # plans, plan/:month, reckoning, year/:year,
+│   └── space/              # overview, accounts, transactions, budgets,
+│                           # budgets/month/:month, year/:year,
 │                           # categories, events, analytics, settings
 ├── features/               # composed multi-component flows (accounts, allocations, transactions, spaces, invites)
 ├── components/

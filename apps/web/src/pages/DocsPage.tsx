@@ -53,8 +53,8 @@ const SECTIONS: Section[] = [
     { id: "transactions", title: "Transactions", icon: ArrowLeftRight },
     { id: "events", title: "Events", icon: CalendarDays },
     { id: "attachments", title: "Attachments & receipts", icon: Paperclip },
-    { id: "allocations", title: "Allocations (the 2D idea)", icon: Sparkles },
-    { id: "drift", title: "Overspend & reckoning", icon: Shield },
+    { id: "allocations", title: "Allocations", icon: Sparkles },
+    { id: "drift", title: "Overspend", icon: Shield },
     { id: "analytics", title: "Analytics", icon: BarChart3 },
     { id: "my-money", title: "Your money across spaces", icon: LineChart },
     { id: "permissions", title: "Roles & permissions", icon: Shield },
@@ -508,15 +508,6 @@ function Spaces() {
                 up in the same settings tab where any owner/editor can revoke
                 them.
             </CalloutCard>
-            <CalloutCard title="Budget mode (flexible vs strict)">
-                Every space has a <strong>budget mode</strong> set by its owner.{" "}
-                <strong>Flexible</strong> (default) offers the reckoning when an
-                envelope overspends but lets you skip it — transactions always
-                record. <strong>Strict</strong> blocks new expenses, transfers,
-                and adjustments in the space until every past-month overspend
-                has been reckoned with — YNAB-style accountability. Income still
-                records in either mode so you can replenish what you owe.
-            </CalloutCard>
             <CalloutCard title="Leaving a space">
                 Any member can self-remove via{" "}
                 <strong>Settings → Danger → Leave space</strong>. The space and
@@ -596,16 +587,12 @@ function Envelopes() {
                 <em>Rolling</em>, and fill in the target fields that
                 appear.
             </CalloutCard>
-            <CalloutCard title="Carry policy">
-                Three modes per envelope. <strong>Reset</strong> wipes the slate
-                each period — useful for &quot;I want a fresh budget every
-                month.&quot; <strong>Positive only</strong> (the default)
-                carries unspent remainder forward but drops overspend on the
-                floor. <strong>Both</strong> carries signed: unspent rolls
-                forward as headroom, overspend rolls forward as debt that next
-                period must absorb. Pair &quot;both&quot; with the Reckoning
-                view to settle past-month overspends explicitly instead of
-                letting them stack up silently.
+            <CalloutCard title="Monthly vs rolling">
+                <strong>Monthly</strong> envelopes reset their allocation each
+                period — a fresh budget every month. <strong>Rolling</strong>{" "}
+                (cadence: none) envelopes are a lifetime pool: contributions and
+                spending accrue across periods, which is what makes goal
+                envelopes work.
             </CalloutCard>
             <Paragraph>
                 Categories (not envelopes) carry a <strong>priority tier</strong>{" "}
@@ -854,11 +841,9 @@ function Allocations() {
             <Paragraph>
                 The <strong>Budget this month</strong> page gives you a single
                 screen to set every envelope at once — last month&apos;s actual,
-                last month&apos;s budget, and a fresh column for this month. The
-                legacy <strong>Allocation matrix</strong> view still exists but
-                is reporting-only now; it shows the historical envelope ×
-                account grid for reconciliation, not as a flow you have to
-                maintain.
+                last month&apos;s budget, and a fresh column for this month.
+                Envelopes are space-wide budget intent; you never have to pin
+                them to a particular account.
             </Paragraph>
             <ScreenshotPlaceholder label="Budget this month — bulk-edit screen with last actual / last budget / this budget columns" />
         </section>
@@ -868,34 +853,23 @@ function Allocations() {
 function Drift() {
     return (
         <section className="od-section">
-            <SectionHeader id="drift" title="Overspend & reckoning" icon={Shield} />
+            <SectionHeader id="drift" title="Overspend" icon={Shield} />
             <Paragraph>
                 Envelopes are a <strong>planning</strong> tool, not a cash
                 partition. When an envelope spends more than it was allocated
-                for the period, you have three honest ways to settle it — pick
-                one when the transaction happens, or settle later in the{" "}
-                <strong>Reckoning</strong> view at the end of the month.
+                for the period, nothing blocks you — the transaction always
+                records. You have two honest ways to handle the gap.
             </Paragraph>
-            <div className="od-grid-3">
+            <div className="od-grid-2">
                 <InfoCard
                     title="Pull from another envelope"
                     body="Move allocation from a less-pressed envelope to cover the gap."
                 />
                 <InfoCard
-                    title="Borrow from next month"
-                    body="Links a +X / −X allocation pair, so next month opens already short and you can't forget."
-                />
-                <InfoCard
-                    title="Absorb it"
-                    body="Leave the envelope negative on the record. The annual Year report remembers."
+                    title="Leave it"
+                    body="Do nothing — the overspend shows in analytics and the envelope resets next month. Nothing carries forward."
                 />
             </div>
-            <Paragraph>
-                The legacy per-account &quot;drift&quot; concept is retired:
-                envelopes are no longer partitioned by account. The historical
-                Allocation matrix is preserved as a reporting view only.
-            </Paragraph>
-            <ScreenshotPlaceholder label="Reckoning view + borrow-from-next-month dialog" />
         </section>
     );
 }
@@ -905,17 +879,16 @@ function Analytics() {
         <section className="od-section">
             <SectionHeader id="analytics" title="Analytics" icon={BarChart3} />
             <Paragraph>
-                Eleven dedicated analytics views, all period-filterable:
+                Ten dedicated analytics views, all period-filterable:
             </Paragraph>
             <ul className="od-list">
                 <li><strong>Cash flow</strong> — income vs expense by day / week / month</li>
                 <li><strong>Categories</strong> — spend by category with subtree roll-up</li>
-                <li><strong>Envelopes</strong> — utilization + borrow obligations</li>
+                <li><strong>Envelopes</strong> — utilization across your buckets</li>
                 <li><strong>Balance</strong> — running total balance over time</li>
                 <li><strong>Accounts</strong> — distribution donut across accounts</li>
                 <li><strong>Heatmap</strong> — daily expense calendar</li>
-                <li><strong>Allocations</strong> — where each envelope&apos;s money sits across accounts</li>
-                <li><strong>Matrix</strong> — historical envelope × account contributions (reporting-only)</li>
+                <li><strong>Allocations</strong> — where each envelope&apos;s budget is committed</li>
                 <li><strong>Trends</strong> — projection vs prior period, daily burn rate, YoY</li>
                 <li><strong>Anomalies</strong> — recurring-bill changes, category outliers, spending shape</li>
                 <li><strong>By priority</strong> — essential / important / discretionary / luxury split</li>
@@ -924,9 +897,9 @@ function Analytics() {
                 A standalone <strong>Year report</strong> lives outside the
                 analytics index — a 12-column envelope × month grid showing
                 planned vs spent for every envelope across the year, with the
-                over-allocation total per row.
+                overspend total per row.
             </Paragraph>
-            <ScreenshotPlaceholder label="Analytics index with the 11 sub-view cards" />
+            <ScreenshotPlaceholder label="Analytics index with the 10 sub-view cards" />
         </section>
     );
 }

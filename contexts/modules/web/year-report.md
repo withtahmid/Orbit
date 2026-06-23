@@ -28,4 +28,4 @@
 
 ## Cross-references
 - Server: `apps/server/src/procedures/analytics/yearReport.mts` and `apps/server/src/procedures/personal/yearReport.mts`.
-- Web: shares conceptual lineage with the reckoning flow (resolved overspends still show up here) and the envelopes period navigator.
+- Web: shares the envelopes period navigator.

@@ -84,36 +84,26 @@ export const unshareAccountFromSpace = authorizedProcedure
                     });
                 }
 
-                // Refuse if the space still has bound data. Surfacing a
-                // typed message lets the UI tell the user exactly what to
-                // clean up (transactions vs allocations).
-                const [txCount, envAllocCount] = await Promise.all([
-                    trx
-                        .selectFrom("transactions")
-                        .where("space_id", "=", input.spaceId)
-                        .where((eb) =>
-                            eb.or([
-                                eb("source_account_id", "=", input.accountId),
-                                eb("destination_account_id", "=", input.accountId),
-                            ])
-                        )
-                        .select((eb) => eb.fn.countAll<string>().as("c"))
-                        .executeTakeFirst(),
-                    trx
-                        .selectFrom("envelop_allocations as a")
-                        .innerJoin("envelops as e", "e.id", "a.envelop_id")
-                        .where("a.account_id", "=", input.accountId)
-                        .where("e.space_id", "=", input.spaceId)
-                        .select((eb) => eb.fn.countAll<string>().as("c"))
-                        .executeTakeFirst(),
-                ]);
-                const bound =
-                    Number(txCount?.c ?? 0) + Number(envAllocCount?.c ?? 0);
+                // Refuse if the space still has transactions tied to the
+                // account. (Allocations are space-wide and no longer
+                // account-bound, so they can't pin an account to a space.)
+                const txCount = await trx
+                    .selectFrom("transactions")
+                    .where("space_id", "=", input.spaceId)
+                    .where((eb) =>
+                        eb.or([
+                            eb("source_account_id", "=", input.accountId),
+                            eb("destination_account_id", "=", input.accountId),
+                        ])
+                    )
+                    .select((eb) => eb.fn.countAll<string>().as("c"))
+                    .executeTakeFirst();
+                const bound = Number(txCount?.c ?? 0);
                 if (bound > 0) {
                     throw new TRPCError({
                         code: "BAD_REQUEST",
                         message:
-                            "This space still has transactions or allocations tied to the account. Remove those first, then unshare.",
+                            "This space still has transactions tied to the account. Remove those first, then unshare.",
                     });
                 }
 
