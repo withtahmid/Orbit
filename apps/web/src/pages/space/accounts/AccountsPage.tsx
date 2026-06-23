@@ -356,6 +356,13 @@ function AccountCard({
               ? { label: "🔒 Locked", color: "var(--gold)" }
               : { label: "↓ Asset", color: "var(--income)" };
     const otherOwnersCount = account.owners.length - 1;
+    // Liabilities store the amount owed as a positive number (negative net worth),
+    // so flip them; assets/locked keep their sign. A negative signed value means
+    // money owed or an overspent (overdrawn) account.
+    const signedBalance =
+        account.account_type === "liability"
+            ? -Number(account.balance)
+            : Number(account.balance);
     return (
         <Link
             to={href}
@@ -393,16 +400,11 @@ function AccountCard({
             <div
                 className="tabular ac-card-balance"
                 style={{
-                    color:
-                        account.account_type === "liability"
-                            ? "var(--expense)"
-                            : "var(--fg)",
+                    color: signedBalance < 0 ? "var(--expense)" : "var(--fg)",
                 }}
             >
-                {account.account_type === "liability" && account.balance > 0
-                    ? "−"
-                    : ""}
-                {Math.abs(Number(account.balance)).toLocaleString("en-US", {
+                {signedBalance < 0 ? "−" : ""}
+                {Math.abs(signedBalance).toLocaleString("en-US", {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                 })}

@@ -142,7 +142,14 @@ export default function AccountDetailPage() {
                         <span className="text-sm text-muted-foreground">
                             Current balance:
                         </span>
-                        <MoneyDisplay amount={account.balance} className="text-sm" />
+                        <MoneyDisplay
+                            amount={
+                                account.account_type === "liability"
+                                    ? -Number(account.balance)
+                                    : Number(account.balance)
+                            }
+                            className="text-sm"
+                        />
                     </span>
                 }
             />
