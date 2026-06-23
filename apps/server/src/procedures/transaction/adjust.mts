@@ -7,7 +7,6 @@ import { resolveTransactionSpaceIntegrity } from "./utils/resolveTransactionSpac
 import type { Transactions } from "../../db/kysely/types.mjs";
 import { TRPCError } from "@trpc/server";
 import { attachFilesToTransaction } from "../file/attach.mjs";
-import { resolveStrictGate } from "../space/utils/resolveStrictGate.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 export const adjustAccountBalance = authorizedProcedure
@@ -33,11 +32,6 @@ export const adjustAccountBalance = authorizedProcedure
                     operation: "transaction.adjust",
                     key: input.idempotencyKey,
                     fn: async () => {
-                        await resolveStrictGate({
-                            trx,
-                            spaceId: input.spaceId,
-                            userId: ctx.auth.user.id,
-                        });
                         await resolveTransactionPermission({
                             trx,
                             userId: ctx.auth.user.id,

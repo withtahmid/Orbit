@@ -18,11 +18,9 @@
  *
  * Data universe (locale-neutral; amounts are currency-agnostic):
  * - 8 users — primary + partner + 6 collaborators across spaces
- * - 5 spaces (Family Budget [strict mode], Personal, Roommates, Side
- *   Business, Travel) — covers both flexible and strict budget_mode
+ * - 5 spaces (Family Budget, Personal, Roommates, Side Business, Travel)
  * - 16 accounts across asset / liability / locked
- * - 30+ envelopes with cadence + carry_policy mix
- *   (reset / positive_only / both — incl. "honest" mode for overspend)
+ * - 30+ envelopes (monthly reset + rolling lifetime-pool cadences)
  * - 4 goals (house, emergency, vacation, laptop) seeded as cadence='none' envelopes with targets
  * - 120+ expense categories, most two levels deep
  * - 24 events — trips, weddings, conferences, renovations, celebrations;
@@ -136,16 +134,11 @@ const USERS = [
 
 type UserKey = (typeof USERS)[number]["key"];
 
-// Per-space `budget_mode` is recorded so the seed exercises both flexible
-// and strict reckoning paths. Family is strict (overspend at month
-// rollover blocks new transactions until reckoned with); everything else
-// is flexible (the default).
 const SPACES = [
     {
         key: "family",
         name: "Family Budget",
         owner: "primary" as UserKey,
-        budget_mode: "strict" as const,
         members: [
             { user: "partner" as UserKey,  role: "editor" as const },
             { user: "sibling" as UserKey,  role: "viewer" as const },
@@ -156,14 +149,12 @@ const SPACES = [
         key: "personal",
         name: "Personal",
         owner: "primary" as UserKey,
-        budget_mode: "flexible" as const,
         members: [] as { user: UserKey; role: "editor" | "viewer" | "owner" }[],
     },
     {
         key: "roommates",
         name: "Roommates",
         owner: "primary" as UserKey,
-        budget_mode: "flexible" as const,
         members: [
             { user: "roommate" as UserKey,  role: "editor" as const },
             { user: "roommate2" as UserKey, role: "editor" as const },
@@ -173,7 +164,6 @@ const SPACES = [
         key: "side",
         name: "Side Business",
         owner: "primary" as UserKey,
-        budget_mode: "flexible" as const,
         members: [
             { user: "biz" as UserKey, role: "editor" as const },
         ],
@@ -182,7 +172,6 @@ const SPACES = [
         key: "travel",
         name: "Travel Fund",
         owner: "primary" as UserKey,
-        budget_mode: "flexible" as const,
         members: [
             { user: "partner" as UserKey, role: "editor" as const },
             { user: "travel" as UserKey,  role: "editor" as const },
@@ -218,60 +207,61 @@ type AccountKey = (typeof ACCOUNTS)[number]["key"];
 
 type Priority = "essential" | "important" | "discretionary" | "luxury";
 
-// Envelopes keep cadence + carry_over. Priority lives on categories
-// (migration 031) — an envelope's tier is implicit from its children.
+// Envelopes carry a cadence (monthly resets each period / 'none' is a
+// lifetime pool). Priority lives on categories (migration 031) — an
+// envelope's tier is implicit from its children.
 const ENVELOPES = [
     // Family
-    { key: "fam_groceries",     space: "family" as SpaceKey,    name: "Groceries",           cadence: "monthly" as const, carry: true,  color: "#22c55e", icon: "shopping-cart" },
-    { key: "fam_rent",          space: "family" as SpaceKey,    name: "Rent",                cadence: "monthly" as const, carry: false, color: "#ef4444", icon: "home" },
-    { key: "fam_utilities",     space: "family" as SpaceKey,    name: "Utilities",           cadence: "monthly" as const, carry: false, color: "#0ea5e9", icon: "zap" },
-    { key: "fam_transport",     space: "family" as SpaceKey,    name: "Transportation",      cadence: "monthly" as const, carry: true,  color: "#f59e0b", icon: "car" },
-    { key: "fam_eatout",        space: "family" as SpaceKey,    name: "Eating Out",          cadence: "monthly" as const, carry: true,  color: "#f43f5e", icon: "utensils" },
-    { key: "fam_entertainment", space: "family" as SpaceKey,    name: "Entertainment",       cadence: "monthly" as const, carry: true,  color: "#a855f7", icon: "film" },
-    { key: "fam_healthcare",    space: "family" as SpaceKey,    name: "Healthcare",          cadence: "monthly" as const, carry: false, color: "#10b981", icon: "heart-pulse" },
-    { key: "fam_gifts",         space: "family" as SpaceKey,    name: "Gifts & Occasions",   cadence: "none" as const,    carry: false, color: "#eab308", icon: "gift" },
-    { key: "fam_kids",          space: "family" as SpaceKey,    name: "Kids & Education",    cadence: "monthly" as const, carry: true,  color: "#f472b6", icon: "baby" },
-    { key: "fam_home",          space: "family" as SpaceKey,    name: "Home Maintenance",    cadence: "monthly" as const, carry: true,  color: "#92400e", icon: "hammer" },
-    { key: "fam_pets",          space: "family" as SpaceKey,    name: "Pets",                cadence: "monthly" as const, carry: true,  color: "#fb923c", icon: "paw-print" },
-    { key: "fam_clothing",      space: "family" as SpaceKey,    name: "Clothing",            cadence: "monthly" as const, carry: true,  color: "#ec4899", icon: "shirt" },
+    { key: "fam_groceries",     space: "family" as SpaceKey,    name: "Groceries",           cadence: "monthly" as const, color: "#22c55e", icon: "shopping-cart" },
+    { key: "fam_rent",          space: "family" as SpaceKey,    name: "Rent",                cadence: "monthly" as const, color: "#ef4444", icon: "home" },
+    { key: "fam_utilities",     space: "family" as SpaceKey,    name: "Utilities",           cadence: "monthly" as const, color: "#0ea5e9", icon: "zap" },
+    { key: "fam_transport",     space: "family" as SpaceKey,    name: "Transportation",      cadence: "monthly" as const, color: "#f59e0b", icon: "car" },
+    { key: "fam_eatout",        space: "family" as SpaceKey,    name: "Eating Out",          cadence: "monthly" as const, color: "#f43f5e", icon: "utensils" },
+    { key: "fam_entertainment", space: "family" as SpaceKey,    name: "Entertainment",       cadence: "monthly" as const, color: "#a855f7", icon: "film" },
+    { key: "fam_healthcare",    space: "family" as SpaceKey,    name: "Healthcare",          cadence: "monthly" as const, color: "#10b981", icon: "heart-pulse" },
+    { key: "fam_gifts",         space: "family" as SpaceKey,    name: "Gifts & Occasions",   cadence: "none" as const,    color: "#eab308", icon: "gift" },
+    { key: "fam_kids",          space: "family" as SpaceKey,    name: "Kids & Education",    cadence: "monthly" as const, color: "#f472b6", icon: "baby" },
+    { key: "fam_home",          space: "family" as SpaceKey,    name: "Home Maintenance",    cadence: "monthly" as const, color: "#92400e", icon: "hammer" },
+    { key: "fam_pets",          space: "family" as SpaceKey,    name: "Pets",                cadence: "monthly" as const, color: "#fb923c", icon: "paw-print" },
+    { key: "fam_clothing",      space: "family" as SpaceKey,    name: "Clothing",            cadence: "monthly" as const, color: "#ec4899", icon: "shirt" },
 
     // Personal
-    { key: "per_subs",     space: "personal" as SpaceKey,  name: "Subscriptions",    cadence: "monthly" as const, carry: false, color: "#6366f1", icon: "rss" },
-    { key: "per_selfcare", space: "personal" as SpaceKey,  name: "Self Care",        cadence: "monthly" as const, carry: true,  color: "#14b8a6", icon: "sparkles" },
-    { key: "per_hobbies",  space: "personal" as SpaceKey,  name: "Hobbies",          cadence: "monthly" as const, carry: true,  color: "#f97316", icon: "camera" },
-    { key: "per_reading",  space: "personal" as SpaceKey,  name: "Books & Learning", cadence: "none" as const,    carry: false, color: "#0891b2", icon: "book-open" },
-    { key: "per_coffee",   space: "personal" as SpaceKey,  name: "Coffee",           cadence: "monthly" as const, carry: false, color: "#92400e", icon: "coffee" },
-    { key: "per_fitness",  space: "personal" as SpaceKey,  name: "Fitness",          cadence: "monthly" as const, carry: true,  color: "#dc2626", icon: "dumbbell" },
-    { key: "per_tech",     space: "personal" as SpaceKey,  name: "Tech & Gadgets",   cadence: "monthly" as const, carry: true,  color: "#6366f1", icon: "laptop" },
+    { key: "per_subs",     space: "personal" as SpaceKey,  name: "Subscriptions",    cadence: "monthly" as const, color: "#6366f1", icon: "rss" },
+    { key: "per_selfcare", space: "personal" as SpaceKey,  name: "Self Care",        cadence: "monthly" as const, color: "#14b8a6", icon: "sparkles" },
+    { key: "per_hobbies",  space: "personal" as SpaceKey,  name: "Hobbies",          cadence: "monthly" as const, color: "#f97316", icon: "camera" },
+    { key: "per_reading",  space: "personal" as SpaceKey,  name: "Books & Learning", cadence: "none" as const,    color: "#0891b2", icon: "book-open" },
+    { key: "per_coffee",   space: "personal" as SpaceKey,  name: "Coffee",           cadence: "monthly" as const, color: "#92400e", icon: "coffee" },
+    { key: "per_fitness",  space: "personal" as SpaceKey,  name: "Fitness",          cadence: "monthly" as const, color: "#dc2626", icon: "dumbbell" },
+    { key: "per_tech",     space: "personal" as SpaceKey,  name: "Tech & Gadgets",   cadence: "monthly" as const, color: "#6366f1", icon: "laptop" },
 
     // Roommates
-    { key: "room_groceries", space: "roommates" as SpaceKey, name: "Shared Groceries",   cadence: "monthly" as const, carry: false, color: "#22c55e", icon: "shopping-basket" },
-    { key: "room_utilities", space: "roommates" as SpaceKey, name: "Utilities",          cadence: "monthly" as const, carry: false, color: "#0ea5e9", icon: "plug" },
-    { key: "room_cleaning",  space: "roommates" as SpaceKey, name: "Cleaning",           cadence: "monthly" as const, carry: false, color: "#a855f7", icon: "spray-can" },
-    { key: "room_supplies",  space: "roommates" as SpaceKey, name: "Household Supplies", cadence: "none" as const,    carry: false, color: "#64748b", icon: "box" },
-    { key: "room_enter",     space: "roommates" as SpaceKey, name: "House Fun",          cadence: "monthly" as const, carry: true,  color: "#f43f5e", icon: "party-popper" },
+    { key: "room_groceries", space: "roommates" as SpaceKey, name: "Shared Groceries",   cadence: "monthly" as const, color: "#22c55e", icon: "shopping-basket" },
+    { key: "room_utilities", space: "roommates" as SpaceKey, name: "Utilities",          cadence: "monthly" as const, color: "#0ea5e9", icon: "plug" },
+    { key: "room_cleaning",  space: "roommates" as SpaceKey, name: "Cleaning",           cadence: "monthly" as const, color: "#a855f7", icon: "spray-can" },
+    { key: "room_supplies",  space: "roommates" as SpaceKey, name: "Household Supplies", cadence: "none" as const,    color: "#64748b", icon: "box" },
+    { key: "room_enter",     space: "roommates" as SpaceKey, name: "House Fun",          cadence: "monthly" as const, color: "#f43f5e", icon: "party-popper" },
 
     // Side Business
-    { key: "biz_saas",      space: "side" as SpaceKey, name: "Software & SaaS",     cadence: "monthly" as const, carry: true,  color: "#0891b2", icon: "server" },
-    { key: "biz_office",    space: "side" as SpaceKey, name: "Office & Supplies",   cadence: "monthly" as const, carry: true,  color: "#64748b", icon: "package" },
-    { key: "biz_marketing", space: "side" as SpaceKey, name: "Marketing",           cadence: "monthly" as const, carry: true,  color: "#ef4444", icon: "megaphone" },
-    { key: "biz_travel",    space: "side" as SpaceKey, name: "Business Travel",     cadence: "none" as const,    carry: false, color: "#f59e0b", icon: "plane-takeoff" },
-    { key: "biz_pros",      space: "side" as SpaceKey, name: "Professional Services", cadence: "monthly" as const, carry: true, color: "#a855f7", icon: "scale" },
+    { key: "biz_saas",      space: "side" as SpaceKey, name: "Software & SaaS",     cadence: "monthly" as const, color: "#0891b2", icon: "server" },
+    { key: "biz_office",    space: "side" as SpaceKey, name: "Office & Supplies",   cadence: "monthly" as const, color: "#64748b", icon: "package" },
+    { key: "biz_marketing", space: "side" as SpaceKey, name: "Marketing",           cadence: "monthly" as const, color: "#ef4444", icon: "megaphone" },
+    { key: "biz_travel",    space: "side" as SpaceKey, name: "Business Travel",     cadence: "none" as const,    color: "#f59e0b", icon: "plane-takeoff" },
+    { key: "biz_pros",      space: "side" as SpaceKey, name: "Professional Services", cadence: "monthly" as const, color: "#a855f7", icon: "scale" },
 
     // Travel
-    { key: "tr_flights",  space: "travel" as SpaceKey, name: "Flights",        cadence: "none" as const,    carry: false, color: "#6366f1", icon: "plane" },
-    { key: "tr_lodging",  space: "travel" as SpaceKey, name: "Accommodation",  cadence: "none" as const,    carry: false, color: "#8b5cf6", icon: "bed" },
-    { key: "tr_dining",   space: "travel" as SpaceKey, name: "Dining Abroad",  cadence: "none" as const,    carry: false, color: "#f43f5e", icon: "utensils" },
-    { key: "tr_activity", space: "travel" as SpaceKey, name: "Activities",     cadence: "none" as const,    carry: false, color: "#22c55e", icon: "mountain" },
-    { key: "tr_transit",  space: "travel" as SpaceKey, name: "Transit Abroad", cadence: "none" as const,    carry: false, color: "#0ea5e9", icon: "train" },
+    { key: "tr_flights",  space: "travel" as SpaceKey, name: "Flights",        cadence: "none" as const,    color: "#6366f1", icon: "plane" },
+    { key: "tr_lodging",  space: "travel" as SpaceKey, name: "Accommodation",  cadence: "none" as const,    color: "#8b5cf6", icon: "bed" },
+    { key: "tr_dining",   space: "travel" as SpaceKey, name: "Dining Abroad",  cadence: "none" as const,    color: "#f43f5e", icon: "utensils" },
+    { key: "tr_activity", space: "travel" as SpaceKey, name: "Activities",     cadence: "none" as const,    color: "#22c55e", icon: "mountain" },
+    { key: "tr_transit",  space: "travel" as SpaceKey, name: "Transit Abroad", cadence: "none" as const,    color: "#0ea5e9", icon: "train" },
 
     // Goals — rolling envelopes with a target. Same envelope ledger as
     // every other row; the UI treats them as goal cards because they
     // carry a `target_amount`.
-    { key: "goal_house",     space: "family" as SpaceKey,   name: "House Down Payment", cadence: "none" as const, carry: false, color: "#6366f1", icon: "home",          target: 80000, target_months_out: 30,   description: "20% down for a 3-bedroom; target horizon ~2.5 years." },
-    { key: "goal_emergency", space: "family" as SpaceKey,   name: "Emergency Fund",     cadence: "none" as const, carry: false, color: "#14b8a6", icon: "shield-alert",  target: 24000, target_months_out: null, description: "6 months of essential expenses, kept liquid." },
-    { key: "goal_vacation",  space: "family" as SpaceKey,   name: "Annual Vacation",    cadence: "none" as const, carry: false, color: "#f59e0b", icon: "plane",         target:  7500, target_months_out: 6,    description: "10-day international trip for the whole family." },
-    { key: "goal_laptop",    space: "personal" as SpaceKey, name: "New Laptop",         cadence: "none" as const, carry: false, color: "#0ea5e9", icon: "laptop",        target:  3000, target_months_out: 3,    description: "Upgrading from a 5-year-old machine." },
+    { key: "goal_house",     space: "family" as SpaceKey,   name: "House Down Payment", cadence: "none" as const, color: "#6366f1", icon: "home",          target: 80000, target_months_out: 30,   description: "20% down for a 3-bedroom; target horizon ~2.5 years." },
+    { key: "goal_emergency", space: "family" as SpaceKey,   name: "Emergency Fund",     cadence: "none" as const, color: "#14b8a6", icon: "shield-alert",  target: 24000, target_months_out: null, description: "6 months of essential expenses, kept liquid." },
+    { key: "goal_vacation",  space: "family" as SpaceKey,   name: "Annual Vacation",    cadence: "none" as const, color: "#f59e0b", icon: "plane",         target:  7500, target_months_out: 6,    description: "10-day international trip for the whole family." },
+    { key: "goal_laptop",    space: "personal" as SpaceKey, name: "New Laptop",         cadence: "none" as const, color: "#0ea5e9", icon: "laptop",        target:  3000, target_months_out: 3,    description: "Upgrading from a 5-year-old machine." },
 ] as const;
 
 // Priority tier per envelope. Categories created under these envelopes
@@ -318,23 +308,6 @@ const ENVELOPE_PRIORITY: Record<string, Priority> = {
 
 type EnvelopeKey = (typeof ENVELOPES)[number]["key"];
 
-// Carry policy per envelope. Defaults to "positive_only" when carry=true
-// and "reset" when carry=false. A few envelopes opt into "both" — the
-// honest mode where overspend persists as debt across periods. Picked to
-// hit different spaces and different categories so analytics/reckoning
-// flows have visible data.
-const ENVELOPE_CARRY_POLICY_OVERRIDE: Partial<
-    Record<EnvelopeKey, "reset" | "positive_only" | "both">
-> = {
-    fam_eatout: "both",
-    per_coffee: "both",
-    room_groceries: "both",
-};
-const carryPolicyFor = (
-    key: EnvelopeKey,
-    carry: boolean
-): "reset" | "positive_only" | "both" =>
-    ENVELOPE_CARRY_POLICY_OVERRIDE[key] ?? (carry ? "positive_only" : "reset");
 
 // Categories
 type CategorySeed = {
@@ -876,8 +849,8 @@ export async function seedDatabase() {
             envelopes
         );
         const events = await seedEvents(db, spaces);
-        await seedEnvelopeAllocations(db, users, envelopes, accounts);
-        await seedGoalAllocations(db, users, envelopes, accounts);
+        await seedEnvelopeAllocations(db, users, envelopes);
+        await seedGoalAllocations(db, users, envelopes);
         const txCount = await seedTransactions(
             db,
             users,
@@ -929,7 +902,6 @@ async function wipe(db: ReturnType<typeof createQueryBuilder>) {
         "files",
         "envelop_allocations",
         "transactions",
-        "reckoning_acknowledgments",
         "expense_categories",
         "events",
         "envelops",
@@ -991,7 +963,6 @@ async function seedSpaces(
             .insertInto("spaces")
             .values({
                 name: s.name,
-                budget_mode: s.budget_mode,
                 created_by: users[s.owner],
                 updated_by: users[s.owner],
             })
@@ -1101,8 +1072,6 @@ async function seedEnvelopes(
                 icon: e.icon,
                 description: "description" in e ? e.description : null,
                 cadence: e.cadence,
-                carry_over: e.carry,
-                carry_policy: carryPolicyFor(e.key, e.carry),
                 target_amount: hasTarget ? String(e.target) : null,
                 target_date: targetDate,
             })
@@ -1301,14 +1270,14 @@ async function seedPins(
 async function seedEnvelopeAllocations(
     db: ReturnType<typeof createQueryBuilder>,
     users: Record<UserKey, string>,
-    envelopes: Record<EnvelopeKey, string>,
-    accounts: Record<AccountKey, string>
+    envelopes: Record<EnvelopeKey, string>
 ) {
     logger.info("Envelope allocations…");
     const createdBy = users.primary;
+    // One row per (envelope, period): monthly → one row per month;
+    // rolling/goal → one lifetime row with period_start=null.
     const rows: {
         envelop_id: string;
-        account_id: string | null;
         amount: number;
         period_start: Date | null;
         created_by: string;
@@ -1322,60 +1291,27 @@ async function seedEnvelopeAllocations(
         if ("target" in e && e.target != null) continue;
         const base = MONTHLY_ALLOCATION[e.key] ?? 80;
         if (e.cadence === "none") {
-            // A couple of lifetime top-ups spread through the window so
-            // the "none"-cadence envelopes look alive.
-            const stops = [periodStarts[1], periodStarts[6], periodStarts[12]];
-            for (const ps of stops) {
-                rows.push({
-                    envelop_id: envelopes[e.key],
-                    account_id: null,
-                    amount: base,
-                    period_start: null,
-                    created_by: createdBy,
-                    created_at: atHour(ps, 9, 0),
-                });
-            }
+            // Single lifetime pool row for rolling envelopes — a few months'
+            // worth so they look funded.
+            rows.push({
+                envelop_id: envelopes[e.key],
+                amount: base * 3,
+                period_start: null,
+                created_by: createdBy,
+                created_at: atHour(periodStarts[1], 9, 0),
+            });
         } else {
             for (const ps of periodStarts) {
                 // Base monthly allocation; nudge some months with small drift.
                 const drift = maybe(0.2) ? Math.round(base * (rng() * 0.2 - 0.1)) : 0;
                 rows.push({
                     envelop_id: envelopes[e.key],
-                    account_id: null,
                     amount: base + drift,
                     period_start: ps,
                     created_by: createdBy,
                     created_at: atHour(ps, 9, 0),
                 });
             }
-        }
-    }
-
-    // Account-pinned allocations across a handful of envelopes, in recent
-    // months, to exercise the per-account partitioning.
-    const recentMonths = periodStarts.slice(-4);
-    const pinned: { env: EnvelopeKey; acc: AccountKey; amt: number }[] = [
-        { env: "fam_groceries",    acc: "cash",      amt: 220 },
-        { env: "fam_transport",    acc: "checking",  amt: 160 },
-        { env: "fam_eatout",       acc: "credit",    amt: 200 },
-        { env: "per_coffee",       acc: "mobile",    amt:  70 },
-        { env: "per_subs",         acc: "credit",    amt:  60 },
-        { env: "room_groceries",   acc: "shared",    amt: 180 },
-        { env: "biz_saas",         acc: "biz",       amt: 180 },
-        { env: "biz_marketing",    acc: "biz",       amt: 300 },
-        { env: "tr_flights",       acc: "travel_acc",amt: 400 },
-        { env: "tr_dining",        acc: "rewards_cc",amt: 200 },
-    ];
-    for (const ps of recentMonths) {
-        for (const p of pinned) {
-            rows.push({
-                envelop_id: envelopes[p.env],
-                account_id: accounts[p.acc],
-                amount: p.amt,
-                period_start: ps,
-                created_by: createdBy,
-                created_at: atHour(ps, 10, Math.floor(rng() * 60)),
-            });
         }
     }
 
@@ -1389,61 +1325,42 @@ async function seedEnvelopeAllocations(
 async function seedGoalAllocations(
     db: ReturnType<typeof createQueryBuilder>,
     users: Record<UserKey, string>,
-    envelopes: Record<EnvelopeKey, string>,
-    accounts: Record<AccountKey, string>
+    envelopes: Record<EnvelopeKey, string>
 ) {
     logger.info("Goal allocations…");
     const createdBy = users.primary;
+    // Goals are rolling envelopes (cadence='none') → one lifetime row per
+    // goal with period_start=null, holding the summed contributions.
     const rows: {
         envelop_id: string;
-        account_id: string | null;
         amount: number;
         created_by: string;
         created_at: Date;
         period_start: Date | null;
     }[] = [];
 
-    // Monthly contributions per goal envelope. Goals live on the
-    // envelope ledger (cadence='none'), so allocations record at the
-    // envelope id with `period_start=null`.
-    const contributions: Partial<Record<EnvelopeKey, { amount: number; account: AccountKey }>> = {
-        goal_house:     { amount: 900, account: "savings" },
-        goal_emergency: { amount: 500, account: "joint" },
-        goal_vacation:  { amount: 320, account: "savings" },
-        // Laptop target is $3000 with target_months_out=3. With 18
-        // history months of contributions any rate >$160/mo overshoots
-        // the target lifetime, leaving the goal stuck at 100% in the
-        // demo. Slowed to $120/mo so the seed shows a goal in progress.
-        goal_laptop:    { amount: 120, account: "checking" },
+    // Monthly contribution rate per goal envelope, summed across the
+    // history window into a single lifetime allocation.
+    const contributions: Partial<Record<EnvelopeKey, { amount: number }>> = {
+        goal_house:     { amount: 900 },
+        goal_emergency: { amount: 500 },
+        goal_vacation:  { amount: 320 },
+        // Laptop target is $3000 with target_months_out=3. Kept at
+        // $120/mo so the seeded goal shows progress rather than 100%.
+        goal_laptop:    { amount: 120 },
     };
 
     for (const e of ENVELOPES) {
         const c = contributions[e.key];
         if (!c) continue;
-        for (const ps of periodStarts) {
-            const bonus = maybe(0.1) ? Math.round(c.amount * (0.5 + rng())) : 0;
-            const amount =
-                c.amount +
-                (maybe(0.15) ? Math.round(c.amount * (rng() * 0.2 - 0.1)) : 0);
-            rows.push({
-                envelop_id: envelopes[e.key],
-                account_id: accounts[c.account],
-                amount,
-                created_by: createdBy,
-                created_at: atHour(new Date(ps.getTime() + 2 * MS_DAY), 11, 0),
-                period_start: null,
-            });
-            if (bonus > 0) {
-                rows.push({
-                    envelop_id: envelopes[e.key],
-                    account_id: accounts[c.account],
-                    amount: bonus,
-                    created_by: createdBy,
-                    created_at: atHour(new Date(ps.getTime() + 18 * MS_DAY), 14, 0),
-                    period_start: null,
-                });
-            }
-        }
+        const total = c.amount * periodStarts.length;
+        rows.push({
+            envelop_id: envelopes[e.key],
+            amount: total,
+            created_by: createdBy,
+            created_at: atHour(new Date(periodStarts[0].getTime() + 2 * MS_DAY), 11, 0),
+            period_start: null,
+        });
     }
 
     const CHUNK = 500;

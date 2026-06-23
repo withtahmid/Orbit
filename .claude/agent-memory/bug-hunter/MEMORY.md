@@ -14,3 +14,6 @@
 - [types.mts pollution](types_mts_pollution.md) — `pnpm generate-types` reflects the live DB it's pointed at; dev-only tables can leak in. Cross-check every new table/column in types.mts diffs against a migration.
 - [Category parent_id cycle risk](category-parent-cycle-risk.md) — `expense_categories.parent_id` has no cycle prevention beyond self-parent; recursive CTEs over it use `UNION ALL`, can hang until `statement_timeout`.
 - [Trends SQL fragment helpers](sql-fragment-helpers-trends.md) — `trendsFilters.mts` review checklist (injection, CTE composition, `intersectAccountIds` empty-set short-circuit invariant).
+- [Allocation upsert race](alloc_upsert_race.md) — createAllocation/transfer guards do read-modify-write with NO row lock; concurrent deallocations drive rows negative (lost update) since migration 048.
+- [Period boundary native getters](period_boundary_native_getters.md) — Web allocation mutations must build periodStart via `startOfMonth()` (APP-TZ), not native `Date.getMonth/getFullYear`; drift outside Asia/Dhaka.
+- [Simplify-budgeting 048](simplify_budgeting_048.md) — One-row-per-(envelope,period) model invariants + classes verified CLEAN (dangling trigger, tx-edit/alloc interplay, locking, tz casts, spaceSummary current-month-only).

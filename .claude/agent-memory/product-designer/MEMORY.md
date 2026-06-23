@@ -15,3 +15,6 @@
 - [Anomaly pattern: sign conventions](anomaly_pattern_sign_conventions.md) — drift between SQL writers and JS readers on signed numeric columns is a recurring class.
 - [Budgeting overengineering audit](budgeting_overengineering_audit.md) — 2026-06-02: model overengineered; root cause is manual monthly allocation, not carry modes; two divergent unbudgeted formulas.
 - [Analytics categories = classification only](analytics_categories_classification_only.md) — Spending-by-category donut drills category tree only; envelope nav links break on /s/me (virtual space owns no envelopes).
+- [Allocation ledger direction tension](allocation_ledger_direction_tension.md) — 2026-06-23: owner wants to collapse allocations to one-row-per-(envelope,month) + drop ledger/borrow/nag; reverses in-flight typed-ledger refactor. Verified current model facts.
+- [Simplify-budgeting review](simplify_budgeting_review.md) — 2026-06-23: branch executed the collapse cleanly; Matrix/Allocations analytics views now degenerate (all cells Unassigned); docs/copy still pre-merge.
+- [Allocations analytics degenerate post-collapse](allocations_analytics_degenerate_post_collapse.md) — analytics.allocations all-time SUM of per-month rows = unbounded "committed budget" + spurious Drift KPI.

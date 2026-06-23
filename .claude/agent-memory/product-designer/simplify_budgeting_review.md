@@ -1,0 +1,12 @@
+---
+name: simplify-budgeting-review
+description: Product review of the simplify-budgeting branch (2026-06-23); allocations collapsed to one-row-per-(envelope,month), borrow/carry/strict/reckoning removed; flagged degenerate Matrix/Allocations analytics views.
+metadata:
+  type: project
+---
+
+The `simplify-budgeting` branch (migration `048_simplify_budgeting.mts`) collapsed `envelop_allocations` to one absolute row per (envelope, month) for monthly, one lifetime NULL-period row for rolling/goal. Dropped: `account_id`, `kind`, `effective_at`, `borrowed_link_id` on allocations; `carry_policy`/`carry_over` on envelops; `spaces.budget_mode`; `reckoning_acknowledgments` table. Removed procedures: borrowFromNextMonth, listBorrows, undoBorrow, deleteAllocation, analytics.accountAllocation, analytics.envelopeHistory, personal.accountAllocation, personal.reckoning, reckoning.*. Web removals: ReckoningPage, BudgetModeCard, StrictModeBanner, borrow cards, OverviewPage reckoning+borrow banners. All done cleanly — no dangling tRPC refs in web.
+
+**Why:** Owner's deliberate simplification (aligns with [[budgeting_overengineering_audit]] and [[allocation_ledger_direction_tension]]).
+
+**How to apply:** As of final convergence pass (2026-06-23) the branch is product-coherent end-to-end. All prior gaps resolved: MatrixView removed, `analytics.allocations` dead `matrix` output dropped, AllocationsView re-framed to "By envelope committed" + by-category "Money partition" (Earmarked/Locked/Free/Liabilities), DocsPage Analytics copy ("where each envelope's budget is committed") matches. The previously-flagged stale AllocationsView "Reporting view" banner (per-account partition / no-longer-rebalance wording) has been REWRITTEN to "Envelopes are space-wide budget intent — accounts are the ledger. The Drift KPI compares total assets to total envelope allocations" — accurate. The DocsPage Overspend ("Drift" section, function name kept) lost its legacy per-account-drift paragraph; it now ends cleanly after the two InfoCards (Pull from another envelope / Absorb it) and reads coherently. `absorbedOverspend` is a REAL current field — "absorbed"/"Year report remembers" vocabulary is correct. Remaining "drift" tokens are CSS class names + APP_TZ date-drift comments + a `consumed>total` boolean in BudgetsPage (legit "overspend" indicator, not retired-concept residue) — none are inaccurate user-facing copy. No dangling tRPC refs. Verdict: converged.

@@ -15,10 +15,9 @@ import { ROUTES } from "@/router/routes";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/money";
 
-// Inherits every field the server actually returns (incl. `archived`,
-// `carryIn`, `borrowedIn/Out`) so the page never drifts from the
-// procedure shape. The optional `spaceId` is only present on the
-// personal-space variant of the query.
+// Inherits every field the server actually returns so the page never
+// drifts from the procedure shape. The optional `spaceId` is only
+// present on the personal-space variant of the query.
 type Envelope = RouterOutput["analytics"]["envelopeUtilization"][number] & {
     spaceId?: string;
 };
@@ -63,19 +62,14 @@ export default function EnvelopesView() {
         let allocated = 0;
         let consumed = 0;
         let overCount = 0;
-        let borrowedInTotal = 0;
-        let borrowedOutCount = 0;
         for (const e of activeEnvelopes) {
             allocated += e.allocated;
             consumed += e.consumed;
             // Over only fires when this-period spending exceeded the
-            // period pool (allocated + positive carry). Carry-debt alone
-            // doesn't count.
-            const cap = e.allocated + Math.max(0, e.carryIn ?? 0);
+            // period pool (allocated).
+            const cap = e.allocated;
             if (cap > 0 && e.consumed > cap) overCount++;
             else if (cap === 0 && e.consumed > 0) overCount++;
-            if ((e.borrowedIn ?? 0) > 0) borrowedInTotal += e.borrowedIn ?? 0;
-            if ((e.borrowedOut ?? 0) > 0) borrowedOutCount++;
         }
         const utilization =
             allocated > 0 ? Math.round((consumed / allocated) * 100) : 0;
@@ -83,16 +77,14 @@ export default function EnvelopesView() {
             allocated,
             consumed,
             overCount,
-            borrowedInTotal,
-            borrowedOutCount,
             utilization,
         };
     }, [activeEnvelopes]);
 
     const sorted = useMemo(() => {
         return [...activeEnvelopes].sort((a, b) => {
-            const ca = a.allocated + Math.max(0, a.carryIn ?? 0);
-            const cb = b.allocated + Math.max(0, b.carryIn ?? 0);
+            const ca = a.allocated;
+            const cb = b.allocated;
             const pa = ca > 0 ? a.consumed / ca : 0;
             const pb = cb > 0 ? b.consumed / cb : 0;
             return pb - pa;
@@ -121,16 +113,6 @@ export default function EnvelopesView() {
             valueFormat: "integer",
             tone: summary.overCount > 0 ? "expense" : "neutral",
             sub: `of ${activeEnvelopes.length} envelopes`,
-        },
-        {
-            label: "Borrowed in",
-            value: summary.borrowedInTotal,
-            money: true,
-            tone: summary.borrowedInTotal > 0 ? "expense" : "neutral",
-            sub:
-                summary.borrowedOutCount > 0
-                    ? `${summary.borrowedOutCount} envelope${summary.borrowedOutCount === 1 ? "" : "s"} owe future periods`
-                    : "no borrow obligations",
         },
     ];
 
@@ -236,17 +218,10 @@ function EnvelopeRow({
 }) {
     const allocated = envelope.allocated;
     const consumed = envelope.consumed;
-    const carryIn = envelope.carryIn ?? 0;
-    // Period-scoped pool: only positive carry adds to what's available to
-    // spend this period. Negative carry (carry='both' debt) is *already*
-    // deducted from net worth — it doesn't reduce period spendability,
-    // and it must NOT make the "over" badge fire on envelopes that
-    // haven't actually been overspent this period.
-    const cap = allocated + Math.max(0, carryIn);
+    // Period-scoped pool: what's available to spend this period.
+    const cap = allocated;
     const remaining = cap - consumed;
     const isOver = consumed > cap;
-    const borrowedIn = envelope.borrowedIn ?? 0;
-    const borrowedOut = envelope.borrowedOut ?? 0;
     const isUntouched = consumed === 0;
     // Percent SPENT against cap, kept around as a muted secondary cue.
     const pctSpent =
@@ -275,10 +250,9 @@ function EnvelopeRow({
                                 over
                             </span>
                         )}
-                        {/* LEDGER-REPLACEABLE: drops when the
-                            envelop_allocations ledger expresses overspend
-                            via 'reckon' rows. Kept adjacent to "over" so
-                            related expense-toned signals visually cluster. */}
+                        {/* Lifetime overrun on a rolling envelope. Kept
+                            adjacent to "over" so related expense-toned
+                            signals visually cluster. */}
                         {(envelope.lifetimeOverrun ?? 0) > 0 && (
                             <span
                                 className="inline-flex items-center gap-0.5 whitespace-nowrap rounded-sm border border-[color:var(--expense)]/30 bg-[color:var(--expense)]/10 px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wider text-[color:var(--expense)]"
@@ -296,16 +270,6 @@ function EnvelopeRow({
                         {envelope.cadence === "monthly" && !isOver && !isUntouched && (
                             <span className="rounded-sm bg-secondary px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wider text-muted-foreground">
                                 monthly
-                            </span>
-                        )}
-                        {borrowedIn > 0 && (
-                            <span className="inline-flex items-center gap-0.5 text-[color:var(--warning)]">
-                                +{formatMoney(borrowedIn)} borrowed
-                            </span>
-                        )}
-                        {borrowedOut > 0 && (
-                            <span className="inline-flex items-center gap-0.5 text-[color:var(--expense)]">
-                                −{formatMoney(borrowedOut)} owed
                             </span>
                         )}
                     </span>

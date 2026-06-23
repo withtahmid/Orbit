@@ -131,24 +131,25 @@ Canonical list of materialized state maintained by the DB:
 
 | Table / column | Maintained by | Migration |
 |---|---|---|
-| `account_balances.balance` | `__trigger_sync_account_balance_from_transactions` on INSERT/UPDATE/DELETE of `transactions` — updated in 030 to also debit `fee_amount` from source on transfers | 018, 030 |
+| `account_balances.balance` | `__trigger_sync_account_balance_from_transactions` on INSERT/UPDATE/DELETE of `transactions` — the fee-aware variant added in 030 was replaced by a fee-blind version in 042 (fees are now their own expense rows, see below) | 018, 030, 042 |
 
-Everything else — envelope periods, plan totals, space unallocated,
+Everything else — envelope period balances, space unallocated,
 drift, analytics — is computed on-read. **Retired**: `envelop_balances`
-and `plan_balances` (and their triggers) in migration 026.
+and `plan_balances` (and their triggers) in migration 026. The `plans`
+and `plan_allocations` tables themselves were dropped in migration 046
+(goals are now a flavour of envelope — see §4.5).
 
-**Transfer fees** (migration 030) — `transactions.fee_amount` +
-`transactions.fee_expense_category_id` are a first-class column pair
-gated by a `CHECK` constraint (both NULL, or both populated with
-`fee_amount > 0 AND type = 'transfer'`). The balance-sync trigger
-debits the source by `amount + fee_amount` and credits the destination
-the plain `amount`; the fee is money that left the ledger for the
-bank / ATM / processor. Every expense-centric analytics procedure
-(`topCategories`, `categoryBreakdown`, `envelopeUtilization`,
-`accountAllocation`, `cashFlow`, `spendingHeatmap`, `spaceSummary`'s
-`periodExpense`) and their `personal.*` twins `UNION ALL` the fee rows
-into their expense sums, keyed by `fee_expense_category_id`. See
-project spec §11.6 for the full semantics and UX.
+**Transfer fees** (migrations 030, 042) — a transfer's fee is recorded
+as its **own first-class `type='expense'` transaction** with a
+`parent_transfer_id` pointing back at the originating transfer (migration
+042). It carries its own `expense_category_id`, `envelop_id`,
+`source_account_id`, and datetime, so the balance trigger debits the
+source through the ordinary expense path — the trigger itself is
+fee-blind. This replaced the older inline `fee_amount` /
+`fee_expense_category_id` columns (migration 030), which are gone, along
+with the `UNION ALL` fee branches that every spend-by-envelope analytics
+query previously needed. See project spec §11.6 for the full semantics
+and UX.
 
 ---
 
@@ -182,7 +183,8 @@ both are valid because Kysely sorts lexically).
 
 [`apps/server/src/db/kysely/seed.mts`](../apps/server/src/db/kysely/seed.mts)
 truncates every product table and inserts a rich demo dataset — 4
-users, 3 spaces, 9 accounts, 17 envelopes, 6 plans, ~60 categories,
+users, 3 spaces, 9 accounts, ~20 envelopes (a mix of monthly budgets
+and `cadence='none'` goal envelopes with targets), ~60 categories,
 6 events, and ~800 transactions spread across the last 6 months —
 suitable for screenshots and feature demos. Refuses to run when
 `NODE_ENV=production`. Deterministic (Mulberry32 PRNG seeded from a
@@ -206,15 +208,99 @@ Enforced in-DB (not just app code):
   product spec §3.6).
 - `events` CHECK `end_time > start_time`.
 - `envelops.cadence` CHECK `in ('none', 'monthly')`.
+- `envelops` CHECK `(target_amount IS NULL AND target_date IS NULL) OR
+  cadence = 'none'` (migration 047) — a target (the goal flavour) may
+  only ride on a rolling `cadence='none'` envelope, so a stale target
+  can never linger on a monthly envelope.
+- `envelop_allocations` UNIQUE index `(envelop_id, period_start) NULLS
+  NOT DISTINCT` (migration 048) — exactly one allocation row per
+  (envelope, period). The `NULLS NOT DISTINCT` clause makes the single
+  lifetime row (`period_start IS NULL`) of a rolling/goal envelope
+  unique too. See §4.5.
 - `expense_categories.priority` CHECK `in ('essential', 'important', 'discretionary', 'luxury')` (nullable; migration 031). Children with NULL inherit from the nearest ancestor.
 - `ON DELETE RESTRICT` on `transactions.created_by`,
-  `spaces.created_by`, `spaces.updated_by`,
-  `envelop_allocations.created_by`, `plan_allocations.created_by`
+  `spaces.created_by`, `spaces.updated_by`, and
+  `envelop_allocations.created_by`
   (migration 027) — users who authored ledger rows cannot be silently
   deleted.
 - `ON DELETE RESTRICT` on `expense_categories.parent_id` and
-  `.envelop_id`, `envelop_allocations.account_id`,
-  `plan_allocations.account_id`.
+  `.envelop_id`.
+
+### 4.5 Budgeting model (envelopes, allocations, goals)
+
+Migrations 046–048 collapsed the old plan/ledger budgeting machinery
+into a single, deliberately simple model. The prior append-only,
+timestamped allocation ledger — with per-account allocations, typed
+`kind`/`effective_at` rows, borrow-from-next-month links, carry-over
+policies, strict budget mode, and the reckoning system — is **gone**.
+Overspend is now *shown* in analytics, never blocked or nagged; the
+primary remedy is a transfer between envelopes.
+
+**Goals are envelopes** (migrations 046/047). A goal is just a
+`cadence='none'` (rolling) envelope with optional `target_amount` /
+`target_date` columns on `envelops`. There is no separate `plans` table
+anymore. The CHECK in §4.4 keeps targets on rolling envelopes only.
+
+**One absolute row per period** (migration 048). `envelop_allocations`
+holds **exactly one row per (envelope, period)**:
+
+- **Monthly** envelope → one row per calendar month, with `period_start`
+  set to the APP_TZ (Asia/Dhaka) month start.
+- **Rolling / goal** (`cadence='none'`) envelope → one lifetime row with
+  `period_start IS NULL`.
+
+`amount` is the **absolute total** allocated to that period, not a delta.
+The unique index `(envelop_id, period_start) NULLS NOT DISTINCT` enforces
+the one-row rule. Dropped columns vs. the old schema:
+`envelop_allocations.account_id` (allocations are now **space-wide**),
+`.kind`, `.effective_at`, `.borrowed_link_id`; `envelops.carry_policy` /
+`.carry_over`; `spaces.budget_mode`; and the whole
+`reckoning_acknowledgments` table.
+
+**Allocate / deallocate** —
+[`envelop.createAllocation`](../apps/server/src/procedures/envelop/createAllocation.mts)
+takes a signed `amount` (positive allocates, negative deallocates) and
+performs an **accumulating UPSERT** (`amount = amount + delta`) on the
+single period row, under a `FOR UPDATE` lock on the envelope row so two
+concurrent pulls can't both pass the deallocation guard against a stale
+balance. Allocating is unguarded (over-allocation is intent, surfaced as
+a soft "planned > funded" status); deallocating can't pull below the
+period's current remaining.
+
+**Transfer** —
+[`allocation.transfer`](../apps/server/src/procedures/allocation/transfer.mts)
+is two of those upserts (−amount on the source, +amount on the
+destination) under locks taken on **both** envelope rows in sorted-id
+order to avoid deadlock. Source and destination must be in the same
+space; transfers *into* an archived envelope are blocked but transfers
+*out* are allowed (so trapped cash can be freed). Both
+`createAllocation` and `transfer` run under `withIdempotency`.
+
+**On-read balances.** Materialized balance tables are gone (§3.7); these
+two helpers compute everything per request:
+
+- [`resolveEnvelopePeriodBalance`](../apps/server/src/procedures/envelop/utils/resolveEnvelopePeriodBalance.mts)
+  returns `{ allocated, consumed, remaining }` for an envelope's current
+  period (there is **no `carriedIn`** — monthly envelopes reset each
+  period, rolling/goal envelopes are a single lifetime pool over
+  `[epoch, ∞)`). `allocated` is a direct single-row read (no SUM over a
+  ledger); `consumed` is the `SUM` of `type='expense'` transactions in
+  the window; `remaining = allocated − consumed` and may be negative
+  (overspend is shown, not blocked).
+- [`resolveSpaceUnallocated`](../apps/server/src/procedures/allocation/utils/resolveSpaceUnallocated.mts)
+  computes `unallocated = spendable − Σ GREATEST(0, allocated −
+  consumed)`, where `spendable = Σ asset balances − Σ liability balances`
+  (locked accounts excluded) over the space's `space_accounts`. Clamping
+  each envelope's held amount to `≥ 0` means an overspent envelope holds
+  no cash and can't inflate the free pool.
+
+**Period boundaries** are computed in APP_TIMEZONE on both ends —
+server-side in
+[`periodWindow.mts`](../apps/server/src/procedures/envelop/utils/periodWindow.mts)
+(`resolvePeriodWindow` / `appTzMonthStart` / `effectivePeriodStart`, all
+via `Intl` so any IANA zone incl. DST is correct) and web-side in
+[`@/lib/dates`](../apps/web/src/lib/dates.ts), so a JS-computed month
+window lines up with SQL `date_trunc('month', …)`.
 
 ---
 
@@ -276,7 +362,7 @@ The SpaceSwitcher and SpaceSelectorPage inject a "My money" entry
 alongside real spaces.
 [`SpaceLayout`](../apps/web/src/layouts/SpaceLayout.tsx) filters its
 sidebar when `space.isPersonal` to Overview / Accounts / Transactions /
-Analytics only (Envelopes / Plans / Categories / Events / Settings are
+Analytics only (Envelopes / Categories / Events / Settings are
 hidden because those are mutation-oriented spaces-level entities).
 
 **Dispatch pattern**: each consumer page (OverviewPage, AccountsPage,
@@ -309,14 +395,13 @@ their populations from `space_accounts` rather than the row's
 shared family pot) surfaces as **income** on the receiving space even
 if the row was stamped with the sender's space_id, which is the
 realistic recording flow (users pick the space to keep source-account
-privacy, not to categorize the money). Fees follow the source leg: a
-transfer's fee counts as a space's expense only when the transfer's
-source account is in that space. Category-like analytics
-(`categoryBreakdown`, `topCategories`, `envelopeUtilization`,
-`planProgress`, `accountAllocation`, `eventTotals`) stay `space_id`-
-scoped because the concepts they sum (categories, envelopes, plans,
-events) are space-local entities. See project spec §6.5 and §12 for
-the full combination table.
+privacy, not to categorize the money). A transfer's fee is its own
+`type='expense'` row (§3.7), so it counts as a space's expense via the
+ordinary expense path, scoped to the fee row's own `space_id`. Category-
+like analytics (`categoryBreakdown`, `topCategories`,
+`envelopeUtilization`, `eventTotals`) stay `space_id`-scoped because the
+concepts they sum (categories, envelopes, events) are space-local
+entities. See project spec §6.5 and §12 for the full combination table.
 
 **Write-time integrity.** Every transaction creation / update path runs
 [`resolveTransactionSpaceIntegrity`](../apps/server/src/procedures/transaction/utils/resolveTransactionSpaceIntegrity.mts):
@@ -335,21 +420,26 @@ in `analytics.priorityBreakdown`. Shape chosen over per-envelope
 tagging because a single envelope routinely spans tiers (everyday vs
 splurge inside the same budget bucket).
 
-**Cross-space envelope/plan math**: `personal.envelopeUtilization` and
-`personal.planProgress` restrict allocations and consumed amounts to
-partitions whose `account_id` is owned by the caller. The total bars
-and breakdown rows both represent "my slice" of each shared envelope.
+**Cross-space envelope math**: `personal.envelopeUtilization` lists
+every envelope in a space the caller belongs to. Allocations are now
+**space-wide** (no per-account dimension), so `allocated` is the
+envelope's full allocation, while `consumed` is restricted to the
+caller's owned-account spend — "my slice" of each shared envelope.
 
 **Personal procedures** (all in
 [`procedures/personal/`](../apps/server/src/procedures/personal/),
 composed by
 [`routers/personal.mts`](../apps/server/src/routers/personal.mts)):
 `summary`, `cashFlow`, `topCategories`, `categoryBreakdown`,
-`envelopeUtilization`, `planProgress`, `balanceHistory`,
-`spendingHeatmap`, `accountDistribution`, `accountAllocation`,
+`envelopeUtilization`, `balanceHistory`,
+`spendingHeatmap`, `accountDistribution`,
 `transactions` (full filter parity with `transaction.list`,
 snake-case shape matching `transaction.listBySpace` so consumers
-render unchanged), `listCategories`, `ownedAccounts`.
+render unchanged), `listCategories`, `ownedAccounts` — alongside the
+overview-card, `trends.*`, and `anomalies.*` twins. There is **no**
+`planProgress` or `accountAllocation` twin (plans and per-account
+allocation were removed in migrations 046/048), and no reckoning
+procedures.
 
 See project spec §6.5 for the full personal cash-flow table and
 product semantics. Legacy `/me` redirects to `/s/me`.

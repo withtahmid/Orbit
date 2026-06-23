@@ -17,10 +17,6 @@ export const createEnvelop = authorizedProcedure
             icon: z.string().min(1).max(48).optional(),
             description: z.string().max(2000).optional(),
             cadence: z.enum(["none", "monthly"]).default("none"),
-            carryOver: z.boolean().default(false),
-            carryPolicy: z
-                .enum(["reset", "positive_only", "both"])
-                .optional(),
             targetAmount: z.number().positive().nullable().optional(),
             targetDate: z.coerce.date().nullable().optional(),
             idempotencyKey: z.string().uuid().optional(),
@@ -42,19 +38,10 @@ export const createEnvelop = authorizedProcedure
                             roles: ["owner"] as unknown as SpaceMembers["role"][],
                         });
 
-                        // Resolve carry_policy: explicit field wins; else
-                        // derive from legacy carryOver boolean for callers
-                        // that haven't migrated yet. New UI always passes
-                        // carryPolicy directly.
-                        const policy =
-                            input.carryPolicy ??
-                            (input.carryOver ? "positive_only" : "reset");
-
-                        // carry_over is the legacy back-compat shim: it's
-                        // ALWAYS derived from policy so the two columns
-                        // can never disagree. Any conflicting input fields
-                        // are reconciled in favor of carry_policy as the
-                        // canonical truth.
+                        // Monthly envelopes reset every period; rolling/goal
+                        // envelopes (cadence='none') are a single lifetime
+                        // pool. There is no carry-over knob.
+                        //
                         // Targets are only meaningful for rolling
                         // envelopes (cadence='none'). Reject monthly +
                         // target so the UI cannot create a shape we
@@ -93,8 +80,6 @@ export const createEnvelop = authorizedProcedure
                                 icon: input.icon,
                                 description: input.description ?? null,
                                 cadence: input.cadence,
-                                carry_over: policy !== "reset",
-                                carry_policy: policy,
                                 target_amount:
                                     input.targetAmount != null
                                         ? String(input.targetAmount)
@@ -109,8 +94,6 @@ export const createEnvelop = authorizedProcedure
                                 "icon",
                                 "description",
                                 "cadence",
-                                "carry_over",
-                                "carry_policy",
                                 "target_amount",
                                 "target_date",
                                 "created_at",

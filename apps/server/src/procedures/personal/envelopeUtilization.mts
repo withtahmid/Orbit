@@ -6,15 +6,14 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 /**
- * Personal (cross-space) envelope utilization. Lists every envelope
- * that lives in a space the caller is a member of, with allocated /
- * consumed / remaining summed over the caller's owned-account
- * partitions only — "my slice" of each envelope I participate in.
- * Partition breakdown rows are also filtered to owned accounts.
+ * Personal (cross-space) envelope utilization. Lists every envelope that
+ * lives in a space the caller is a member of. Allocations are space-wide
+ * (no per-account dimension), so `allocated` is the envelope's full
+ * allocation; `consumed` is scoped to the caller's owned-account spend —
+ * "my slice" of each envelope I participate in.
  *
- * Mirrors analytics.envelopeUtilization's carry-over semantics so the
- * virtual-space envelope view reconciles with what the user sees on
- * each real space's envelope page (restricted to their own partition).
+ *   - Monthly envelopes reset each period; rolling/goal envelopes are a
+ *     single lifetime pool. No carry-over. Mirrors analytics.envelopeUtilization.
  */
 export const personalEnvelopeUtilization = authorizedProcedure
     .input(
@@ -39,20 +38,9 @@ export const personalEnvelopeUtilization = authorizedProcedure
                 const EPOCH = new Date("1970-01-01");
                 const periodStart = input.periodStart ?? EPOCH;
                 const periodEnd = input.periodEnd ?? new Date("9999-12-31");
-                const durationMs = Math.max(
-                    0,
-                    periodEnd.getTime() - periodStart.getTime()
-                );
-                const prevStart = new Date(
-                    Math.max(EPOCH.getTime(), periodStart.getTime() - durationMs)
-                );
-                const prevEnd = periodStart;
 
                 // A user with zero owned accounts has no personal slice
-                // of any envelope — short-circuit. The previous sentinel
-                // approach incorrectly counted space-wide allocations
-                // (account_id IS NULL) while zeroing consumed, producing
-                // a phantom "allocated, 0 spent" row in personal views.
+                // of any envelope's spend.
                 if (owned.length === 0) return [];
                 const ownedParam = owned;
 
@@ -65,8 +53,6 @@ export const personalEnvelopeUtilization = authorizedProcedure
                     icon: string;
                     description: string | null;
                     cadence: string;
-                    carry_over: boolean;
-                    carry_policy: string;
                     archived: boolean;
                     target_amount: string | null;
                     target_date: Date | null;
@@ -75,9 +61,6 @@ export const personalEnvelopeUtilization = authorizedProcedure
                     lifetime_funded: string;
                     allocated: string;
                     consumed: string;
-                    carry_in: string;
-                    borrowed_in: string;
-                    borrowed_out: string;
                     lifetime_overrun: string;
                 }>`
                     SELECT
@@ -89,8 +72,6 @@ export const personalEnvelopeUtilization = authorizedProcedure
                         e.icon,
                         e.description,
                         e.cadence,
-                        e.carry_over,
-                        e.carry_policy,
                         e.archived,
                         e.target_amount,
                         e.target_date,
@@ -98,71 +79,35 @@ export const personalEnvelopeUtilization = authorizedProcedure
                             SELECT MIN(a.created_at)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
-                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
                         ) AS first_allocated_at,
                         (
                             SELECT MAX(a.created_at)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
-                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
                         ) AS last_allocated_at,
-                        -- Net allocated to this envelope: the goal-progress
-                        -- numerator. Signed sum so deallocations and the
-                        -- negative leg of an envelope-to-envelope transfer
-                        -- both reduce progress. Spending lives in the
-                        -- transactions table and never touches this sum —
-                        -- a completed goal stays completed once the user
-                        -- starts drawing it down. See analytics twin for
-                        -- the canonical comment.
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
-                              AND a.kind IN ('allocate', 'borrow')
-                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
                         ), 0)::text AS lifetime_funded,
-                        -- Borrow-link rows touching this period. Allocations
-                        -- are now space-wide (account_id IS NULL); legacy
-                        -- pinned rows are still counted when pinned to an
-                        -- owned account so personal totals stay correct
-                        -- across the migration boundary.
+                        -- Allocated for the window (space-wide). Monthly:
+                        -- per-month rows in the window. Rolling/goal: the
+                        -- single NULL-period lifetime pool row.
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
-                              AND a.borrowed_link_id IS NOT NULL
-                              AND a.amount > 0
-                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
-                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${periodStart}::date
-                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${periodEnd}::date
-                        ), 0)::text AS borrowed_in,
-                        COALESCE((
-                            SELECT SUM(-a.amount)
-                            FROM envelop_allocations a
-                            WHERE a.envelop_id = e.id
-                              AND a.borrowed_link_id IS NOT NULL
-                              AND a.amount < 0
-                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
-                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${periodStart}::date
-                              AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${periodEnd}::date
-                        ), 0)::text AS borrowed_out,
-                        COALESCE((
-                            SELECT SUM(a.amount)
-                            FROM envelop_allocations a
-                            WHERE a.envelop_id = e.id
-                              AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
                               AND (
-                                  e.cadence = 'none'
+                                  (e.cadence = 'none' AND a.period_start IS NULL)
                                   OR (
-                                      COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${periodStart}::date
-                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${periodEnd}::date
+                                      e.cadence <> 'none'
+                                      AND a.period_start >= ${periodStart}::date
+                                      AND a.period_start < ${periodEnd}::date
                                   )
                               )
                         ), 0)::text AS allocated,
-                        /* For cadence='none' (rolling) envelopes, consumed
-                           is LIFETIME — see analytics/envelopeUtilization.mts
-                           for rationale. Owned-account scoping is preserved
-                           via source_account_id = ANY(ownedParam). */
+                        -- Consumed: owned-account spend only (the caller's
+                        -- slice). Lifetime for rolling, period-scoped for monthly.
                         COALESCE((
                             SELECT SUM(t.amount)
                             FROM transactions t
@@ -177,68 +122,8 @@ export const personalEnvelopeUtilization = authorizedProcedure
                                   )
                               )
                         ), 0)::text AS consumed,
-                        -- carry_in honors the three-mode carry_policy:
-                        --   'reset'         → 0
-                        --   'positive_only' → max(0, prev_remaining)
-                        --   'both'          → prev_remaining (signed; debt persists)
-                        CASE
-                            WHEN e.cadence = 'none' OR e.carry_policy = 'reset' THEN 0
-                            WHEN e.carry_policy = 'both' THEN (
-                                COALESCE((
-                                    SELECT SUM(a.amount)
-                                    FROM envelop_allocations a
-                                    WHERE a.envelop_id = e.id
-                                      AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
-                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${prevStart}::date
-                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${prevEnd}::date
-                                ), 0)
-                                -
-                                COALESCE((
-                                    SELECT SUM(t.amount)
-                                    FROM transactions t
-                                    WHERE t.envelop_id = e.id
-                                      AND t.type = 'expense'
-                                      AND t.source_account_id = ANY(${ownedParam})
-                                      AND t.transaction_datetime >= ${prevStart}
-                                      AND t.transaction_datetime < ${prevEnd}
-                                ), 0)
-                            )
-                            ELSE GREATEST(0, (
-                                COALESCE((
-                                    SELECT SUM(a.amount)
-                                    FROM envelop_allocations a
-                                    WHERE a.envelop_id = e.id
-                                      AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
-                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${prevStart}::date
-                                      AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${prevEnd}::date
-                                ), 0)
-                                -
-                                COALESCE((
-                                    SELECT SUM(t.amount)
-                                    FROM transactions t
-                                    WHERE t.envelop_id = e.id
-                                      AND t.type = 'expense'
-                                      AND t.source_account_id = ANY(${ownedParam})
-                                      AND t.transaction_datetime >= ${prevStart}
-                                      AND t.transaction_datetime < ${prevEnd}
-                                ), 0)
-                            ))
-                        END::text AS carry_in,
-                        -- Lifetime overrun on rolling envelopes — see
-                        -- analytics/envelopeUtilization.mts for rationale.
-                        -- LEDGER-REPLACEABLE: once the envelop_allocations
-                        -- ledger gains first-class 'reckon' kinds, this
-                        -- field can be derived (or retired) — see the
-                        -- product plan saved in agent memory.
-                        --
-                        -- Scoping: every other column on this row is
-                        -- owned-account-scoped via ownedParam. Mirror that
-                        -- here so a personal viewer of a shared rolling
-                        -- envelope doesn't see other members' spend
-                        -- attributed to them. Space-wide allocations
-                        -- (account_id IS NULL) belong to the personal
-                        -- slice — same convention as the period allocated
-                        -- subquery above.
+                        -- Lifetime overrun on rolling envelopes (owned-account
+                        -- spend vs full allocation). Zero for monthly.
                         CASE WHEN e.cadence = 'none' THEN
                             GREATEST(
                                 0,
@@ -254,7 +139,6 @@ export const personalEnvelopeUtilization = authorizedProcedure
                                     SELECT SUM(a.amount)
                                     FROM envelop_allocations a
                                     WHERE a.envelop_id = e.id
-                                      AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
                                 ), 0)
                             )
                         ELSE 0 END::text AS lifetime_overrun
@@ -265,160 +149,10 @@ export const personalEnvelopeUtilization = authorizedProcedure
                 `;
                 const totals = (await totalsQuery.execute(ctx.services.qb)).rows;
 
-                const breakdownQuery = sql<{
-                    envelop_id: string;
-                    account_id: string | null;
-                    allocated: string;
-                    consumed: string;
-                    prev_allocated: string;
-                    prev_consumed: string;
-                    cadence: string;
-                    carry_over: boolean;
-                    carry_policy: string;
-                }>`
-                    WITH alloc AS (
-                        SELECT a.envelop_id,
-                               a.account_id,
-                               SUM(a.amount) AS amount
-                        FROM envelop_allocations a
-                        JOIN envelops e ON e.id = a.envelop_id
-                        WHERE e.space_id = ANY(${memberSpaces})
-                          AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
-                          AND (
-                              e.cadence = 'none'
-                              OR (
-                                  COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${periodStart}::date
-                                  AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${periodEnd}::date
-                              )
-                          )
-                        GROUP BY a.envelop_id, a.account_id
-                    ),
-                    spend AS (
-                        /* Lifetime spend for rolling envelopes; period-
-                           scoped for monthly — matches the top-level
-                           aggregate's rule. */
-                        SELECT t.envelop_id, t.source_account_id AS account_id, SUM(t.amount) AS amount
-                        FROM transactions t
-                        JOIN envelops e ON e.id = t.envelop_id
-                        WHERE t.space_id = ANY(${memberSpaces})
-                          AND t.type = 'expense'
-                          AND t.source_account_id = ANY(${ownedParam})
-                          AND (
-                              e.cadence = 'none'
-                              OR (
-                                  t.transaction_datetime >= ${periodStart}
-                                  AND t.transaction_datetime < ${periodEnd}
-                              )
-                          )
-                        GROUP BY t.envelop_id, t.source_account_id
-                    ),
-                    prev_alloc AS (
-                        SELECT a.envelop_id,
-                               a.account_id,
-                               SUM(a.amount) AS amount
-                        FROM envelop_allocations a
-                        JOIN envelops e ON e.id = a.envelop_id
-                        WHERE e.space_id = ANY(${memberSpaces})
-                          AND e.cadence <> 'none'
-                          AND e.carry_policy <> 'reset'
-                          AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}))
-                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) >= ${prevStart}::date
-                          AND COALESCE(a.period_start, DATE_TRUNC('month', a.created_at)::date) < ${prevEnd}::date
-                        GROUP BY a.envelop_id, a.account_id
-                    ),
-                    prev_spend AS (
-                        SELECT t.envelop_id, t.source_account_id AS account_id, SUM(t.amount) AS amount
-                        FROM transactions t
-                        JOIN envelops e ON e.id = t.envelop_id
-                        WHERE t.space_id = ANY(${memberSpaces})
-                          AND e.cadence <> 'none'
-                          AND e.carry_policy <> 'reset'
-                          AND t.type = 'expense'
-                          AND t.source_account_id = ANY(${ownedParam})
-                          AND t.transaction_datetime >= ${prevStart}
-                          AND t.transaction_datetime < ${prevEnd}
-                        GROUP BY t.envelop_id, t.source_account_id
-                    ),
-                    merged AS (
-                        SELECT envelop_id, account_id FROM alloc
-                        UNION
-                        SELECT envelop_id, account_id FROM spend
-                        UNION
-                        SELECT envelop_id, account_id FROM prev_alloc
-                        UNION
-                        SELECT envelop_id, account_id FROM prev_spend
-                    )
-                    SELECT
-                        m.envelop_id::text AS envelop_id,
-                        m.account_id::text AS account_id,
-                        COALESCE(a.amount, 0)::text AS allocated,
-                        COALESCE(s.amount, 0)::text AS consumed,
-                        COALESCE(pa.amount, 0)::text AS prev_allocated,
-                        COALESCE(ps.amount, 0)::text AS prev_consumed,
-                        e.cadence,
-                        e.carry_over,
-                        e.carry_policy
-                    FROM merged m
-                    JOIN envelops e ON e.id = m.envelop_id
-                    LEFT JOIN alloc a
-                      ON a.envelop_id = m.envelop_id
-                     AND a.account_id IS NOT DISTINCT FROM m.account_id
-                    LEFT JOIN spend s
-                      ON s.envelop_id = m.envelop_id
-                     AND s.account_id IS NOT DISTINCT FROM m.account_id
-                    LEFT JOIN prev_alloc pa
-                      ON pa.envelop_id = m.envelop_id
-                     AND pa.account_id IS NOT DISTINCT FROM m.account_id
-                    LEFT JOIN prev_spend ps
-                      ON ps.envelop_id = m.envelop_id
-                     AND ps.account_id IS NOT DISTINCT FROM m.account_id
-                `;
-                const breakdown = (await breakdownQuery.execute(ctx.services.qb)).rows;
-
-                const breakdownByEnvelope = new Map<
-                    string,
-                    Array<{
-                        accountId: string | null;
-                        allocated: number;
-                        consumed: number;
-                        carryIn: number;
-                        remaining: number;
-                        isDrift: boolean;
-                    }>
-                >();
-                for (const r of breakdown) {
-                    const allocated = Number(r.allocated);
-                    const consumed = Number(r.consumed);
-                    const prevAllocated = Number(r.prev_allocated);
-                    const prevConsumed = Number(r.prev_consumed);
-                    // Honor the three-mode carry policy: 'both' carries
-                    // signed (debt persists), 'positive_only' clamps to
-                    // ≥ 0, 'reset' / cadence='none' contribute nothing.
-                    const carryIn =
-                        r.cadence === "none" || r.carry_policy === "reset"
-                            ? 0
-                            : r.carry_policy === "both"
-                              ? prevAllocated - prevConsumed
-                              : Math.max(0, prevAllocated - prevConsumed);
-                    const remaining = carryIn + allocated - consumed;
-                    const row = {
-                        accountId: r.account_id,
-                        allocated,
-                        consumed,
-                        carryIn,
-                        remaining,
-                        isDrift: remaining < 0,
-                    };
-                    const arr = breakdownByEnvelope.get(r.envelop_id) ?? [];
-                    arr.push(row);
-                    breakdownByEnvelope.set(r.envelop_id, arr);
-                }
-
                 return totals.map((t) => {
                     const allocated = Number(t.allocated);
                     const consumed = Number(t.consumed);
-                    const carryIn = Number(t.carry_in);
-                    const remaining = carryIn + allocated - consumed;
+                    const remaining = allocated - consumed;
                     const targetAmount =
                         t.target_amount != null ? Number(t.target_amount) : null;
                     const lifetimeFunded = Number(t.lifetime_funded);
@@ -438,11 +172,6 @@ export const personalEnvelopeUtilization = authorizedProcedure
                         icon: t.icon,
                         description: t.description,
                         cadence: t.cadence as "none" | "monthly",
-                        carryOver: t.carry_over,
-                        carryPolicy: t.carry_policy as
-                            | "reset"
-                            | "positive_only"
-                            | "both",
                         archived: t.archived,
                         targetAmount,
                         targetDate: t.target_date,
@@ -453,13 +182,9 @@ export const personalEnvelopeUtilization = authorizedProcedure
                         lastAllocatedAt: t.last_allocated_at,
                         allocated,
                         consumed,
-                        carryIn,
                         remaining,
-                        borrowedIn: Number(t.borrowed_in),
-                        borrowedOut: Number(t.borrowed_out),
                         lifetimeOverrun: Number(t.lifetime_overrun),
                         isDrift: remaining < 0,
-                        breakdown: breakdownByEnvelope.get(t.envelop_id) ?? [],
                     };
                 });
             })()

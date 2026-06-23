@@ -24,6 +24,7 @@ import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { startOfMonth, endOfMonth, addMonths } from "@/lib/dates";
+import { formatInAppTz } from "@/lib/formatDate";
 
 type Direction = "allocate" | "deallocate";
 
@@ -75,7 +76,6 @@ export function EnvelopeAllocateDialog({
                 utils.envelop.allocationListBySpace.invalidate({ spaceId: space.id }),
                 utils.analytics.envelopeUtilization.invalidate({ spaceId: space.id }),
                 utils.analytics.spaceSummary.invalidate(),
-                utils.analytics.accountAllocation.invalidate(),
             ]);
             setAmount("");
             setOpen(false);
@@ -85,11 +85,11 @@ export function EnvelopeAllocateDialog({
 
     const resolvePeriodStart = (): Date | undefined => {
         if (!isMonthly) return undefined;
-        const now = new Date();
-        if (periodChoice === "this") {
-            return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-        }
-        return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+        // APP_TZ month-start so the row is written to the month the user
+        // actually picked — native Date.UTC would land in the wrong month
+        // near the UTC/APP_TZ day boundary.
+        const ref = periodChoice === "this" ? new Date() : addMonths(new Date(), 1);
+        return startOfMonth(ref);
     };
 
     const unallocated = summaryQuery.data?.unallocated ?? null;
@@ -144,7 +144,6 @@ export function EnvelopeAllocateDialog({
                         mutation.mutate({
                             envelopId,
                             amount: direction === "allocate" ? n : -n,
-                            accountId: null,
                             periodStart: resolvePeriodStart(),
                             idempotencyKey: idem.key,
                         });
@@ -201,15 +200,11 @@ export function EnvelopeAllocateDialog({
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="this">
-                                        {addMonths(new Date(), 0).toLocaleString("en-US", {
-                                            month: "long",
-                                        })}{" "}
+                                        {formatInAppTz(new Date(), "MMMM")}{" "}
                                         (this month)
                                     </SelectItem>
                                     <SelectItem value="next">
-                                        {addMonths(new Date(), 1).toLocaleString("en-US", {
-                                            month: "long",
-                                        })}{" "}
+                                        {formatInAppTz(addMonths(new Date(), 1), "MMMM")}{" "}
                                         (next month)
                                     </SelectItem>
                                 </SelectContent>

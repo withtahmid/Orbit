@@ -1,4 +1,3 @@
-import { accountAllocation } from "../procedures/analytics/accountAllocation.mjs";
 import { accountBalanceHistory } from "../procedures/analytics/accountBalanceHistory.mjs";
 import { accountDistribution } from "../procedures/analytics/accountDistribution.mjs";
 import { allocations } from "../procedures/analytics/allocations.mjs";
@@ -12,7 +11,6 @@ import { cashFlow } from "../procedures/analytics/cashFlow.mjs";
 import { categoryBreakdown } from "../procedures/analytics/categoryBreakdown.mjs";
 import { categoryWoW } from "../procedures/analytics/categoryWoW.mjs";
 import { cumulativeSpend } from "../procedures/analytics/cumulativeSpend.mjs";
-import { envelopeHistory } from "../procedures/analytics/envelopeHistory.mjs";
 import { envelopeRecentAverages } from "../procedures/analytics/envelopeRecentAverages.mjs";
 import { envelopeUtilization } from "../procedures/analytics/envelopeUtilization.mjs";
 import { eventCategoryBreakdown } from "../procedures/analytics/eventCategoryBreakdown.mjs";
@@ -48,7 +46,6 @@ export const analyticsRouter = router({
     topCategories,
     topCategoriesByBucket,
     accountDistribution,
-    accountAllocation,
     accountBalanceHistory,
     balanceHistory,
     spendingHeatmap,
@@ -61,7 +58,6 @@ export const analyticsRouter = router({
     incomeBreakdown,
     topMerchants,
     netWorthHistory,
-    envelopeHistory,
     /* Recurring detector — feeds BillsCard, SubscriptionsGrid, anomalies. */
     recurring,
     /* Trends view (daily comparison, YoY, category movers). */

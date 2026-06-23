@@ -5,7 +5,7 @@
 ## Components
 
 - `apps/web/src/router/index.tsx` — the entire route tree, exported as `router` from `createBrowserRouter`. Wired into `App.tsx:27` via `<RouterProvider router={router} />`.
-- `apps/web/src/router/routes.ts` — the `ROUTES` constant: static strings (`login`, `signup`, `forgotPassword`, `spaces`, `profile`, …) and parameterised builders (`space(id)`, `spaceTransactions(id)`, `spaceEnvelopeDetail(id, envId)`, etc.). Components must import from here instead of hardcoding paths.
+- `apps/web/src/router/routes.ts` — the `ROUTES` constant: static strings (`login`, `signup`, `forgotPassword`, `spaces`, `profile`, …) and parameterised builders (`space(id)`, `spaceTransactions(id)`, `spaceBudgetDetail(id, envId)`, etc.). Components must import from here instead of hardcoding paths.
 - Guards (`apps/web/src/router/guards/`):
   - `GuestOnlyRoute.tsx` — for `/login`, `/signup`, `/forgot-password`. Redirects authenticated users away (honoring `?from=` if present, else `/`).
   - `ProtectedRoute.tsx` — for everything inside `/spaces`, `/s/:spaceId/*`, `/settings/*`, `/accounts`, `/me`. Redirects guests to `/login?from=<encoded current url>`.
@@ -45,14 +45,11 @@ RootLayout (errorElement: ErrorBoundaryPage)
             ├── (index)         SpaceOverviewPage
             ├── accounts, accounts/:accountId
             ├── transactions
-            ├── envelopes, envelopes/:envelopeId
-            ├── plan/:month
-            ├── reckoning
+            ├── budgets, budgets/:envelopeId, budgets/month/:month
             ├── year/:year
-            ├── plans, plans/:planId
             ├── categories
             ├── events, events/:eventId
-            ├── analytics + analytics/{cash-flow,categories,envelopes,balance,accounts,heatmap,allocations,matrix,trends,anomalies,priority}
+            ├── analytics + analytics/{cash-flow,categories,envelopes,balance,accounts,heatmap,allocations,trends,anomalies,priority}
             └── settings
 * → NotFoundPage
 ```

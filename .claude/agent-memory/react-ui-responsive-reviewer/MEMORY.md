@@ -9,3 +9,4 @@
 - [Transactions UI architecture](transactions_ui_architecture.md) — Page-level sheet ownership pattern (selectedTx + editingTx) prevents stacked right-side sheets.
 - [Orbit form primitives](orbit_form_primitives.md) — OrbitField/OrbitSelect/OrbitInfoPill conventions and the envelope-chip disclosure pattern.
 - [Analytics CategoriesView](analytics_categories_view.md) — Donut/ranked-list layout, breadcrumb ml-auto wrap fragility, DrillableDonut a11y mitigated by legend buttons.
+- [simplify-budgeting removal pass](project_simplify_budgeting_removal.md) — Borrow/reckoning/carry ripped out; sparse BudgetDetailPage, lopsided grids, orphaned CSS, bare-div OrbitFieldRow.

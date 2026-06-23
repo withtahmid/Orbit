@@ -26,9 +26,8 @@ import { startOfMonth, endOfMonth } from "@/lib/dates";
 
 /**
  * Top-up dialog opened from an envelope's perspective: this envelope
- * needs more funds. Two recovery options:
+ * needs more funds. Recovery option:
  *   - Pull from another envelope (uses allocation.transfer)
- *   - Borrow from next month (monthly cadence only, uses envelop.borrowFromNextMonth)
  *
  * Mirrors the in-transaction overspend recovery panel but available
  * outside the new-transaction flow.
@@ -36,7 +35,6 @@ import { startOfMonth, endOfMonth } from "@/lib/dates";
 export function EnvelopeTopUpDialog({
     envelopId,
     envelopeName,
-    envelopeCadence,
     envelopeColor,
     trigger,
     open: controlledOpen,
@@ -45,7 +43,6 @@ export function EnvelopeTopUpDialog({
 }: {
     envelopId: string;
     envelopeName: string;
-    envelopeCadence: "none" | "monthly";
     envelopeColor?: string;
     trigger?: ReactNode;
     open?: boolean;
@@ -56,8 +53,6 @@ export function EnvelopeTopUpDialog({
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
     const open = controlledOpen ?? uncontrolledOpen;
     const setOpen = onOpenChange ?? setUncontrolledOpen;
-
-    const isMonthly = envelopeCadence === "monthly";
 
     const { periodStart, periodEnd } = useMemo(() => {
         const ref = new Date();
@@ -96,18 +91,16 @@ export function EnvelopeTopUpDialog({
 
     const [pullSourceId, setPullSourceId] = useState("");
     const [pullAmount, setPullAmount] = useState("");
-    const [borrowAmount, setBorrowAmount] = useState("");
     // Track whether we've prefilled for the current dialog session. Without
     // this, the prefill effect re-fires on every data refresh (each time
     // `overBy` recomputes) and clobbers any amount the user has typed —
     // particularly bad after a successful Pull, when the data refresh
-    // changes overBy and would overwrite a freshly-typed Borrow amount.
+    // changes overBy and would overwrite a freshly-typed amount.
     const [prefilled, setPrefilled] = useState(false);
 
     useEffect(() => {
         if (!open) {
             setPullAmount("");
-            setBorrowAmount("");
             setPullSourceId("");
             setPrefilled(false);
             return;
@@ -117,7 +110,6 @@ export function EnvelopeTopUpDialog({
         if (!prefilled && remaining !== null) {
             const defaultAmt = overBy > 0 ? overBy.toFixed(2) : "";
             setPullAmount(defaultAmt);
-            setBorrowAmount(defaultAmt);
             setPrefilled(true);
         }
     }, [open, prefilled, remaining, overBy]);
@@ -131,12 +123,10 @@ export function EnvelopeTopUpDialog({
                 spaceId: space.id,
             }),
             utils.analytics.spaceSummary.invalidate(),
-            utils.analytics.accountAllocation.invalidate(),
         ]);
     };
 
     const pullIdem = useIdempotencyKey();
-    const borrowIdem = useIdempotencyKey();
     const transferMutation = trpc.allocation.transfer.useMutation({
         onSuccess: async () => {
             toast.success("Pulled funds");
@@ -147,23 +137,12 @@ export function EnvelopeTopUpDialog({
         onError: (e) => toast.error(e.message),
     });
 
-    const borrowMutation = trpc.envelop.borrowFromNextMonth.useMutation({
-        onSuccess: async () => {
-            toast.success("Borrowed from next month");
-            borrowIdem.rotate();
-            await invalidate();
-            setBorrowAmount("");
-        },
-        onError: (e) => toast.error(e.message),
-    });
-
     const sourceMax =
         pullSourceId
             ? candidates.find((c) => c.envelopId === pullSourceId)?.remaining ?? null
             : null;
     const pullAmountNum = Number(pullAmount) || 0;
     const pullOver = sourceMax !== null && pullAmountNum > sourceMax;
-    const borrowAmountNum = Number(borrowAmount) || 0;
 
     const color = envelopeColor || "var(--ent-2)";
 
@@ -182,8 +161,8 @@ export function EnvelopeTopUpDialog({
                 <DialogHeader>
                     <DialogTitle>Top up {envelopeName}</DialogTitle>
                     <DialogDescription>
-                        Pull funds from another envelope or borrow from next
-                        month. No money leaves any account.
+                        Pull funds from another envelope. No money leaves any
+                        account.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -323,57 +302,6 @@ export function EnvelopeTopUpDialog({
                         </div>
                     )}
                 </div>
-
-                {isMonthly && (
-                    <div className="etu-recover-card">
-                        <div className="etu-recover-card-head">
-                            <span className="etu-recover-card-title">
-                                Borrow from next month
-                            </span>
-                            <span className="etu-recover-card-hint">
-                                Adds funds to {envelopeName} now and removes
-                                the same from next month's budget.
-                            </span>
-                        </div>
-                        <div className="etu-fields">
-                            <div className="etu-amt-row">
-                                <Input
-                                    type="number"
-                                    inputMode="decimal"
-                                    min="0"
-                                    step="0.01"
-                                    value={borrowAmount}
-                                    onChange={(e) =>
-                                        setBorrowAmount(e.target.value)
-                                    }
-                                    placeholder="0.00"
-                                />
-                                <Button
-                                    type="button"
-                                    variant="gradient"
-                                    disabled={
-                                        !borrowAmount ||
-                                        borrowAmountNum <= 0 ||
-                                        borrowMutation.isPending
-                                    }
-                                    onClick={() =>
-                                        borrowMutation.mutate({
-                                            envelopId,
-                                            amount: borrowAmountNum,
-                                            idempotencyKey: borrowIdem.key,
-                                        })
-                                    }
-                                >
-                                    {borrowMutation.isPending
-                                        ? "Borrowing…"
-                                        : borrowAmountNum > 0
-                                          ? `Borrow ${borrowAmountNum.toFixed(2)}`
-                                          : "Borrow"}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                )}
 
                 <DialogFooter>
                     <Button

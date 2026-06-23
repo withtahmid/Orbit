@@ -7,23 +7,20 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 
 /**
- * Space-wide allocation snapshot powering the Allocation map and Allocation
- * matrix views. Returns three parallel arrays plus a drift summary:
+ * Space-wide allocation snapshot powering the Allocation map view. Returns:
  *
  *   - accounts[]:   every account shared into the space, with its current
  *                   balance + asset/liability/locked classification.
  *   - envelopes[]:  every envelope in the space with allocated/consumed
- *                   totals (cadence-agnostic — all-time, see note below).
- *   - matrix[]:     sparse (envelopId, accountId|null, amount) cells. A
- *                   null accountId = unassigned allocation (the
- *                   "Unassigned" column in the matrix view).
+ *                   for its current window (monthly → this calendar month;
+ *                   rolling/goal → lifetime pool).
  *   - drift:        allocatedSum vs assetBalanceSum so the Totals tab
  *                   can show the over-allocated delta.
  *
- * Period semantics: allocations and consumed are summed over all time
- * here, matching what the AllocationsView/MatrixView fixtures show — the
- * matrix is a "current configuration" snapshot, not a per-period
- * utilization report (that's what envelopeUtilization is for).
+ * Period semantics: monthly envelopes report the current month's single
+ * allocation row (they reset each period — summing all-time would pile every
+ * past month's budget into one unbounded total); rolling/goal envelopes
+ * report their lifetime pool. Matches `envelopeUtilization`.
  */
 export const allocations = authorizedProcedure
     .input(z.object({ spaceId: z.string().uuid() }))
@@ -74,36 +71,41 @@ export const allocations = authorizedProcedure
                         e.color,
                         e.icon,
                         e.cadence,
+                        -- Allocated for the envelope's own window: monthly →
+                        -- the current month's single row; rolling/goal → the
+                        -- lifetime NULL-period pool row. (Summing all-time
+                        -- would add every past month's budget into one
+                        -- unbounded total.) Matches envelopeUtilization.
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
+                              AND (
+                                  (e.cadence = 'none' AND a.period_start IS NULL)
+                                  OR (
+                                      e.cadence <> 'none'
+                                      AND a.period_start = DATE_TRUNC('month', NOW())::date
+                                  )
+                              )
                         ), 0)::text AS allocated,
+                        -- Consumed over the matching window: monthly → current
+                        -- calendar month; rolling/goal → lifetime.
                         COALESCE((
                             SELECT SUM(t.amount)
                             FROM transactions t
                             WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
+                              AND (
+                                  e.cadence = 'none'
+                                  OR (
+                                      t.transaction_datetime >= DATE_TRUNC('month', NOW())
+                                      AND t.transaction_datetime < (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')
+                                  )
+                              )
                         ), 0)::text AS consumed
                     FROM envelops e
                     WHERE e.space_id = ${input.spaceId}
                     ORDER BY e.created_at ASC
-                `.execute(trx);
-
-                const matrixRes = await sql<{
-                    envelop_id: string;
-                    account_id: string | null;
-                    amount: string;
-                }>`
-                    SELECT
-                        a.envelop_id::text AS envelop_id,
-                        a.account_id::text AS account_id,
-                        SUM(a.amount)::text AS amount
-                    FROM envelop_allocations a
-                    JOIN envelops e ON e.id = a.envelop_id
-                    WHERE e.space_id = ${input.spaceId}
-                    GROUP BY a.envelop_id, a.account_id
-                    HAVING SUM(a.amount) > 0
                 `.execute(trx);
 
                 const accounts = accountsRes.rows.map((r) => ({
@@ -131,12 +133,6 @@ export const allocations = authorizedProcedure
                         isDrift: remaining < 0,
                     };
                 });
-                const matrix = matrixRes.rows.map((r) => ({
-                    envelopId: r.envelop_id,
-                    accountId: r.account_id,
-                    amount: Number(r.amount),
-                }));
-
                 const allocatedSum = envelopes.reduce(
                     (s, e) => s + e.allocated,
                     0
@@ -148,7 +144,6 @@ export const allocations = authorizedProcedure
                 return {
                     accounts,
                     envelopes,
-                    matrix,
                     drift: {
                         allocatedSum,
                         assetBalanceSum,

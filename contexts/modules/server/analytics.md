@@ -1,6 +1,6 @@
 # analytics module (server)
 
-> The per-space analytics surface: ~35 read-only procedures that power Overview, Envelopes, Plans, Events, Trends, Anomalies, and the Year report. Every procedure is `authorizedProcedure`, requires owner/editor/viewer membership of the target space, and reads from `transactions` (folding `fee_amount` rows in as expense).
+> The per-space analytics surface: read-only procedures that power Overview, Envelopes, Events, Trends, Anomalies, and the Year report. Every procedure is `authorizedProcedure`, requires owner/editor/viewer membership of the target space, and reads from `transactions` (folding `fee_amount` rows in as expense).
 
 ## Router
 
@@ -13,10 +13,9 @@ Procedure groupings (in router order):
 | Summary cards | `spaceSummary`, `todaySummary` |
 | Cash flow | `cashFlow`, `cumulativeSpend` |
 | Categories | `topCategories`, `topCategoriesByBucket`, `categoryBreakdown`, `categoryWoW`, `priorityBreakdown`, `topMerchants`, `incomeBreakdown` |
-| Envelopes | `envelopeUtilization`, `envelopeRecentAverages`, `envelopeHistory`, `unbudgetedTrend` |
-| Plans | `planProgress` |
+| Envelopes | `envelopeUtilization`, `envelopeRecentAverages`, `unbudgetedTrend` |
 | Events | `eventTotals`, `eventCategoryBreakdown` |
-| Accounts | `accountDistribution`, `accountAllocation`, `accountBalanceHistory`, `balanceHistory`, `netWorthHistory` |
+| Accounts | `accountDistribution`, `accountBalanceHistory`, `balanceHistory`, `netWorthHistory` |
 | Allocations | `allocations` |
 | Heatmaps & reports | `spendingHeatmap`, `yearReport` |
 | Recurring detection | `recurring` |
@@ -29,7 +28,7 @@ All are `.query`, all share the same membership/`safeAwait` boilerplate. Inputs 
 
 ### Summary cards
 
-- **`spaceSummary`** (`procedures/analytics/spaceSummary.mts:9`) — Wide overview: `totalBalance`, `spendableBalance`, `lockedBalance` (liabilities subtracted, locked accounts excluded from spendable), envelope `allocated/consumed/remaining` for the current cadence period, `planAllocated`, `unallocated = spendable - envelopeRemaining - planAllocated`, plus dual `period*` (cash) and `operational*` (excludes transfer principal) income/expense (`spaceSummary.mts:168-240`). The dual classification is the canonical reference; see "Domain math" below.
+- **`spaceSummary`** (`procedures/analytics/spaceSummary.mts:9`) — Wide overview: `totalBalance`, `spendableBalance`, `lockedBalance` (liabilities subtracted, locked accounts excluded from spendable), envelope `allocated/consumed/remaining` for the current cadence period, `unallocated = spendable - Σ GREATEST(0, allocated − consumed)` (the "held" cash each envelope ties up, clamped so overspend never inflates free cash), plus dual `period*` (cash) and `operational*` (excludes transfer principal) income/expense. The dual classification is the canonical reference; see "Domain math" below.
 - **`todaySummary`** (`procedures/analytics/todaySummary.mts:19`) — IN/OUT/count for a single day; day boundaries computed by Postgres `date_trunc('day', ...)` so they honor the session timezone (`todaySummary.mts:38-43`).
 
 ### Cash flow
@@ -49,14 +48,9 @@ All are `.query`, all share the same membership/`safeAwait` boilerplate. Inputs 
 
 ### Envelopes
 
-- **`envelopeUtilization`** (`procedures/analytics/envelopeUtilization.mts:28`) — One row per envelope with per-account `breakdown[]`. Cadence-aware: `none` envelopes sum all-time allocations, `monthly` envelopes only count allocations whose effective `period_start` falls in the window. Carry-in derived from the immediately-preceding equal-length window, clamped via the envelope's `carry_policy` (`reset` / `positive_only` / `both`). See `summary.mts:175-246` in the personal module for the same math.
+- **`envelopeUtilization`** (`procedures/analytics/envelopeUtilization.mts:20`) — One row per envelope (no per-account `breakdown[]` — allocations are space-wide). Cadence-aware: `monthly` envelopes sum the per-month allocation rows whose `period_start` lands in the requested window (one row per month) and count window-scoped spend; rolling/goal envelopes (`cadence='none'`) report the single NULL-period lifetime pool row and lifetime spend, window-independent. `remaining = allocated − consumed`, no carry-over. Also surfaces goal fields (`lifetimeFunded`, `pctSaved`/`targetAmount`/`targetDate`) and a `lifetimeOverrun` (rolling only).
 - **`envelopeRecentAverages`** (`procedures/analytics/envelopeRecentAverages.mts`) — Trailing-N-period averages per envelope; powers "you usually spend ~$X" hints.
-- **`envelopeHistory`** (`procedures/analytics/envelopeHistory.mts`) — Time series for one envelope. Input `{ envelopId, ... }` — the only analytics procedure keyed on envelope id rather than space id; resolves space via the envelope row.
 - **`unbudgetedTrend`** (`procedures/analytics/unbudgetedTrend.mts`) — Trend in spending that's NOT covered by envelope allocations. Input `{ spaceId, windowDays: int(1..730, default 90) }`.
-
-### Plans
-
-- **`planProgress`** (`procedures/analytics/planProgress.mts`) — Per-plan `allocated / target_amount` progress; surfaces `target_date` gaps.
 
 ### Events
 
@@ -66,14 +60,13 @@ All are `.query`, all share the same membership/`safeAwait` boilerplate. Inputs 
 ### Accounts
 
 - **`accountDistribution`** (`procedures/analytics/accountDistribution.mts`) — Balance per account in the space; pie/treemap input.
-- **`accountAllocation`** (`procedures/analytics/accountAllocation.mts`) — Per-account envelope/plan/unallocated partitions, with `carryIn` matching `resolveEnvelopePeriodBalance` (see the docstring at lines 1-16).
 - **`accountBalanceHistory`** (`procedures/analytics/accountBalanceHistory.mts`) — Time-bucketed balance trace for a single account.
 - **`balanceHistory`** (`procedures/analytics/balanceHistory.mts:9`) — Multi-account history. `accountIds: string[]?` filter, empty array = all space accounts (`balanceHistory.mts:14-16`).
 - **`netWorthHistory`** (`procedures/analytics/netWorthHistory.mts:22`) — Sum of balances treating liability accounts as negative; bucketed.
 
 ### Allocations
 
-- **`allocations`** (`procedures/analytics/allocations.mts`) — Allocation map/matrix used by the Allocations page (per-account × per-envelope partition view).
+- **`allocations`** (`procedures/analytics/allocations.mts`) — Space-wide allocation snapshot for the Allocation map view: `accounts[]` (balance + asset/liability/locked class), `envelopes[]` (allocated/consumed/remaining for each envelope's own window — monthly → current calendar month's single row; rolling/goal → lifetime pool), and a `drift` total comparing `allocatedSum` vs `assetBalanceSum`. By-envelope + Totals, NOT a per-account × per-envelope matrix. Matches `envelopeUtilization`.
 
 ### Heatmaps & reports
 
@@ -121,7 +114,7 @@ SELECT t.fee_amount, t.fee_expense_category_id ...
 WHERE t.type = 'transfer' AND t.fee_amount IS NOT NULL
 ```
 
-Used in `topCategories.mts:56-72`, `categoryBreakdown.mts:46-63`, `envelopeUtilization` (and personal/reckoning queries — see those modules). Without this, a user routing all their spend through transfer fees would invisibly bypass their envelope budgets and the strict-mode gate.
+Used in `topCategories.mts:56-72`, `categoryBreakdown.mts:46-63`, and the personal twins (see that module). Without this, a user routing all their spend through transfer fees would invisibly bypass their envelope budgets.
 
 ### Scope rule
 
@@ -137,9 +130,9 @@ WITH scope_accounts AS (
 
 `transactions.space_id` is a categorization tag (see `transaction` module doc). Procedures still in transition (`categoryBreakdown`, `incomeBreakdown`, `topCategoriesByBucket`) filter by `space_id` directly; this is documented as a known drift and they may misalign with `cashFlow` totals on cross-space transactions.
 
-### Carry-over semantics
+### Envelope period semantics
 
-For envelopes with `cadence='monthly'` and `carry_policy != 'reset'`, the previous period's `(allocated - consumed)` is added to the current period's pool. `carry_policy='positive_only'` clamps to `GREATEST(0, ...)`; `carry_policy='both'` keeps the signed value (so debt persists). Implemented identically in `envelopeUtilization`, `accountAllocation`, `spaceSummary` (period_remaining), and the personal twin `summary.mts`.
+Monthly envelopes **reset** every period — there is no carry-over. The window's `remaining = allocated − consumed`; an overspent envelope shows `remaining < 0` (drift) but never inflates space `unallocated`, which clamps each envelope's held to `GREATEST(0, allocated − consumed)`. Rolling/goal envelopes (`cadence='none'`) are a single lifetime pool. Allocations are space-wide (one row per envelope+period); envelope `consumed` matches `transactions.envelop_id` directly. Implemented identically across `envelopeUtilization`, `allocations`, `spaceSummary`, and the personal twin `summary.mts`.
 
 ## Conventions & gotchas
 
@@ -152,6 +145,5 @@ For envelopes with `cadence='monthly'` and `carry_policy != 'reset'`, the previo
 
 ## Cross-references
 
-- `personal/*` (`routers/personal.mts:46`) — every analytics procedure here has a cross-space personal twin; see the personal module doc for the owned-account scope and internal-transfer rule.
-- `reckoning.listPending` / `resolveStrictGate` use the same expense-plus-fee `UNION ALL` consumption formula — keep that in sync if you change envelope consumption semantics here.
+- `personal/*` (`routers/personal.mts:42`) — every analytics procedure here has a cross-space personal twin; see the personal module doc for the owned-account scope and internal-transfer rule.
 - `transaction.list` / `transaction.filteredTotals` (transaction module) duplicate the in/out folding logic; they are intentionally compatible with `analytics.cashFlow`.

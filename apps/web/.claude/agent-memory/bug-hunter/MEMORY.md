@@ -1,0 +1,2 @@
+- [APP_TZ formatting trap](apptz_format_trap.md) — Dates built via makeAppTzDate must be displayed with formatInAppTz, never native toLocaleString.
+- [Budget tz & ledger traps](budget_tz_and_ledger_traps.md) — Browser-local period math + stale delta-ledger SUMs over the new absolute-amount allocation rows.

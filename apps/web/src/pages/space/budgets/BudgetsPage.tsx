@@ -45,7 +45,6 @@ import { OrbitModalShell, OrbitField } from "@/components/orbit/OrbitModalShell"
 import {
     OrbitFormStyles,
     OrbitInput,
-    OrbitRadioRow,
     OrbitSelect,
     OrbitTextarea,
     OrbitFieldRow,
@@ -60,7 +59,16 @@ import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { ROUTES } from "@/router/routes";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
-import { addMonths, startOfMonth, endOfMonth, makeAppTzDate } from "@/lib/dates";
+import {
+    addMonths,
+    startOfMonth,
+    endOfMonth,
+    makeAppTzDate,
+    getAppTzYear,
+    getAppTzMonth,
+    getAppTzDate,
+} from "@/lib/dates";
+import { formatInAppTz } from "@/lib/formatDate";
 import { EnvelopeTargetDatePicker } from "./EnvelopeTargetDatePicker";
 import type { RouterOutput } from "@/trpc";
 
@@ -100,8 +108,8 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
     else if (mode === "urgency")
         arr.sort(
             (a, b) =>
-                pctOf(b.consumed, b.allocated + b.carryIn) -
-                pctOf(a.consumed, a.allocated + a.carryIn)
+                pctOf(b.consumed, b.allocated) -
+                pctOf(a.consumed, a.allocated)
         );
     else if (mode === "deadline")
         // Earliest target_date first; rows without a deadline drop to
@@ -162,7 +170,7 @@ function buildAttention(envelopes: EnvelopeRow[]) {
         text: string;
     }> = [];
     for (const e of envelopes) {
-        const total = e.allocated + e.carryIn;
+        const total = e.allocated;
         const over = e.consumed - total;
         if (over > 0) {
             items.push({
@@ -256,19 +264,17 @@ export default function BudgetsPage() {
 
     const totals = useMemo(() => {
         const allocated = envelopes.reduce(
-            (s, e) => s + e.allocated + e.carryIn,
+            (s, e) => s + e.allocated,
             0
         );
         const consumed = envelopes.reduce((s, e) => s + e.consumed, 0);
         const remaining = envelopes.reduce((s, e) => s + e.remaining, 0);
         const overAmount = envelopes.reduce(
-            (s, e) =>
-                s +
-                Math.max(0, e.consumed - (e.allocated + e.carryIn)),
+            (s, e) => s + Math.max(0, e.consumed - e.allocated),
             0
         );
         const overCount = envelopes.filter(
-            (e) => e.consumed > e.allocated + e.carryIn && e.allocated + e.carryIn > 0
+            (e) => e.consumed > e.allocated && e.allocated > 0
         ).length;
         return { allocated, consumed, remaining, overAmount, overCount };
     }, [envelopes]);
@@ -288,12 +294,12 @@ export default function BudgetsPage() {
     // Mid-month gentle nudge. After day 21 of the current month, surface a
     // one-time toast for each envelope that's already > 80% spent. Tracked
     // via localStorage so we don't spam — once per envelope per month.
-    // Strict mode is the only thing that *blocks*; this is the soft layer.
+    // Overspend is never blocked — this is just a soft heads-up.
     useEffect(() => {
         if (monthOffset !== 0) return;
         const today = new Date();
-        if (today.getDate() < 21) return;
-        const monthKey = `${today.getFullYear()}-${today.getMonth() + 1}`;
+        if (getAppTzDate(today) < 21) return;
+        const monthKey = `${getAppTzYear(today)}-${getAppTzMonth(today) + 1}`;
         const storageKey = `orbit:nudge:${space.id}:${monthKey}`;
         let dismissed: string[] = [];
         try {
@@ -305,14 +311,14 @@ export default function BudgetsPage() {
         }
         for (const e of envelopes) {
             if (e.cadence !== "monthly") continue;
-            const total = e.allocated + e.carryIn;
+            const total = e.allocated;
             if (total <= 0) continue;
             const ratio = e.consumed / total;
             if (ratio < 0.8 || ratio > 1.5) continue;
             if (dismissed.includes(e.envelopId)) continue;
             const pct = Math.round(ratio * 100);
             toast.message(`${e.name} is ${pct}% spent`, {
-                description: `${daysLeft} day${daysLeft === 1 ? "" : "s"} left this month. Pull from another envelope, borrow from next month, or just stay aware.`,
+                description: `${daysLeft} day${daysLeft === 1 ? "" : "s"} left this month. Pull from another envelope, or just stay aware.`,
                 duration: 8000,
             });
             dismissed.push(e.envelopId);
@@ -410,9 +416,6 @@ export default function BudgetsPage() {
                                 spaceId={space.id}
                                 viewingDate={viewingDate}
                             />
-                        )}
-                        {monthOffset === 0 && (
-                            <ReckoningBanner spaceId={space.id} />
                         )}
                         <div className="env-hero-stats">
                             <HeroStat
@@ -758,11 +761,8 @@ function EnvelopeCard({
     env: EnvelopeRow;
     spaceId: string;
 }) {
-    // Period-scoped pool: only positive carry adds to what's available
-    // this period. Negative carry (carry='both' debt) is already deducted
-    // from net worth — it must NOT trigger the "drift/over" state on
-    // envelopes that haven't actually overspent this period.
-    const total = env.allocated + Math.max(0, env.carryIn);
+    // Period-scoped pool: what's available to spend this period.
+    const total = env.allocated;
     const remaining = total - env.consumed;
     const overBy = env.consumed - total;
     const drift = env.consumed > total;
@@ -807,11 +807,7 @@ function EnvelopeCard({
                                 <>
                                     <span aria-hidden>·</span>
                                     <span style={{ color: "var(--fg-3)" }}>
-                                        by{" "}
-                                        {targetDate.toLocaleDateString("en-US", {
-                                            month: "short",
-                                            year: "numeric",
-                                        })}
+                                        by {formatInAppTz(targetDate, "MMM yyyy")}
                                     </span>
                                 </>
                             )}
@@ -826,9 +822,7 @@ function EnvelopeCard({
                             {(env.lifetimeOverrun ?? 0) > 0 && (
                                 <>
                                     <span aria-hidden>·</span>
-                                    {/* LEDGER-REPLACEABLE: drops when the
-                                        envelop_allocations ledger expresses
-                                        overspend via 'reckon' rows. */}
+                                    {/* Lifetime overrun on a rolling envelope. */}
                                     <span
                                         style={{ color: "var(--expense)" }}
                                         title={`This rolling envelope has spent ${(env.lifetimeOverrun ?? 0).toFixed(2)} more than allocated across all time.`}
@@ -959,7 +953,7 @@ function EnvelopeListRow({
     spaceId: string;
     last: boolean;
 }) {
-    const total = env.allocated + Math.max(0, env.carryIn);
+    const total = env.allocated;
     const remaining = total - env.consumed;
     const drift = env.consumed > total;
     const drainV =
@@ -993,11 +987,7 @@ function EnvelopeListRow({
                             <>
                                 {" · "}
                                 <span style={{ color: "var(--fg-3)" }}>
-                                    by{" "}
-                                    {targetDate.toLocaleDateString("en-US", {
-                                        month: "short",
-                                        year: "numeric",
-                                    })}
+                                    by {formatInAppTz(targetDate, "MMM yyyy")}
                                 </span>
                             </>
                         )}
@@ -1008,9 +998,7 @@ function EnvelopeListRow({
                                 <span style={{ color: "var(--expense)" }}>drift</span>
                             </>
                         )}
-                        {/* LEDGER-REPLACEABLE: drops when the
-                            envelop_allocations ledger expresses overspend
-                            via 'reckon' rows. */}
+                        {/* Lifetime overrun on a rolling envelope. */}
                         {(env.lifetimeOverrun ?? 0) > 0 && (
                             <>
                                 {" · "}
@@ -1093,9 +1081,9 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
         // menu/dialog clicks from bubbling up and triggering navigation.
         // stopPropagation alone is enough — preventDefault would also cancel
         // browser defaults like `<label>` → input activation, which silently
-        // kills the carry-policy radios inside the edit modal (Radix portals
-        // the dialog out of the DOM, but synthetic events still bubble up
-        // through the React component tree).
+        // kills label/radio/checkbox controls inside the edit modal (Radix
+        // portals the dialog out of the DOM, but synthetic events still
+        // bubble up through the React component tree).
         <span onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1175,7 +1163,6 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
             <EnvelopeTopUpDialog
                 envelopId={env.envelopId}
                 envelopeName={env.name}
-                envelopeCadence={env.cadence as Cadence}
                 envelopeColor={env.color}
                 open={topUpOpen}
                 onOpenChange={setTopUpOpen}
@@ -1189,40 +1176,6 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
    Helpers
    ============================================================ */
 
-function ReckoningBanner({ spaceId }: { spaceId: string }) {
-    // Pulls the count of unresolved past-month overspends. Shows nothing
-    // when zero — the dashboard stays clean unless the user actually has
-    // something to settle.
-    const pendingQuery = trpc.reckoning.listPending.useQuery({ spaceId });
-    const items = pendingQuery.data ?? [];
-    if (items.length === 0) return null;
-    const total = items.reduce((s, i) => s + i.overBy, 0);
-    return (
-        <Link
-            to={ROUTES.spaceReckoning(spaceId)}
-            className="env-reckoning-banner"
-        >
-            <span className="env-reckoning-dot" />
-            <span className="env-reckoning-text">
-                <span className="env-reckoning-title">
-                    {items.length} past-month overspend
-                    {items.length === 1 ? "" : "s"} need
-                    {items.length === 1 ? "s" : ""} attention
-                </span>
-                <span className="env-reckoning-sub">
-                    Total {total.toFixed(2)} across{" "}
-                    {new Set(items.map((i) => i.envelopId)).size} envelope
-                    {new Set(items.map((i) => i.envelopId)).size === 1
-                        ? ""
-                        : "s"}
-                    . Decide how to settle.
-                </span>
-            </span>
-            <span className="env-reckoning-cta">Settle →</span>
-        </Link>
-    );
-}
-
 function UnbudgetedBanner({
     unallocated,
     isOverAllocated,
@@ -1234,8 +1187,8 @@ function UnbudgetedBanner({
     spaceId: string;
     viewingDate: Date;
 }) {
-    const monthSlug = `${viewingDate.getFullYear()}-${String(
-        viewingDate.getMonth() + 1
+    const monthSlug = `${getAppTzYear(viewingDate)}-${String(
+        getAppTzMonth(viewingDate) + 1
     ).padStart(2, "0")}`;
     const tone = isOverAllocated ? "var(--expense)" : "var(--income)";
     const title = isOverAllocated ? "Over-budgeted by" : "Unbudgeted";
@@ -1284,7 +1237,7 @@ function UnbudgetedBanner({
                                 onClick={() => setShowBreakdown((v) => !v)}
                                 title="See what's drained the pool over the last 90 days"
                             >
-                                ↓ {t.absorbedOverspend.toFixed(0)} silent
+                                ↓ {t.absorbedOverspend.toFixed(0)} past
                                 overspend (90d)
                             </button>
                         )}
@@ -1293,28 +1246,13 @@ function UnbudgetedBanner({
                     {showBreakdown && t && (
                         <div className="env-unbudgeted-breakdown">
                             <div className="env-unbudgeted-breakdown-row">
-                                <span>Income</span>
+                                <span>Income (90d)</span>
                                 <span className="tabular">
                                     +{t.income.toFixed(2)}
                                 </span>
                             </div>
-                            <div className="env-unbudgeted-breakdown-row">
-                                <span>Net new allocations</span>
-                                <span
-                                    className="tabular"
-                                    style={{
-                                        color:
-                                            t.allocationsNet > 0
-                                                ? "var(--expense)"
-                                                : "var(--income)",
-                                    }}
-                                >
-                                    {t.allocationsNet > 0 ? "−" : "+"}
-                                    {Math.abs(t.allocationsNet).toFixed(2)}
-                                </span>
-                            </div>
                             <div className="env-unbudgeted-breakdown-row env-unbudgeted-breakdown-emph">
-                                <span>Silent overspend absorbed</span>
+                                <span>Past overspend (completed months)</span>
                                 <span
                                     className="tabular"
                                     style={{ color: "var(--expense)" }}
@@ -1323,9 +1261,8 @@ function UnbudgetedBanner({
                                 </span>
                             </div>
                             <div className="env-unbudgeted-breakdown-hint">
-                                Switch overspending envelopes to "Honest"
-                                carry mode to make this leak persist as
-                                debt instead of vanishing.
+                                Spending past an envelope's monthly budget draws
+                                from your unbudgeted pool. Each month starts fresh.
                             </div>
                         </div>
                     )}
@@ -1609,8 +1546,6 @@ function SortPicker({
    Dialogs (preserved)
    ============================================================ */
 
-type CarryPolicy = "reset" | "positive_only" | "both";
-
 export interface EditableEnvelope {
     envelopId: string;
     name: string;
@@ -1618,8 +1553,6 @@ export interface EditableEnvelope {
     icon: string;
     description: string | null;
     cadence: Cadence;
-    carryOver: boolean;
-    carryPolicy?: CarryPolicy;
     targetAmount?: number | null;
     targetDate?: Date | string | null;
 }
@@ -1648,12 +1581,6 @@ export function CreateOrEditEnvelopeDialog({
     const [icon, setIcon] = useState(envelope?.icon ?? "mail");
     const [description, setDescription] = useState(envelope?.description ?? "");
     const [cadence, setCadence] = useState<Cadence>(envelope?.cadence ?? "none");
-    // Three-mode carry policy. Defaults derive from the legacy boolean for
-    // existing envelopes that haven't been re-saved yet.
-    const [carryPolicy, setCarryPolicy] = useState<CarryPolicy>(
-        envelope?.carryPolicy ??
-            (envelope?.carryOver ? "positive_only" : "reset")
-    );
     const [targetAmount, setTargetAmount] = useState<string>(
         envelope?.targetAmount != null ? String(envelope.targetAmount) : ""
     );
@@ -1691,7 +1618,6 @@ export function CreateOrEditEnvelopeDialog({
     const submit = () => {
         if (pending) return;
         if (!name.trim()) return;
-        const carryOverBool = carryPolicy !== "reset";
         // Targets only ride along on rolling (cadence='none') envelopes.
         // Server validates the same constraint; we mirror it here so the
         // submit button can't ship contradictory state.
@@ -1745,8 +1671,6 @@ export function CreateOrEditEnvelopeDialog({
                 icon,
                 description: description.trim() || null,
                 cadence,
-                carryOver: carryOverBool,
-                carryPolicy,
                 ...(amountChanged ? { targetAmount: parsedTargetAmount } : {}),
                 ...(dateChanged ? { targetDate: parsedTargetDate } : {}),
             });
@@ -1758,8 +1682,6 @@ export function CreateOrEditEnvelopeDialog({
                 icon,
                 description: description.trim() || undefined,
                 cadence,
-                carryOver: carryOverBool,
-                carryPolicy,
                 targetAmount: parsedTargetAmount ?? undefined,
                 targetDate: parsedTargetDate ?? undefined,
                 idempotencyKey: idem.key,
@@ -1794,7 +1716,7 @@ export function CreateOrEditEnvelopeDialog({
                     width={560}
                     eyebrow="Budgets"
                     title={editing ? "Edit envelope" : "New envelope"}
-                    subtitle="A bucket for a category — funded, tracked, and rolled-over."
+                    subtitle="A bucket for a category — funded and tracked, monthly or rolling."
                     leadIcon={<IconCmp className="size-4" />}
                     leadColor={color}
                     onClose={() => setOpen(false)}
@@ -1860,69 +1782,23 @@ export function CreateOrEditEnvelopeDialog({
                         />
                     </OrbitField>
 
-                    <OrbitFieldRow>
-                        <OrbitField label="Cadence">
-                            <OrbitSelect
-                                value={cadence}
-                                onValueChange={(v) => setCadence(v as Cadence)}
-                                items={[
-                                    {
-                                        value: "none",
-                                        label: "Rolling (accumulates)",
-                                    },
-                                    {
-                                        value: "monthly",
-                                        label: "Monthly (resets on the 1st)",
-                                    },
-                                ]}
-                                placeholder="Choose cadence"
-                            />
-                        </OrbitField>
-                        {cadence !== "none" ? (
-                            <OrbitField
-                                label="Carry policy"
-                                // OrbitField defaults to a <label> wrapper.
-                                // Radio rows already render one <label> per
-                                // option; nested labels make the outer one
-                                // steal every click back to the first input.
-                                interactiveHint
-                                hint={
-                                    carryPolicy === "both"
-                                        ? "Surplus AND debt persist"
-                                        : carryPolicy === "positive_only"
-                                          ? "Surplus rolls forward"
-                                          : "Fresh slate every month"
-                                }
-                            >
-                                <OrbitRadioRow
-                                    name="env-carry-policy"
-                                    value={carryPolicy}
-                                    onChange={(v) =>
-                                        setCarryPolicy(v as CarryPolicy)
-                                    }
-                                    options={[
-                                        {
-                                            value: "reset",
-                                            label: "Reset",
-                                            hint: "Both directions",
-                                        },
-                                        {
-                                            value: "positive_only",
-                                            label: "Surplus",
-                                            hint: "Carry unspent",
-                                        },
-                                        {
-                                            value: "both",
-                                            label: "Honest",
-                                            hint: "Carry both",
-                                        },
-                                    ]}
-                                />
-                            </OrbitField>
-                        ) : (
-                            <div />
-                        )}
-                    </OrbitFieldRow>
+                    <OrbitField label="Cadence">
+                        <OrbitSelect
+                            value={cadence}
+                            onValueChange={(v) => setCadence(v as Cadence)}
+                            items={[
+                                {
+                                    value: "none",
+                                    label: "Rolling (accumulates)",
+                                },
+                                {
+                                    value: "monthly",
+                                    label: "Monthly (resets on the 1st)",
+                                },
+                            ]}
+                            placeholder="Choose cadence"
+                        />
+                    </OrbitField>
 
                     {/* Goal target — only on rolling envelopes. Both fields
                        are optional; setting either turns the envelope into
@@ -2015,12 +1891,6 @@ function ArchiveEnvelopeMenuItem({
 }) {
     const { space } = useCurrentSpace();
     const utils = trpc.useUtils();
-    // Pre-load any active borrow obligations so the confirm dialog can
-    // warn the user that archiving doesn't unwind them.
-    const borrowsQuery = trpc.envelop.listBorrows.useQuery(
-        { envelopId },
-        { enabled: !archived }
-    );
     const mutation = trpc.envelop.archive.useMutation({
         onSuccess: async () => {
             toast.success(archived ? "Unarchived" : "Archived");
@@ -2030,7 +1900,6 @@ function ArchiveEnvelopeMenuItem({
                     spaceId: space.id,
                 }),
                 utils.analytics.spaceSummary.invalidate(),
-                utils.envelop.listBorrows.invalidate({ envelopId }),
             ]);
         },
         onError: (e) => toast.error(e.message),
@@ -2054,13 +1923,6 @@ function ArchiveEnvelopeMenuItem({
             ? ` It currently has ${currentRemaining.toFixed(2)} allocated this period — that allocation stays put. Deallocate first if you want the cash back.`
             : "";
 
-    const borrows = borrowsQuery.data ?? [];
-    const borrowTotal = borrows.reduce((s, b) => s + b.amount, 0);
-    const borrowNote =
-        borrowTotal > 0
-            ? ` It also has ${borrowTotal.toFixed(2)} borrowed against future periods (${borrows.length} link${borrows.length === 1 ? "" : "s"}) — those obligations stay put after archive and will keep reducing those periods' planning pool. Use "Cancel borrow" on the envelope detail page first if you want to unwind them.`
-            : "";
-
     return (
         <ConfirmDialog
             trigger={
@@ -2069,7 +1931,7 @@ function ArchiveEnvelopeMenuItem({
                 </DropdownMenuItem>
             }
             title={`Archive "${envelopName}"?`}
-            description={`This hides ${envelopName} from the envelopes list and prevents new transactions in its categories. Existing data is preserved.${allocationNote}${borrowNote}`}
+            description={`This hides ${envelopName} from the envelopes list and prevents new transactions in its categories. Existing data is preserved.${allocationNote}`}
             confirmLabel="Archive"
             onConfirm={() => mutation.mutate({ envelopId, archived: true })}
         />
@@ -2225,54 +2087,6 @@ const ENV_STYLES = `
 .env-unbudgeted-cta:hover {
     background: var(--bg-elev-3);
     border-color: var(--line-strong);
-}
-.env-reckoning-banner {
-    margin-top: 10px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 12px 14px;
-    border-radius: 12px;
-    background: color-mix(in oklab, var(--expense) 8%, var(--bg-elev-2));
-    border: 1px solid color-mix(in oklab, var(--expense) 30%, transparent);
-    text-decoration: none;
-    color: inherit;
-    transition: background 140ms ease;
-    position: relative;
-    z-index: 1;
-}
-.env-reckoning-banner:hover {
-    background: color-mix(in oklab, var(--expense) 14%, var(--bg-elev-2));
-}
-.env-reckoning-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--expense);
-    flex-shrink: 0;
-    box-shadow: 0 0 0 4px color-mix(in oklab, var(--expense) 18%, transparent);
-}
-.env-reckoning-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex: 1;
-    min-width: 0;
-}
-.env-reckoning-title {
-    font-size: 13px;
-    color: var(--fg);
-    font-weight: 500;
-}
-.env-reckoning-sub {
-    font-size: 11px;
-    color: var(--fg-3);
-}
-.env-reckoning-cta {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--expense);
-    white-space: nowrap;
 }
 .env-unbudgeted-trend {
     margin-left: 10px;
@@ -2668,12 +2482,14 @@ const ENV_STYLES = `
     font-weight: 500;
 }
 @media (max-width: 720px) {
-    .env-list-row { grid-template-columns: 1fr auto; gap: 12px; }
+    /* name | amount | chevron — the bar is hidden on mobile, so without the
+       third track the chevron wraps to a second row under the name. */
+    .env-list-row { grid-template-columns: 1fr auto auto; gap: 12px; }
     .env-list-row-bar { display: none; }
     /* Goal rows keep their progress bar even on mobile — it's the only
        signal of completion left once the row is this compact. Bar moves
        beneath the title row in its own grid track. */
-    .env-list-row-goal { grid-template-columns: 1fr auto; }
+    .env-list-row-goal { grid-template-columns: 1fr auto auto; }
     .env-list-row-goal .env-list-row-bar {
         display: block;
         grid-column: 1 / -1;
@@ -2823,7 +2639,6 @@ const ENV_STYLES = `
         display: inline-flex;
         align-items: center;
     }
-    .env-reckoning-banner { padding: 10px 12px; gap: 10px; }
     .env-hero-stats { gap: 14px; margin-top: 12px; }
     .env-hero-priority { margin-top: 16px; }
     .orbit-design .od-card.env-card { padding: 14px; gap: 12px; }

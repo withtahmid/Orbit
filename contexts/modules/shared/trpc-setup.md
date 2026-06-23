@@ -14,7 +14,7 @@ Server:
   - `authorized.mts` — `authorizedProcedure = t.procedure.use(filterMutations).use(mutationLogger).use(is_authenticated)`. The last middleware throws `UNAUTHORIZED` if `ctx.auth.user` is null and narrows the type to `AuthenticatedUser` for downstream.
   - `mutationLogger.mts` — records mutation duration + payload but the actual DB insert is commented out (`mutationLogger.mts:32-41`). Currently a no-op timing wrapper.
   - `filterMutationsOnDemo.mts` — when `IS_DEMO`, throws `FORBIDDEN` for any mutation not in `DEMO_ALLOWED_MUTATIONS = new Set(["auth.login"])`.
-- `apps/server/src/routers/index.mts` — composes 15 feature routers (`health`, `auth`, `space`, `account`, `event`, `envelop`, `plan`, `expenseCategory`, `transaction`, `allocation`, `analytics`, `file`, `user`, `personal`, `reckoning`) into `appRouter` and `export type AppRouter`.
+- `apps/server/src/routers/index.mts` — composes 14 feature routers (`health`, `auth`, `space`, `account`, `event`, `envelop`, `expenseCategory`, `transaction`, `allocation`, `analytics`, `file`, `user`, `personal`, `pin`) into `appRouter` and `export type AppRouter`.
 - `apps/server/src/services/index.mts` — `createServices()` returns `{ pgPool, qb, mailer, r2 }`. Singleton in `context.mts`.
 - Mounted in `apps/server/src/index.mts:28-34` via `trpcExpress.createExpressMiddleware`. In `NODE_ENV=development`, `trpc-playground` is also exposed at `/trpc-playground` (`index.mts:36-45`).
 

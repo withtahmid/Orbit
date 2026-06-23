@@ -1,0 +1,1 @@
+- [Budgeting model invariants (migration 048)](budgeting-model.md) — one-row-per-(envelope,period); held=GREATEST(0,alloc−consumed); spendable−Σheld=unallocated.

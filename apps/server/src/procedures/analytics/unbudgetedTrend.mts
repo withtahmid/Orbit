@@ -14,17 +14,14 @@ import { resolveSpaceUnallocated } from "../allocation/utils/resolveSpaceUnalloc
  * never makes visible on its own.
  *
  * The breakdown is computed from raw event data over the window:
- *   - income:        sum of `income` transactions hitting space accounts
- *                    (assets credited, liabilities debited).
- *   - allocations:   net positive envelope_allocations created in the
- *                    window. Positive amounts increase
- *                    "held"; negative amounts (deallocations) decrease it.
- *   - absorbedOverspend: the conceptual leak. For each completed past
- *                    period that fell within the window, if an envelope
- *                    finished overspent (consumed > allocated + carryIn)
- *                    AND its carry policy didn't make the debt persist
- *                    (i.e. policy != 'both'), the overage is the silent
- *                    absorption. Sum across envelopes.
+ *   - income:        sum of `income` transactions into accounts shared
+ *                    into this space (scoped by destination account).
+ *   - absorbedOverspend: the conceptual leak. Monthly envelopes reset
+ *                    each period, so for every completed past month that
+ *                    fell within the window, any amount by which an
+ *                    envelope's spend exceeded that month's allocation
+ *                    (consumed > allocated) is silently absorbed by the
+ *                    unbudgeted pool. Summed across envelopes.
  *
  * The numbers don't have to reconcile to the exact unbudgeted delta —
  * account adjustments and transfers don't fit cleanly into one bucket —
@@ -62,35 +59,29 @@ export const unbudgetedTrend = authorizedProcedure
                     spaceId: input.spaceId,
                 });
 
+                // Income hitting accounts shared into this space (scoped by
+                // destination, matching analytics.spaceSummary — `space_id`
+                // is a categorization tag, not a scope boundary).
                 const income = await sql<{ total: string }>`
                     SELECT COALESCE(SUM(t.amount), 0)::text AS total
                     FROM transactions t
-                    WHERE t.space_id = ${input.spaceId}
-                      AND t.type = 'income'
+                    WHERE t.type = 'income'
+                      AND t.destination_account_id IN (
+                          SELECT account_id FROM space_accounts
+                          WHERE space_id = ${input.spaceId}
+                      )
                       AND t.transaction_datetime >= ${windowStart}
                       AND t.transaction_datetime < ${now}
                 `
                     .execute(trx)
                     .then((r) => Number(r.rows[0]?.total ?? 0));
 
-                const allocChange = await sql<{ total: string }>`
-                    SELECT COALESCE(SUM(a.amount), 0)::text AS total
-                    FROM envelop_allocations a
-                    JOIN envelops e ON e.id = a.envelop_id
-                    WHERE e.space_id = ${input.spaceId}
-                      AND a.created_at >= ${windowStart}
-                      AND a.created_at < ${now}
-                `
-                    .execute(trx)
-                    .then((r) => Number(r.rows[0]?.total ?? 0));
-
-                // Absorbed overspend: per past month within the window,
-                // for each envelope whose carry_policy != 'both', sum the
-                // amount by which consumed exceeded (allocated + carryIn
-                // for that period). We approximate carryIn as 0 for
-                // simplicity (the small inaccuracy biases the number
-                // slightly conservative — i.e. we may *under-report* the
-                // drain rather than over-report).
+                // Absorbed overspend: per past month within the window, for
+                // each monthly envelope, sum the amount by which consumed
+                // exceeded that month's allocation. Monthly envelopes reset
+                // every period (no carry-over), so a completed month's
+                // overspend is silently absorbed by the unbudgeted pool —
+                // exactly the drain this surfaces.
                 const absorbed = await sql<{ total: string }>`
                     WITH months AS (
                         SELECT generate_series(
@@ -102,17 +93,13 @@ export const unbudgetedTrend = authorizedProcedure
                     per_env AS (
                         SELECT
                             e.id AS envelop_id,
-                            e.carry_policy,
                             m.m_start,
                             (m.m_start + INTERVAL '1 month')::timestamp AS m_end,
                             COALESCE((
-                                SELECT SUM(a.amount)
+                                SELECT a.amount
                                 FROM envelop_allocations a
                                 WHERE a.envelop_id = e.id
-                                  AND COALESCE(
-                                        a.period_start,
-                                        DATE_TRUNC('month', a.created_at)::date
-                                      ) = m.m_start::date
+                                  AND a.period_start = m.m_start::date
                             ), 0) AS allocated,
                             COALESCE((
                                 SELECT SUM(t.amount)
@@ -126,8 +113,10 @@ export const unbudgetedTrend = authorizedProcedure
                         CROSS JOIN months m
                         WHERE e.space_id = ${input.spaceId}
                           AND e.cadence = 'monthly'
-                          AND e.carry_policy <> 'both'
-                          -- Only completed months: end strictly before now.
+                          -- Only months fully inside the window: start on/after
+                          -- windowStart (so we don't count a partial leading
+                          -- month's pre-window spend) and end before now.
+                          AND m.m_start >= ${windowStart}
                           AND (m.m_start + INTERVAL '1 month') <= ${now}
                     )
                     SELECT COALESCE(SUM(GREATEST(0, consumed - allocated)), 0)::text AS total
@@ -140,7 +129,6 @@ export const unbudgetedTrend = authorizedProcedure
                     current,
                     windowDays: input.windowDays,
                     income,
-                    allocationsNet: allocChange,
                     absorbedOverspend: absorbed,
                 };
             })

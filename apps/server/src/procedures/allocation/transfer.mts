@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { Kysely } from "kysely";
+import { Kysely, sql } from "kysely";
 import { z } from "zod";
 import type { DB, SpaceMembers } from "../../db/kysely/types.mjs";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
@@ -13,21 +13,15 @@ import {
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 /**
- * Transfer allocation between any two (envelope, optional-account)
- * partitions in the same space. Used for:
- *   - Rebalancing drift (same envelope, cross-account)
- *   - Moving funds between envelopes
- *   - Converting unassigned-pool allocations into account-pinned ones
- *
- * Both source and destination carry an optional `accountId`. null means
- * "unassigned pool." The period is current-period of the envelope's cadence
- * (callers can't retarget historical periods — auditable history matters
- * more than flexibility here).
+ * Move allocation between two envelopes in the same space. Re-expressed as
+ * two upserts against the one-row-per-(envelope, month) model: the source
+ * month row is decremented and the destination month row incremented (or
+ * the lifetime NULL-period row for rolling/goal envelopes). The period is
+ * always the envelope's current period — historical periods aren't retargetable.
  */
 
 const targetSchema = z.object({
     envelopId: z.string().uuid(),
-    accountId: z.string().uuid().nullable().optional(),
 });
 
 type Target = z.infer<typeof targetSchema>;
@@ -51,6 +45,31 @@ export const transferAllocation = authorizedProcedure
                     operation: "allocation.transfer",
                     key: input.idempotencyKey,
                     fn: async () => {
+                        if (input.from.envelopId === input.to.envelopId) {
+                            throw new TRPCError({
+                                code: "BAD_REQUEST",
+                                message:
+                                    "Source and destination cannot be the same envelope",
+                            });
+                        }
+
+                        // Lock BOTH envelope rows up front, in a deterministic
+                        // (sorted) order so concurrent transfers between the
+                        // same pair can't deadlock. This serializes the
+                        // source-has-enough guard's read-then-upsert against
+                        // any concurrent allocate/deallocate/transfer so the
+                        // source can't be over-pulled negative.
+                        await trx
+                            .selectFrom("envelops")
+                            .select("id")
+                            .where("id", "in", [
+                                input.from.envelopId,
+                                input.to.envelopId,
+                            ])
+                            .orderBy("id")
+                            .forUpdate()
+                            .execute();
+
                         const fromInfo = await resolveTargetInfo(trx, input.from);
                         const toInfo = await resolveTargetInfo(trx, input.to);
 
@@ -59,14 +78,6 @@ export const transferAllocation = authorizedProcedure
                                 code: "BAD_REQUEST",
                                 message:
                                     "Source and destination must be in the same space",
-                            });
-                        }
-
-                        if (sameTarget(input.from, input.to)) {
-                            throw new TRPCError({
-                                code: "BAD_REQUEST",
-                                message:
-                                    "Source and destination cannot be the same partition",
                             });
                         }
 
@@ -94,29 +105,7 @@ export const transferAllocation = authorizedProcedure
                             });
                         }
 
-                        // Verify any pinned account belongs to the space
-                        for (const accountId of [
-                            input.from.accountId ?? null,
-                            input.to.accountId ?? null,
-                        ]) {
-                            if (accountId) {
-                                const sa = await trx
-                                    .selectFrom("space_accounts")
-                                    .select("account_id")
-                                    .where("account_id", "=", accountId)
-                                    .where("space_id", "=", fromInfo.spaceId)
-                                    .executeTakeFirst();
-                                if (!sa) {
-                                    throw new TRPCError({
-                                        code: "BAD_REQUEST",
-                                        message:
-                                            "Account does not belong to this space",
-                                    });
-                                }
-                            }
-                        }
-
-                        // Source partition must have enough to give.
+                        // Source must have enough to give.
                         if (fromInfo.available < input.amount) {
                             throw new TRPCError({
                                 code: "BAD_REQUEST",
@@ -126,29 +115,20 @@ export const transferAllocation = authorizedProcedure
                             });
                         }
 
-                        // Debit source
-                        await trx
-                            .insertInto("envelop_allocations")
-                            .values({
-                                envelop_id: input.from.envelopId,
-                                amount: -input.amount,
-                                created_by: ctx.auth.user.id,
-                                account_id: input.from.accountId ?? null,
-                                period_start: fromInfo.periodStart ?? null,
-                            })
-                            .execute();
-
-                        // Credit destination
-                        await trx
-                            .insertInto("envelop_allocations")
-                            .values({
-                                envelop_id: input.to.envelopId,
-                                amount: input.amount,
-                                created_by: ctx.auth.user.id,
-                                account_id: input.to.accountId ?? null,
-                                period_start: toInfo.periodStart ?? null,
-                            })
-                            .execute();
+                        await upsertAllocationDelta(
+                            trx,
+                            input.from.envelopId,
+                            -input.amount,
+                            fromInfo.periodStart,
+                            ctx.auth.user.id
+                        );
+                        await upsertAllocationDelta(
+                            trx,
+                            input.to.envelopId,
+                            input.amount,
+                            toInfo.periodStart,
+                            ctx.auth.user.id
+                        );
 
                         return { message: "Allocation transferred" };
                     },
@@ -164,6 +144,31 @@ export const transferAllocation = authorizedProcedure
         }
         return result ?? { message: "Allocation transferred" };
     });
+
+/** Accumulating upsert against the single (envelope, period) allocation row. */
+async function upsertAllocationDelta(
+    trx: Kysely<DB>,
+    envelopId: string,
+    amount: number,
+    periodStart: Date | null,
+    userId: string
+): Promise<void> {
+    await trx
+        .insertInto("envelop_allocations")
+        .values({
+            envelop_id: envelopId,
+            amount,
+            created_by: userId,
+            period_start: periodStart,
+        })
+        .onConflict((oc) =>
+            oc.columns(["envelop_id", "period_start"]).doUpdateSet({
+                amount: sql`envelop_allocations.amount + excluded.amount`,
+                created_by: (eb) => eb.ref("excluded.created_by"),
+            })
+        )
+        .execute();
+}
 
 async function resolveTargetInfo(
     trx: Kysely<DB>,
@@ -186,17 +191,9 @@ async function resolveTargetInfo(
     const periodStart =
         cadence === "none" ? null : effectivePeriodStart(cadence, null, now);
 
-    // The available check and the row we write must scope to the same
-    // partition. `target.accountId` can arrive as `undefined` (caller
-    // omitted) or `null` (caller asked for the unassigned pool); the
-    // insert collapses both to NULL, so the check must too — otherwise
-    // an "aggregate available" lookup happily debits a partition that
-    // does not actually hold the money.
-    const accountId: string | null = target.accountId ?? null;
     const bal = await resolveEnvelopePeriodBalance({
         trx,
         envelopId: target.envelopId,
-        accountId,
         at: now,
     });
     return {
@@ -204,10 +201,4 @@ async function resolveTargetInfo(
         available: bal.remaining,
         periodStart,
     };
-}
-
-function sameTarget(a: Target, b: Target): boolean {
-    const aAcct = a.accountId ?? null;
-    const bAcct = b.accountId ?? null;
-    return a.envelopId === b.envelopId && aAcct === bAcct;
 }

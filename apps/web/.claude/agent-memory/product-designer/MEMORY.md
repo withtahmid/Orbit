@@ -1,0 +1,1 @@
+- [Simplify-budgeting model](project_simplify_budgeting.md) — retired carry/borrow/reckoning/strict/per-account; where those concepts can still leak in UI

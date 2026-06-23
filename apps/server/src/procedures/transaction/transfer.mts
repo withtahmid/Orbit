@@ -8,7 +8,6 @@ import { TRPCError } from "@trpc/server";
 import { resolveEventBelongsToSpace } from "../event/utils/resolveEventBelongsToSpace.mjs";
 import { resolveExpenseCategoryBelongsToSpace } from "../expenseCategory/utils/resolveExpenseCategoryBelongsToSpace.mjs";
 import { resolveEnvelopActive } from "../envelop/utils/resolveEnvelopActive.mjs";
-import { resolveStrictGate } from "../space/utils/resolveStrictGate.mjs";
 import { attachFilesToTransaction } from "../file/attach.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
@@ -56,11 +55,6 @@ export const createTransferTransaction = authorizedProcedure
                     operation: "transaction.transfer",
                     key: input.idempotencyKey,
                     fn: async () => {
-                        await resolveStrictGate({
-                            trx,
-                            spaceId: input.spaceId,
-                            userId: ctx.auth.user.id,
-                        });
                         await resolveTransactionPermission({
                             trx,
                             userId: ctx.auth.user.id,

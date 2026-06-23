@@ -1,4 +1,3 @@
-import { personalAccountAllocation } from "../procedures/personal/accountAllocation.mjs";
 import { personalAccountDistribution } from "../procedures/personal/accountDistribution.mjs";
 import { personalOwnedAccounts } from "../procedures/personal/accounts.mjs";
 import { personalAnomaliesOutliers } from "../procedures/personal/anomaliesOutliers.mjs";
@@ -16,7 +15,6 @@ import { personalEnvelopeUtilization } from "../procedures/personal/envelopeUtil
 import { personalIncomeBreakdown } from "../procedures/personal/incomeBreakdown.mjs";
 import { personalListCategories } from "../procedures/personal/listCategories.mjs";
 import { personalNetWorthHistory } from "../procedures/personal/netWorthHistory.mjs";
-import { personalReckoningListPending } from "../procedures/personal/reckoningListPending.mjs";
 import { personalRecurring } from "../procedures/personal/recurring.mjs";
 import { personalSpaceBreakdown } from "../procedures/personal/spaceBreakdown.mjs";
 import { personalSpendingHeatmap } from "../procedures/personal/spendingHeatmap.mjs";
@@ -55,7 +53,6 @@ export const personalRouter = router({
     balanceHistory: personalBalanceHistory,
     spendingHeatmap: personalSpendingHeatmap,
     accountDistribution: personalAccountDistribution,
-    accountAllocation: personalAccountAllocation,
     transactions: personalTransactions,
     transactionFilteredTotals: personalTransactionFilteredTotals,
     ownedAccounts: personalOwnedAccounts,
@@ -75,12 +72,6 @@ export const personalRouter = router({
         dailyComparison: personalTrendsDailyComparison,
         yearOverYear: personalTrendsYearOverYear,
         categoryMovers: personalTrendsCategoryMovers,
-    }),
-    /* Cross-space reckoning. The acknowledge mutation lives on the
-       per-space reckoning router; the personal namespace just lists
-       pending items because the resolution touches a specific space. */
-    reckoning: router({
-        listPending: personalReckoningListPending,
     }),
     /* Anomalies view. */
     anomalies: router({
