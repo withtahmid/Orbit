@@ -79,7 +79,10 @@ export const spaceSummary = authorizedProcedure
                 // `remaining` is the source of `unallocated` downstream and
                 // is held = GREATEST(0, allocated − consumed), clamped so an
                 // overspent envelope holds no cash and doesn't inflate the
-                // unbudgeted pool. Matches `resolveSpaceUnallocated`.
+                // unbudgeted pool. The clamp is a cash-conservation invariant:
+                // overspent cash already left the accounts, so spendable already
+                // dropped — crediting negative remaining back would push
+                // Unbudgeted above net worth. Matches `resolveSpaceUnallocated`.
                 const envelopeRow = await sql<{
                     allocated: string;
                     consumed: string;
@@ -255,7 +258,10 @@ export const spaceSummary = authorizedProcedure
                     envelopeConsumed,
                     envelopeRemaining,
                     unallocated,
-                    isOverAllocated: unallocated < 0,
+                    // Sub-cent epsilon: two PG-rounded numeric(20,2) sums can
+                    // leave a −0.00x residue when spendable exactly equals held;
+                    // without the guard the UI flips to "Over-budgeted by 0.00".
+                    isOverAllocated: unallocated < -0.005,
                     /* `period*` = cash flow (matches balance movement).
                        `operational*` = true income/expense (excludes
                        transfer principal). See SQL block above for the

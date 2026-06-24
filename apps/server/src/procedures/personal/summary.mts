@@ -13,11 +13,15 @@ import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
  *
  * Semantics are anchored to the caller's personally-owned accounts
  * (user_accounts.role='owner') unioned across every space they're a
- * member of. Envelope aggregates sum only the partitions belonging
- * to owned accounts — "my slice" of each budget I participate in.
- * Goal envelopes (cadence='none' with target) ride the same rules:
- * their balance contributes to envelopeRemaining like any other
- * rolling envelope.
+ * member of. Balance and cash-flow figures are owned-account only.
+ * Envelope figures split by purpose: `envelopeConsumed` is the
+ * caller's own spend ("my slice"), while `envelopeRemaining` (held,
+ * which feeds `unallocated`) is space-wide — held is the cash an
+ * envelope ties up across the whole space, so it must match
+ * analytics.spaceSummary per space (summed over member spaces) or the
+ * pool drifts. Goal envelopes (cadence='none' with target) ride the
+ * same rules; their balance contributes to envelopeRemaining like any
+ * other rolling envelope.
  *
  * Cash-flow semantics (mirrors personal.cashFlow):
  *   - income/adjustment to an owned account        → personal inflow
@@ -98,12 +102,32 @@ export const personalSummary = authorizedProcedure
                     .execute(ctx.services.qb)
                     .then((r) => r.rows[0]);
 
-                // Envelope aggregates: allocation is space-wide (no per-
+                // Envelope aggregates. Allocation is space-wide (no per-
                 // account dimension), so p_allocated is the envelope's full
-                // current-period allocation; p_consumed is owned-account
-                // spend. Monthly envelopes reset each period; rolling/goal
-                // use the lifetime pool. No carry-over. Held = GREATEST(0,
-                // allocated − consumed). Matches analytics.spaceSummary.
+                // current-period allocation. Two consumption figures are
+                // computed for DIFFERENT purposes — conflating them was a bug:
+                //
+                //   * p_consumed_owned — the caller's OWN spend (source is an
+                //     owned account). Surfaced as the "Envelope spend" stat in
+                //     the personal Overview; it should read as *my* spending.
+                //
+                //   * p_consumed_all — SPACE-WIDE spend on the envelope,
+                //     regardless of who spent it. HELD is a space-wide cash
+                //     concept (the envelope ties up the space's cash, not one
+                //     member's), so held must use this:
+                //         held = GREATEST(0, allocated − space-wide consumed)
+                //     which makes each envelope's held identical to
+                //     analytics.spaceSummary's, and the sum the true held
+                //     across every space the caller belongs to. The previous
+                //     code used owned-only consumed in the held formula while
+                //     allocation stayed space-wide — an apples-to-oranges mix
+                //     that OVERSTATED held (a co-member's spend wasn't
+                //     subtracted) and so understated the personal unbudgeted
+                //     pool in any shared space. Clamped at 0: overspent cash
+                //     already left the accounts and never inflates the pool.
+                //
+                // Monthly envelopes reset each period; rolling/goal use the
+                // lifetime pool. No carry-over.
                 const envelopeRow = await sql<{
                     allocated: string;
                     consumed: string;
@@ -140,10 +164,8 @@ export const personalSummary = authorizedProcedure
                                       )
                                   )
                             ), 0) AS p_allocated,
-                            -- Consumption unions transfer fees that roll up
-                            -- to this envelope's category — matches the
-                            -- analytics formula so OverviewPage and
-                            -- EnvelopesView reconcile.
+                            -- My own spend (owned-account expenses) — the
+                            -- "Envelope spend" stat. NOT used for held.
                             COALESCE((
                                 SELECT SUM(t.amount)
                                 FROM transactions t
@@ -152,13 +174,23 @@ export const personalSummary = authorizedProcedure
                                   AND t.source_account_id = ANY(${owned})
                                   AND t.transaction_datetime >= p.p_start
                                   AND t.transaction_datetime < p.p_end
-                            ), 0) AS p_consumed
+                            ), 0) AS p_consumed_owned,
+                            -- Space-wide spend on the envelope (any account) —
+                            -- drives held, matching analytics.spaceSummary.
+                            COALESCE((
+                                SELECT SUM(t.amount)
+                                FROM transactions t
+                                WHERE t.envelop_id = p.envelop_id
+                                  AND t.type = 'expense'
+                                  AND t.transaction_datetime >= p.p_start
+                                  AND t.transaction_datetime < p.p_end
+                            ), 0) AS p_consumed_all
                         FROM period p
                     )
                     SELECT
                         COALESCE(SUM(p_allocated), 0)::text AS allocated,
-                        COALESCE(SUM(p_consumed), 0)::text AS consumed,
-                        COALESCE(SUM(GREATEST(0, p_allocated - p_consumed)), 0)::text AS remaining
+                        COALESCE(SUM(p_consumed_owned), 0)::text AS consumed,
+                        COALESCE(SUM(GREATEST(0, p_allocated - p_consumed_all)), 0)::text AS remaining
                     FROM per_env
                 `
                     .execute(ctx.services.qb)
@@ -251,7 +283,10 @@ export const personalSummary = authorizedProcedure
                     envelopeConsumed,
                     envelopeRemaining,
                     unallocated,
-                    isOverAllocated: unallocated < 0,
+                    // Sub-cent epsilon: two PG-rounded numeric(20,2) sums can
+                    // leave a −0.00x residue when spendable exactly equals held;
+                    // without the guard the UI flips to "Over-budgeted by 0.00".
+                    isOverAllocated: unallocated < -0.005,
                     /* `period*` = cash flow. `operational*` = excludes
                        all transfer principal. See SQL block above. */
                     periodIncome: cashIncome,

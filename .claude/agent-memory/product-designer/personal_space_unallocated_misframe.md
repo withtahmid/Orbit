@@ -7,19 +7,27 @@ metadata:
 
 `personal.summary` returns the same `unallocated` / `isOverAllocated` shape
 as `analytics.spaceSummary` (`apps/server/src/procedures/personal/summary.mts:308`).
-The number is defined as `spendableBalance − envelopeRemaining − planAllocated`
-against the caller's owned-account slice across every member space.
+The number is defined as `spendableBalance − envelopeRemaining`
+(plans were dropped in the plan-envelope merge) against the caller's
+owned-account slice across every member space.
 
 **The misframe:** on `/s/me` the user has NO mutation surface to act on
-this number — envelopes/plans only mutate on real spaces. So:
-- Showing it as "Free to allocate" with the same chrome as a real space
-  implies an action the user can't take.
-- The over-allocated banner's remediation copy ("deallocate somewhere")
-  is invalid on personal — the co-member who over-allocated lives in
-  another space.
-- The `unallocated` Plan-CTA chip is correctly hidden on personal
-  (`OverviewPage.tsx:435`) — but the Unallocated tile and over-allocated
-  banner are NOT.
+this number — envelopes only mutate on real spaces. As of 2026-06-24
+(budget-bug-fix), OverviewPage DOES gate the Unallocated tile (line ~589),
+the over-allocation banner (line ~497), AND the Budget-month CTA chip
+(line ~403) behind `!isPersonal` — good. The remaining leak: the
+"Allocation map" donut renders on personal too (`ov-trio-2`, line ~647)
+and still injects an unlabeled "Unallocated" slice from
+`summary.data?.unallocated` (line ~326), whose "Details →" link opens
+AllocationsView — which is NOT personal-aware ("your budget", "you've
+committed more than you hold").
+
+Made sharper 2026-06-24: `personal.summary` now computes held using
+SPACE-WIDE consumed (subtracts co-members' spend), summed across member
+spaces. So the leaked personal `unallocated` now means "my spendable minus
+the whole household's envelope commitments" with zero framing. Recommend
+suppressing the donut slice + details link on personal, or labeling held
+as space-wide and branching AllocationsView copy on `space.isPersonal`.
 
 **Why:** Personal is a viewer surface (`myRole: "viewer"` forced via
 `CurrentSpaceProvider.tsx:54`). Any "free to act on" affordance is wrong

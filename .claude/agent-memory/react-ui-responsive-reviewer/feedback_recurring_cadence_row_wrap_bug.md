@@ -5,8 +5,8 @@ metadata:
   type: feedback
 ---
 
-The `env-card-cadence` and `env-list-row-cadence` containers in `apps/web/src/pages/space/envelopes/EnvelopesPage.tsx` are plain spans/divs without `flex-wrap`, and the separators between segments are literal `·` text characters inside JSX fragments rather than per-chip elements. Inline `<Money>` children cannot break internally, so adding a 3rd segment commonly overflows on mobile (~165px card at 375px viewport in 2-col grid).
+The envelope card/list cadence rows live in `apps/web/src/pages/space/budgets/BudgetsPage.tsx` (NOT the old `envelopes/EnvelopesPage.tsx`, which was removed — the Envelopes feature was renamed to Budgets). The card cadence container `.env-card-cadence` HAS been fixed to `display:flex; flex-wrap:wrap; column-gap:4px; row-gap:2px` and uses `<span aria-hidden>·</span>` structural separators — good. BUT the **list-row** equivalent `.env-list-row-cadence` is still a plain non-wrapping element with literal `·`/`net −X` text separators (around line 1017-1055), and the segments include inline `<Money>` that cannot break. Adding a 3rd segment (goal date + drift + lifetime overrun simultaneously) can overflow the narrow list column.
 
 **Why:** Repeatedly catching this pattern across reviews — drift suffix, lifetime-overrun suffix, etc. each added without making the row wrappable.
 
-**How to apply:** When reviewing any addition to the envelope card cadence rows, recommend converting the container to `display: flex; flex-wrap: wrap; column-gap: 4px; row-gap: 2px` and replacing inline `·` text separators with structural children, so wrapping points exist between segments.
+**How to apply:** When reviewing additions to envelope cadence rows, check BOTH `.env-card-cadence` (already wrappable) and `.env-list-row-cadence` (still not). Recommend giving the list-row cadence the same `flex-wrap: wrap` treatment with structural separators.
