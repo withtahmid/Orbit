@@ -764,7 +764,6 @@ function EnvelopeCard({
     // Period-scoped pool: what's available to spend this period.
     const total = env.allocated;
     const remaining = total - env.consumed;
-    const overBy = env.consumed - total;
     const drift = env.consumed > total;
     const drainV =
         total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
@@ -891,53 +890,92 @@ function EnvelopeCard({
                 </>
             ) : (
                 <>
-                    <div className="env-card-amt-row">
-                        <Money
-                            amount={Math.abs(remaining)}
-                            size={26}
-                            variant={drift ? "expense" : "neutral"}
-                        />
-                        <span className="env-card-of">
-                            {drift ? (
-                                "over budget"
-                            ) : total > 0 ? (
-                                <>
-                                    left of{" "}
-                                    <Money amount={total} variant="muted" size={11} />
-                                </>
-                            ) : (
-                                "no budget"
+                    {/* Hero: what's left this period. When overspent we show a
+                        SIGNED negative figure ("−2,029.77") in the expense
+                        color and label it "over" — never a bare positive number
+                        that reads like money you still have. */}
+                    <div className="env-card-hero">
+                        <span className="env-card-hero-amt">
+                            {/* `remaining` is already signed (negative when
+                                overspent), so Money renders "−2,029.77". */}
+                            <Money
+                                amount={remaining}
+                                size={28}
+                                weight={600}
+                                variant={drift ? "expense" : "neutral"}
+                            />
+                        </span>
+                        <span
+                            className="env-card-hero-label"
+                            style={drift ? { color: "var(--expense)" } : undefined}
+                        >
+                            {/* Overspend must NOT be signalled by color alone
+                                (red/green is invisible to color-blind users) —
+                                pair it with an icon and the literal word "over". */}
+                            {drift && (
+                                <AlertTriangle className="size-3" aria-hidden />
                             )}
+                            {total > 0
+                                ? drift
+                                    ? "over"
+                                    : "left"
+                                : env.consumed > 0
+                                  ? "spent · no budget"
+                                  : "no budget"}
                         </span>
                     </div>
                     <ProgressBar
                         value={drift ? 1 : drainV}
                         color={drift ? "var(--expense)" : env.color}
-                        height={5}
+                        height={6}
                     />
-                    <div className="env-card-foot">
-                        <span
-                            style={{
-                                color: drift ? "var(--expense)" : "var(--fg-4)",
-                            }}
-                        >
-                            {Number.isFinite(pctSpent)
-                                ? `${Math.round(pctSpent * 100)}% spent`
-                                : "spent without budget"}
-                        </span>
-                        <span style={{ color: "var(--fg-4)" }}>
-                            {drift && (
-                                <>
-                                    over{" "}
-                                    <Money
-                                        amount={Math.abs(overBy)}
-                                        size={11}
-                                        variant="expense"
-                                    />
-                                </>
-                            )}
-                        </span>
+                    {/* Allocated · Spent — the supporting numbers. "Left" is
+                        NOT repeated here: the hero figure above already IS the
+                        signed amount left, so a third cell would show the same
+                        value twice. Two stats also let each figure breathe at
+                        the 2-up tablet breakpoint. */}
+                    <div className="env-card-stats">
+                        <div className="env-card-stat">
+                            <span className="env-card-stat-label">Allocated</span>
+                            <Money amount={total} size={13} weight={500} />
+                        </div>
+                        <div className="env-card-stat env-card-stat-end">
+                            <span className="env-card-stat-label">Spent</span>
+                            <Money
+                                amount={env.consumed}
+                                size={13}
+                                weight={500}
+                                variant={drift ? "expense" : "neutral"}
+                            />
+                        </div>
                     </div>
+                    {/* % footer: useful at 0–99% to show how close to the cap.
+                        Suppressed when overspent — the hero ("over"), the icon,
+                        and the note below already carry that, no need for a
+                        fourth red surface saying "140%". */}
+                    {!drift && (
+                        <div className="env-card-foot">
+                            <span style={{ color: "var(--fg-4)" }}>
+                                {Number.isFinite(pctSpent)
+                                    ? `${Math.round(pctSpent * 100)}% of budget spent`
+                                    : "spent without a budget"}
+                            </span>
+                        </div>
+                    )}
+                    {/* Overspend is money ALREADY spent from accounts — the cash
+                        is gone, so "free to budget" has already absorbed it.
+                        State this plainly: allocating more here just relabels
+                        past spend and will NOT change the Unbudgeted pool. This
+                        is the conceptual fix for the "I allocated but Unbudgeted
+                        didn't move" confusion — the surprise lived in the UI,
+                        not the math. */}
+                    {drift && (
+                        <div className="env-card-overspend-note">
+                            Already spent from your accounts. Adding budget here
+                            covers it on paper but won't change your Unbudgeted
+                            pool.
+                        </div>
+                    )}
                 </>
             )}
         </Link>
@@ -977,15 +1015,20 @@ function EnvelopeListRow({
                 <EntityAvatar icon={env.icon} colorVar={env.color} size={26} />
                 <div className="env-list-row-text">
                     <div className="env-list-row-title">{env.name}</div>
+                    {/* Wrap-safe: flex + structural "·" separators (CSS) so a
+                        goal-date + drift + lifetime-overrun stack reflows
+                        instead of overflowing the name column on narrow rows. */}
                     <div className="env-list-row-cadence">
-                        {isGoal
-                            ? "Goal"
-                            : env.cadence === "monthly"
-                              ? "Monthly"
-                              : "Rolling"}
+                        <span>
+                            {isGoal
+                                ? "Goal"
+                                : env.cadence === "monthly"
+                                  ? "Monthly"
+                                  : "Rolling"}
+                        </span>
                         {isGoal && targetDate && (
                             <>
-                                {" · "}
+                                <span aria-hidden>·</span>
                                 <span style={{ color: "var(--fg-3)" }}>
                                     by {formatInAppTz(targetDate, "MMM yyyy")}
                                 </span>
@@ -993,15 +1036,14 @@ function EnvelopeListRow({
                         )}
                         {drift && (
                             <>
-                                {" "}
-                                ·{" "}
+                                <span aria-hidden>·</span>
                                 <span style={{ color: "var(--expense)" }}>drift</span>
                             </>
                         )}
                         {/* Lifetime overrun on a rolling envelope. */}
                         {(env.lifetimeOverrun ?? 0) > 0 && (
                             <>
-                                {" · "}
+                                <span aria-hidden>·</span>
                                 <span
                                     style={{ color: "var(--expense)" }}
                                     title={`Net overspent across all time by ${(env.lifetimeOverrun ?? 0).toFixed(2)}.`}
@@ -1040,14 +1082,21 @@ function EnvelopeListRow({
                     </>
                 ) : (
                     <>
+                        {/* Signed remaining: overspent rows show "−X over",
+                            never a bare positive number. */}
                         <Money
-                            amount={Math.abs(remaining)}
+                            amount={remaining}
                             size={12.5}
+                            weight={drift ? 600 : 500}
                             variant={drift ? "expense" : "neutral"}
                         />{" "}
-                        <span style={{ color: "var(--fg-4)" }}>
+                        <span
+                            style={{
+                                color: drift ? "var(--expense)" : "var(--fg-4)",
+                            }}
+                        >
                             {drift ? (
-                                "over budget"
+                                "over"
                             ) : total > 0 ? (
                                 <>
                                     left of{" "}
@@ -1938,8 +1987,6 @@ function ArchiveEnvelopeMenuItem({
     );
 }
 
-void AlertTriangle; // re-exported below in case future callers rely on the file's surface
-
 const ENV_STYLES = `
 .env-root {
     margin: -1.5rem -1rem;
@@ -2409,17 +2456,92 @@ const ENV_STYLES = `
     font-size: 11px;
     color: var(--fg-4);
 }
+/* Hero amount: the big "left / over" number with a small label beneath. */
+.env-card-hero {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+.env-card-hero-amt {
+    line-height: 1;
+}
+.env-card-hero-label {
+    display: inline-flex;
+    /* baseline (not center): the parent .env-card-hero aligns its children on
+       the text baseline, and a flex container's baseline is its first item's
+       baseline — so the label's word must sit on its own text baseline to line
+       up with the big hero number. The icon has no text baseline, so it's
+       nudged to optical center via the svg rule below. */
+    align-items: baseline;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    /* --fg-3 (not --fg-4) keeps this meaningful label above the 4.5:1
+       contrast floor at 11px. */
+    color: var(--fg-3);
+}
+.env-card-hero-label svg {
+    /* Icons carry no text baseline; pin to optical center against the cap
+       height so the triangle doesn't ride up off the word. */
+    align-self: center;
+    position: relative;
+    top: 0.5px;
+}
+/* Allocated · Spent mini-stats. Two cells: label left-aligned, Spent
+   right-aligned, space-between so each figure gets ~half the card and large
+   taka values don't clip at the 2-up tablet breakpoint. (Left is the hero,
+   not repeated here.) */
+.env-card-stats {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding-top: 2px;
+}
+.env-card-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.env-card-stat-end {
+    align-items: flex-end;
+    text-align: right;
+}
+.env-card-stat-label {
+    font-size: 10.5px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    /* --fg-3 for legibility — small uppercase labels need the contrast. */
+    color: var(--fg-3);
+}
 .env-card-foot {
     display: flex;
     justify-content: space-between;
     font-size: 11.5px;
 }
+/* Overspend explainer: framed as a quiet info note, not an alarm, so the
+   user understands covering past overspend won't move their free pool. */
+.env-card-overspend-note {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--fg-3);
+    background: color-mix(in oklab, var(--expense) 8%, transparent);
+    border: 1px solid color-mix(in oklab, var(--expense) 18%, transparent);
+    border-radius: 8px;
+    padding: 7px 9px;
+}
 .env-card-menu {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    /* 34px hit area (icon stays its own size, centered) — this is the one
+       control that must not trigger card navigation and it opens a menu with
+       Delete, so it warrants a comfortable mobile tap target. */
+    width: 34px;
+    height: 34px;
     border-radius: 6px;
     background: transparent;
     border: 0;
@@ -2465,6 +2587,11 @@ const ENV_STYLES = `
 .env-list-row-cadence {
     font-size: 11px;
     color: var(--fg-4);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 4px;
+    row-gap: 2px;
 }
 .env-list-row-bar {
     min-width: 80px;

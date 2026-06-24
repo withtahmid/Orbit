@@ -65,6 +65,14 @@ export function EnvelopeAllocateDialog({
         { spaceId: space.id, periodStart, periodEnd },
         { enabled: open }
     );
+    // Pull this envelope's current period balance so we can warn when it's
+    // already overspent. Allocating to cover PAST overspend is pure relabeling
+    // — the cash already left the accounts — so it won't move Unbudgeted. The
+    // page usually has this cached, so this is normally free.
+    const utilizationQuery = trpc.analytics.envelopeUtilization.useQuery(
+        { spaceId: space.id, periodStart, periodEnd },
+        { enabled: open }
+    );
     const utils = trpc.useUtils();
     const idem = useIdempotencyKey();
 
@@ -94,12 +102,41 @@ export function EnvelopeAllocateDialog({
 
     const unallocated = summaryQuery.data?.unallocated ?? null;
     const numAmount = Number(amount) || 0;
+
+    // How far this envelope is already overspent this period (consumed −
+    // allocated, > 0 only when over). Allocating up to this much is "covering
+    // past overspend" and will NOT change the Unbudgeted pool, because that
+    // cash is already gone from the accounts. Only the portion ABOVE the
+    // overspend becomes real forward funding that holds cash.
+    const thisEnv = useMemo(
+        () => utilizationQuery.data?.find((e) => e.envelopId === envelopId),
+        [utilizationQuery.data, envelopId]
+    );
+    // `utilizationQuery` is pinned to the CURRENT month, so its overspend is
+    // only meaningful when we're allocating to this period. Allocating to next
+    // month funds a fresh period with no past overspend — the whole amount is
+    // real forward funding — so suppress the covering-overspend logic there.
+    const allocatingToNext = isMonthly && periodChoice === "next";
+    const alreadyOverspentBy =
+        thisEnv != null && !allocatingToNext
+            ? Math.max(0, thisEnv.consumed - thisEnv.allocated)
+            : 0;
+    const coveringPastOverspend =
+        direction === "allocate" && alreadyOverspentBy > 0;
+    const amountCoveringOverspend = Math.min(numAmount, alreadyOverspentBy);
+
+    // Only the portion that actually holds cash can draw down Unbudgeted; the
+    // part that merely covers past overspend moves nothing (that cash already
+    // left the accounts). Netting it out keeps this warning consistent with the
+    // covering-overspend note below — otherwise the dialog could claim both
+    // "won't change your pool" and "you're over-allocating" at the same time.
+    const holdingPortion = Math.max(0, numAmount - amountCoveringOverspend);
     const overAllocating =
         direction === "allocate" &&
         unallocated !== null &&
-        numAmount > unallocated;
+        holdingPortion > unallocated;
     const overBy =
-        overAllocating && unallocated !== null ? numAmount - unallocated : 0;
+        overAllocating && unallocated !== null ? holdingPortion - unallocated : 0;
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -174,7 +211,7 @@ export function EnvelopeAllocateDialog({
                             >
                                 {overAllocating ? (
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                        <AlertTriangle className="size-3" />
+                                        <AlertTriangle className="size-3" aria-hidden />
                                         Planning {overBy.toFixed(2)} more than
                                         currently funded. You'll need that much
                                         more income — or reduce another envelope.
@@ -185,6 +222,55 @@ export function EnvelopeAllocateDialog({
                                         <strong>{unallocated.toFixed(2)}</strong>
                                     </>
                                 )}
+                            </p>
+                        )}
+                        {coveringPastOverspend && (
+                            <p
+                                className="text-xs"
+                                style={{
+                                    color: "var(--fg-3)",
+                                    display: "flex",
+                                    alignItems: "flex-start",
+                                    gap: 6,
+                                    background:
+                                        "color-mix(in oklab, var(--expense) 8%, transparent)",
+                                    border: "1px solid color-mix(in oklab, var(--expense) 18%, transparent)",
+                                    borderRadius: 8,
+                                    padding: "7px 9px",
+                                }}
+                            >
+                                <AlertTriangle
+                                    className="size-3 shrink-0"
+                                    aria-hidden
+                                    style={{ marginTop: 2 }}
+                                />
+                                <span>
+                                    This envelope is already overspent by{" "}
+                                    <strong>
+                                        {alreadyOverspentBy.toFixed(2)}
+                                    </strong>
+                                    . That cash already left your accounts, so
+                                    {numAmount > 0 ? (
+                                        <>
+                                            {" "}
+                                            the first{" "}
+                                            <strong>
+                                                {amountCoveringOverspend.toFixed(
+                                                    2
+                                                )}
+                                            </strong>{" "}
+                                            you allocate just covers it on paper
+                                            and won't change your Unbudgeted
+                                            pool.
+                                        </>
+                                    ) : (
+                                        <>
+                                            {" "}
+                                            allocating to cover it won't change
+                                            your Unbudgeted pool.
+                                        </>
+                                    )}
+                                </span>
                             </p>
                         )}
                     </div>

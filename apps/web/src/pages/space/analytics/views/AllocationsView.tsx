@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { addMonths, startOfMonth } from "@/lib/dates";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -145,13 +146,31 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
 function TotalsPanel({ spaceId }: { spaceId: string }) {
     const q = useAllocations(spaceId);
 
+    // Authoritative free/held figures come from spaceSummary — the SAME source
+    // the budgets page banner reads — so this view can never disagree with it.
+    // Re-deriving "unallocated" locally from raw Σallocated (ignoring the
+    // held clamp and liabilities) drifts from the real pool whenever an
+    // envelope is overspent. See analytics/CLAUDE.md ("Held is
+    // GREATEST(0, allocated − consumed) ... must produce the same number").
+    const [now] = useState(() => new Date());
+    const monthStart = startOfMonth(now);
+    const monthEnd = addMonths(monthStart, 1);
+    const summary = trpc.analytics.spaceSummary.useQuery({
+        spaceId,
+        periodStart: monthStart,
+        periodEnd: monthEnd,
+    });
+
+    const loading = q.isLoading || summary.isLoading;
+
     const t = useMemo(() => {
-        if (!q.data) {
+        if (!q.data || !summary.data) {
             return {
                 totalAssets: 0,
                 liabilities: 0,
                 locked: 0,
-                earmarked: 0,
+                committed: 0,
+                held: 0,
                 unallocated: 0,
                 drift: 0,
                 partition: [] as Array<{
@@ -170,23 +189,27 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
         const locked = q.data.accounts
             .filter((a) => a.accountType === "locked")
             .reduce((s, a) => s + a.balance, 0);
-        const earmarked = q.data.envelopes.reduce(
-            (s, e) => s + e.allocated,
-            0
-        );
-        const unallocated = Math.max(0, totalAssets - earmarked);
+        // Gross budget intent (raw allocations) — a distinct concept from the
+        // cash actually tied up. Kept for the "Committed" KPI only.
+        const committed = q.data.envelopes.reduce((s, e) => s + e.allocated, 0);
+        // Cash actually held in envelopes and the free pool — authoritative.
+        const held = summary.data.envelopeRemaining;
+        const unallocated = summary.data.unallocated;
         const drift = q.data.drift.delta;
         return {
             totalAssets,
             liabilities,
             locked,
-            earmarked,
+            committed,
+            held,
             unallocated,
             drift,
+            // Cash-honest partition: held + free = spendable, plus locked, plus
+            // liabilities. Uses the same held/free as the budgets banner.
             partition: [
                 {
-                    label: "Earmarked",
-                    value: earmarked,
+                    label: "Held in envelopes",
+                    value: held,
                     color: "#a855f7",
                 },
                 {
@@ -196,7 +219,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
                 },
                 {
                     label: "Free",
-                    value: unallocated,
+                    value: Math.max(0, unallocated),
                     color: "#10b981",
                 },
                 {
@@ -206,7 +229,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
                 },
             ].filter((p) => p.value > 0),
         };
-    }, [q.data]);
+    }, [q.data, summary.data]);
 
     const partitionTotal = t.partition.reduce((s, p) => s + p.value, 0);
 
@@ -218,17 +241,21 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
             tone: "income",
         },
         {
-            label: "Earmarked",
-            value: t.earmarked,
+            label: "Committed",
+            value: t.committed,
             money: true,
-            sub: "Across envelopes",
+            sub: "Budget intent across envelopes",
         },
         {
             label: "Unallocated",
             value: t.unallocated,
             money: true,
-            tone: t.unallocated < 0 ? "expense" : "neutral",
-            sub: "Free-floating",
+            // Sub-cent epsilon mirrors the server's `isOverAllocated`: two
+            // PG-rounded numeric(20,2) sums can leave a −0.00x residue, and
+            // without the guard this flips to "Over-budgeted" / expense tone at
+            // a value that renders as "0.00".
+            tone: t.unallocated < -0.005 ? "expense" : "neutral",
+            sub: t.unallocated < -0.005 ? "Over-budgeted" : "Free to budget",
         },
         {
             label: "Drift",
@@ -255,7 +282,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
                 allocations so you can see if you've committed more than you hold.
             </div>
 
-            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+            <KpiStrip items={kpiItems} isLoading={loading} />
 
             <Card>
                 <CardHeader>
@@ -265,7 +292,7 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
                     </p>
                 </CardHeader>
                 <CardContent>
-                    {q.isLoading ? (
+                    {loading ? (
                         <Skeleton className="h-12 w-full" />
                     ) : t.partition.length === 0 ? (
                         <p className="text-sm text-muted-foreground">

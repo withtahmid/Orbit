@@ -181,9 +181,30 @@ export default function BudgetMonthPage() {
     );
 
     const netChange = totalPlanned - totalCurrentlyAllocated;
+
+    // The Unbudgeted pool only drains by the part of a new allocation that
+    // actually HOLDS cash — the increase in max(0, allocated − consumed) —
+    // mirroring the server's clamped formula (Unbudgeted = spendable −
+    // Σ max(0, allocated − consumed)). Allocation that merely covers past
+    // overspend (consumed already ≥ allocated) holds nothing and leaves the
+    // pool untouched. A flat planned − allocated delta over-drains whenever an
+    // overspent envelope is in scope, falsely showing less "Free after save"
+    // or a phantom "Over-budgeted by". (Only monthly envelopes are editable
+    // here, so summing held deltas over `envelopes` covers everything that can
+    // change; rolling envelopes' held is unaffected.)
+    const heldDelta = useMemo(
+        () =>
+            envelopes.reduce((s, e) => {
+                const planned = Number(drafts[e.envelopId]) || 0;
+                const plannedHeld = Math.max(0, planned - e.consumed);
+                const currentHeld = Math.max(0, e.allocated - e.consumed);
+                return s + (plannedHeld - currentHeld);
+            }, 0),
+        [envelopes, drafts]
+    );
     const unallocatedNow = summaryQuery.data?.unallocated ?? 0;
-    const unallocatedAfterSave = unallocatedNow - netChange;
-    const overplanning = unallocatedAfterSave < 0;
+    const unallocatedAfterSave = unallocatedNow - heldDelta;
+    const overplanning = unallocatedAfterSave < -0.005;
 
     const [saving, setSaving] = useState(false);
 

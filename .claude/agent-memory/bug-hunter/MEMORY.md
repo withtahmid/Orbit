@@ -4,7 +4,8 @@
 - [Role-cast pattern](role_cast_pattern.md) — Kysely generates `ArrayType<"editor"|"owner"|"viewer">` for enum role columns; code routinely uses `"owner" as unknown as SpaceMembers["role"]`. Always check the cast is consistent with how the value is later compared (`===`).
 - [resolveSpaceMembership helper](resolve_space_membership.md) — Standard guard for "is the caller a member with one of these roles?". Editor permissions sometimes grant powers that addMembers/removeMember restrict to owners — watch for permission-drift between siblings.
 - [event-list-status-filter](event-list-status-filter.md) — `event.listBySpace` does not filter by status; closed events leak into transaction-entry pickers and look like "close didn't persist."
-- [Rolling envelope overlay shape](rolling_envelope_overlay.md) — `spaceSummary` uses MAX(lifetime, period) for `cadence='none'` `remaining`; directionally hides current-period rolling overspend when lifetime is healthy.
+- [Rolling envelope overlay shape](rolling_envelope_overlay.md) — STALE as of 2026-06-24: spaceSummary now uses plain GREATEST(0, alloc−consumed) per cadence window (no MAX-overlay); verify before citing.
+- [Unallocated clamp consumers](unallocated_clamp_consumers.md) — Web predictors of unallocated-after-allocation assume linear 1:1; break under GREATEST(0,…) held clamp when an overspent envelope is in scope (BudgetMonthPage, AllocationsView).
 - [Allocation period_start NULL convention](allocation_period_start_null.md) — `cadence='none'` envelopes store `period_start=NULL`; SQL readers MUST COALESCE to `DATE_TRUNC('month', created_at)::date`.
 - [Migration down idempotence](migration_down_idempotence.md) — `045` is round-trip safe TODAY because nothing writes `kind` yet; becomes destructive once procedures write non-`allocate` values without legacy signals.
 - [Envelope target lock-step asymmetry](envelope_target_clearing.md) — create.mts throws on half-set pair; update.mts silently nulls both. Partial PATCH `{targetAmount}` against null-date stored row silently drops the amount.
@@ -14,6 +15,6 @@
 - [types.mts pollution](types_mts_pollution.md) — `pnpm generate-types` reflects the live DB it's pointed at; dev-only tables can leak in. Cross-check every new table/column in types.mts diffs against a migration.
 - [Category parent_id cycle risk](category-parent-cycle-risk.md) — `expense_categories.parent_id` has no cycle prevention beyond self-parent; recursive CTEs over it use `UNION ALL`, can hang until `statement_timeout`.
 - [Trends SQL fragment helpers](sql-fragment-helpers-trends.md) — `trendsFilters.mts` review checklist (injection, CTE composition, `intersectAccountIds` empty-set short-circuit invariant).
-- [Allocation upsert race](alloc_upsert_race.md) — createAllocation/transfer guards do read-modify-write with NO row lock; concurrent deallocations drive rows negative (lost update) since migration 048.
+- [Allocation upsert race](alloc_upsert_race.md) — LIKELY FIXED as of 2026-06-24: createAllocation/transfer now `.forUpdate()`-lock the envelope row(s) before the read-then-upsert; re-verify before citing.
 - [Period boundary native getters](period_boundary_native_getters.md) — Web allocation mutations must build periodStart via `startOfMonth()` (APP-TZ), not native `Date.getMonth/getFullYear`; drift outside Asia/Dhaka.
 - [Simplify-budgeting 048](simplify_budgeting_048.md) — One-row-per-(envelope,period) model invariants + classes verified CLEAN (dangling trigger, tx-edit/alloc interplay, locking, tz casts, spaceSummary current-month-only).

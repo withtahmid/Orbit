@@ -18,3 +18,5 @@
 - [Allocation ledger direction tension](allocation_ledger_direction_tension.md) — 2026-06-23: owner wants to collapse allocations to one-row-per-(envelope,month) + drop ledger/borrow/nag; reverses in-flight typed-ledger refactor. Verified current model facts.
 - [Simplify-budgeting review](simplify_budgeting_review.md) — 2026-06-23: branch executed the collapse cleanly; Matrix/Allocations analytics views now degenerate (all cells Unassigned); docs/copy still pre-merge.
 - [Allocations analytics degenerate post-collapse](allocations_analytics_degenerate_post_collapse.md) — analytics.allocations all-time SUM of per-month rows = unbounded "committed budget" + spurious Drift KPI.
+- [Unbudgeted clamp is correct](unbudgeted_clamp_inconsistency.md) — 2026-06-24: GREATEST(0,...) held clamp is a load-bearing cash-conservation invariant; NEVER remove it. "Allocate didn't move Unbudgeted" is a UI confusion, fixed with framing.
+- [Free-pool term fragmentation](free_pool_term_fragmentation.md) — one free-cash number labeled Unbudgeted/Unallocated/Free/Free-to-budget/Free-after-save across surfaces; standardize on "Unbudgeted".

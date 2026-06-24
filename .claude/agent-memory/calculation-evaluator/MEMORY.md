@@ -1,8 +1,10 @@
 - [Simplified budgeting model (mig 048)](simplified_budgeting_model.md) — One row per (envelope, period); monthly resets, rolling/goal = NULL-period lifetime pool; held clamped per-envelope; pctSaved = lifetime_funded/target.
+- [Unbudgeted cash identity](unbudgeted_cash_identity.md) — held clamp GREATEST(0,alloc-consumed) is a cash invariant; removing it pushes Unbudgeted > net worth. Verified on real data. Keep clamp.
+- [Personal held asymmetry](personal_held_asymmetry.md) — personal/summary.mts: space-wide allocated vs owner-only consumed overstates held when a co-member spends. Dormant in seed, real in prod.
 - [Money storage convention](money_storage.md) — Orbit stores money as Postgres `numeric` cast to text in transit, then `Number()` on the client. No minor-unit ints.
 - [Envelope total denominator](envelope_total.md) — "% used" should use `consumed / (allocated + carryIn)`. EnvelopesPage urgency sort was fixed in branch `wrap`.
 - [Filtered-totals OUT formula](filtered_totals_out.md) — Per-space and personal procedures disagree on what counts in OUT (adjustments, account-flow scoping). Treat as ambiguous until product decides.
-- [Transfer fee category rollup](transfer_fee_rollup.md) — Transfer fees land in the envelope/category referenced by `fee_expense_category_id`, NOT `expense_category_id`. Aggregations filtering by category id miss fees unless they UNION fees in.
+- [Transfer fee storage](transfer_fee_rollup.md) — Post-mig-048 fees are a SEPARATE type='expense' row with own envelop_id; `WHERE type='expense' AND envelop_id` already captures them, no UNION needed.
 - [Trend cur/prev rule for category trees](trend_subtree.md) — Parent rows display `subtree_spent` but the leaf `spent_total` is what flows into trend math. Anywhere both exist, choose one consistently for cur AND prev.
 - [Currency display correctness](currency_display.md) — Branch `wrap` strips hardcoded `$` from all views. Residual literal `$` in `.tsx` views post-merge is likely a missed-edit bug.
 - [Period preset boundaries](period_presets.md) — "Last month" relative to "this month" should be calendar-month-aligned, not span-subtracted. CategoriesPage does span subtraction.
@@ -13,4 +15,5 @@
 - [Lifetime funded numerator rule](lifetime_funded_numerator_rule.md) — Goal UI must pair `Money={lifetimeFunded}` with `Bar={pctSaved/100}`; both readers feed off the same SQL source.
 - [Envelope target lock-step cascade](envelope_target_lockstep_cascade.md) — Cascade only fires on explicit non-null→null with partner column undefined; preserves no-op echoes.
 - [Category breakdown semantics](category_breakdown_semantics.md) — directTotal vs subtreeTotal; why summing ROOT subtreeTotals never double-counts (strict forest via single parent_id FK)
+- [spaceSummary window is always now](spacesummary_window.md) — spaceSummary held/unallocated ignore the input window (hardcoded DATE_TRUNC month NOW); pairing with envelopeUtilization off-current-month mixes periods.
 - [App timezone conventions](feedback-app-tz-conventions.md) — APP_TIMEZONE=Asia/Dhaka; never call native Date getters/setters on Dates returned by `@/lib/dates` helpers; they're browser-local and silently wrong for non-Dhaka users.

@@ -10,11 +10,22 @@ import type { DB } from "../../../db/kysely/types.mjs";
  * free      = spendable − held
  *
  * Envelope held:
- *   Per-envelope remaining = allocated − consumed, clamped to ≥ 0 so an
- *   overspent envelope shows as drift but doesn't inflate free cash. Monthly
- *   envelopes use the current calendar month (they reset each period, no
- *   carry-over). cadence='none' (rolling/goal) envelopes use the lifetime
- *   pool window [epoch, ∞). Matches `resolveEnvelopePeriodBalance`.
+ *   Per-envelope remaining = allocated − consumed, clamped to ≥ 0. This clamp
+ *   is a hard CASH-CONSERVATION invariant, not a cosmetic choice: you cannot
+ *   physically hold negative cash. When an envelope overspends, that cash has
+ *   ALREADY left the accounts, so `spendable` has already dropped to reflect
+ *   it — the overspend is not "free." Adding the negative remaining back into
+ *   held would credit the pool with money that is already gone and push
+ *   Unbudgeted ABOVE net worth, which is impossible for a free-cash pool. The
+ *   invariant the clamp guarantees:
+ *       Unbudgeted = spendable − Σ max(0, allocated − consumed)   (≤ spendable)
+ *   Corollary (sometimes surprising but correct): allocating into an ALREADY
+ *   overspent envelope leaves Unbudgeted unchanged — the cash was already
+ *   spent, so covering past overspend is pure relabeling and frees no current
+ *   cash. The UI must make that legible (see BudgetsPage envelope card), not
+ *   the formula. Monthly envelopes use the current calendar month (they reset
+ *   each period, no carry-over). cadence='none' (rolling/goal) envelopes use
+ *   the lifetime pool window [epoch, ∞). Matches `resolveEnvelopePeriodBalance`.
  */
 export async function resolveSpaceUnallocated({
     trx,
@@ -81,8 +92,10 @@ export async function resolveSpaceUnallocated({
             ) AS spendable,
             (
                 -- Held per envelope, clamped to ≥ 0: an overspent envelope
-                -- holds no cash, so negative remaining doesn't inflate the
-                -- unbudgeted pool.
+                -- holds no cash (the overspent cash already left the accounts,
+                -- so spendable already dropped). Adding negative remaining back
+                -- would push Unbudgeted above net worth — impossible. The clamp
+                -- enforces Unbudgeted = spendable − Σ max(0, remaining).
                 SELECT COALESCE(SUM(
                     GREATEST(0, ea.allocated - ec.consumed)
                 ), 0)
