@@ -765,8 +765,13 @@ function EnvelopeCard({
     const total = env.allocated;
     const remaining = total - env.consumed;
     const drift = env.consumed > total;
-    const drainV =
-        total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
+    // Spend gauge: fraction of budget consumed, so the bar FILLS left→right as
+    // you spend (the universal progress convention) instead of draining. >1
+    // when overspent — ProgressBar caps the width and turns it red, so "full
+    // bar" means one thing (used up) in every state. No-budget-but-spent shows
+    // full red via 1.5.
+    const spentFrac =
+        total > 0 ? env.consumed / total : env.consumed > 0 ? 1.5 : 0;
     const pctSpent =
         total > 0 ? env.consumed / total : env.consumed > 0 ? Infinity : 0;
     const isGoal = env.targetAmount != null;
@@ -925,21 +930,18 @@ function EnvelopeCard({
                         </span>
                     </div>
                     <ProgressBar
-                        value={drift ? 1 : drainV}
-                        color={drift ? "var(--expense)" : env.color}
+                        value={spentFrac}
+                        color={env.color}
                         height={6}
                     />
-                    {/* Allocated · Spent — the supporting numbers. "Left" is
-                        NOT repeated here: the hero figure above already IS the
-                        signed amount left, so a third cell would show the same
-                        value twice. Two stats also let each figure breathe at
-                        the 2-up tablet breakpoint. */}
+                    {/* Spent · Allocated — ordered to match the spend gauge
+                        above: the bar fills left→right from Spent toward the
+                        Allocated cap, so Spent sits under the fill origin and
+                        Allocated under the target. "Left" is NOT repeated here —
+                        the hero figure above already IS the signed amount left,
+                        so a third cell would show the same value twice. */}
                     <div className="env-card-stats">
                         <div className="env-card-stat">
-                            <span className="env-card-stat-label">Allocated</span>
-                            <Money amount={total} size={13} weight={500} />
-                        </div>
-                        <div className="env-card-stat env-card-stat-end">
                             <span className="env-card-stat-label">Spent</span>
                             <Money
                                 amount={env.consumed}
@@ -947,6 +949,10 @@ function EnvelopeCard({
                                 weight={500}
                                 variant={drift ? "expense" : "neutral"}
                             />
+                        </div>
+                        <div className="env-card-stat env-card-stat-end">
+                            <span className="env-card-stat-label">Allocated</span>
+                            <Money amount={total} size={13} weight={500} />
                         </div>
                     </div>
                     {/* % footer: useful at 0–99% to show how close to the cap.
@@ -994,8 +1000,9 @@ function EnvelopeListRow({
     const total = env.allocated;
     const remaining = total - env.consumed;
     const drift = env.consumed > total;
-    const drainV =
-        total > 0 ? Math.max(0, Math.min(1, remaining / total)) : 0;
+    // Spend gauge (fills as you spend) — see EnvelopeCard for rationale.
+    const spentFrac =
+        total > 0 ? env.consumed / total : env.consumed > 0 ? 1.5 : 0;
     const isGoal = env.targetAmount != null;
     const goalSaved = env.lifetimeFunded ?? 0;
     const goalPct =
@@ -1062,8 +1069,8 @@ function EnvelopeListRow({
             </div>
             <div className="env-list-row-bar">
                 <ProgressBar
-                    value={isGoal ? goalPct : drift ? 1 : drainV}
-                    color={isGoal ? env.color : drift ? "var(--expense)" : env.color}
+                    value={isGoal ? goalPct : spentFrac}
+                    color={env.color}
                     height={4}
                 />
             </div>

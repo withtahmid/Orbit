@@ -105,12 +105,17 @@ export const transferAllocation = authorizedProcedure
                             });
                         }
 
-                        // Source must have enough to give.
+                        // Source must have enough BUDGET to give — we move a
+                        // planning number, not cash. Gated on the source's
+                        // allocated budget (not its remaining), so a transfer
+                        // can pull from an envelope even if it's overspent;
+                        // the only limit is that the source budget can't go
+                        // negative. Mirrors the deallocate guard in
+                        // envelop/createAllocation.mts.
                         if (fromInfo.available < input.amount) {
                             throw new TRPCError({
                                 code: "BAD_REQUEST",
-                                message:
-                                    "Source has insufficient available balance",
+                                message: `Source budget is ${fromInfo.available.toFixed(2)} — you can't transfer more than that.`,
                                 cause: { available: fromInfo.available },
                             });
                         }
@@ -198,7 +203,12 @@ async function resolveTargetInfo(
     });
     return {
         spaceId: envelope.space_id,
-        available: bal.remaining,
+        // "Available to move" = the source's allocated BUDGET, not its
+        // remaining. A transfer reduces the budget; the guard only stops it
+        // going negative (see the call site). Overspend doesn't lock the
+        // budget — held is clamped at 0, so moving budget out frees no cash
+        // incorrectly.
+        available: bal.allocated,
         periodStart,
     };
 }
