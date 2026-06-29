@@ -96,7 +96,11 @@ export function EnvelopeMoveDialog({
     const sourceRow = utilizationQuery.data?.find(
         (e) => e.envelopId === sourceEnvelopId
     );
-    const sourceRemaining = sourceRow?.remaining ?? null;
+    // Cap on the source's BUDGET (allocated), not its remaining: a transfer
+    // moves a planning number, so it can pull from an envelope even when it's
+    // overspent — the only limit is that the source budget can't go negative.
+    // Matches the server guard in allocation/transfer.mts.
+    const sourceBudget = sourceRow?.allocated ?? null;
 
     // Destinations: every other ACTIVE envelope in the space. Archived
     // envelopes can't receive new allocations (server blocks it) so
@@ -111,7 +115,7 @@ export function EnvelopeMoveDialog({
 
     const numAmount = Number(amount) || 0;
     const overSource =
-        sourceRemaining !== null && numAmount > sourceRemaining;
+        sourceBudget !== null && numAmount > sourceBudget;
 
     // Reset draft when reopening so the dialog doesn't surprise on second open.
     useEffect(() => {
@@ -179,9 +183,9 @@ export function EnvelopeMoveDialog({
                             <span className="emv-pill-name">
                                 {sourceEnvelopeName}
                             </span>
-                            {sourceRemaining !== null && (
+                            {sourceBudget !== null && (
                                 <span className="emv-pill-meta">
-                                    {sourceRemaining.toFixed(2)} left
+                                    {sourceBudget.toFixed(2)} budget
                                 </span>
                             )}
                         </div>
@@ -245,7 +249,7 @@ export function EnvelopeMoveDialog({
                             placeholder="0.00"
                             autoFocus
                         />
-                        {sourceRemaining !== null && (
+                        {sourceBudget !== null && (
                             <p
                                 className="text-xs"
                                 style={{
@@ -255,12 +259,12 @@ export function EnvelopeMoveDialog({
                                 }}
                             >
                                 {overSource
-                                    ? `Exceeds ${sourceEnvelopeName}'s remaining (${sourceRemaining.toFixed(
+                                    ? `Exceeds ${sourceEnvelopeName}'s budget (${sourceBudget.toFixed(
                                           2
                                       )}). Reduce the amount or pick a different source.`
-                                    : `Max: ${sourceRemaining.toFixed(
+                                    : `Max: ${sourceBudget.toFixed(
                                           2
-                                      )} (${sourceEnvelopeName}'s remaining)`}
+                                      )} (${sourceEnvelopeName}'s budget)`}
                             </p>
                         )}
                     </div>

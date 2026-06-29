@@ -47,12 +47,16 @@ export default function BudgetDetailPage() {
     // The hero "Remaining" stat below uses cumulative `envelope.remaining`,
     // which is the separate concept.
     const total = envelope ? envelope.allocated : 0;
-    const periodRemaining = envelope ? total - envelope.consumed : 0;
     const over = !!envelope && envelope.consumed > total;
-    const drainPct =
+    // Spend gauge: fraction of budget consumed, so the bar FILLS as you spend
+    // (consistent meaning in every state) rather than draining then snapping to
+    // full red when over. >1 overspends — ProgressBar caps + reds it.
+    const spentFrac =
         envelope && total > 0
-            ? Math.max(0, Math.min(1, periodRemaining / total))
-            : 0;
+            ? envelope.consumed / total
+            : envelope && envelope.consumed > 0
+              ? 1.5
+              : 0;
     const pctSpent =
         envelope && total > 0
             ? (envelope.consumed / total) * 100
@@ -236,15 +240,17 @@ export default function BudgetDetailPage() {
                 {/* Hero stats card */}
                 {envelope ? (
                     <div className="od-card vignette ed-hero">
-                        <HeroStat
-                            label="Allocated"
-                            amount={total}
-                            tone="fg"
-                        />
+                        {/* Spent before Allocated — matches the spend-gauge
+                            order on the cards/list (Spent → Allocated cap). */}
                         <HeroStat
                             label="Spent"
                             amount={envelope.consumed}
                             tone="brand"
+                        />
+                        <HeroStat
+                            label="Allocated"
+                            amount={total}
+                            tone="fg"
                         />
                         <HeroStat
                             label="Position"
@@ -270,10 +276,8 @@ export default function BudgetDetailPage() {
                             </span>
                             <div style={{ marginTop: 12 }}>
                                 <ProgressBar
-                                    value={over ? 1 : drainPct}
-                                    color={
-                                        over ? "var(--expense)" : envelope.color
-                                    }
+                                    value={spentFrac}
+                                    color={envelope.color}
                                     height={8}
                                 />
                             </div>

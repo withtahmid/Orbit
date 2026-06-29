@@ -24,8 +24,12 @@ import { withIdempotency } from "../../utils/withIdempotency.mjs";
  * Balance checks:
  *   - Positive (allocating): no guard. Over-allocation is *intent*; the UI
  *     reports the soft "planned > funded" status from analytics.
- *   - Negative (deallocating): can't pull more than the envelope's
- *     current-period remaining, so it never goes artificially negative.
+ *   - Negative (deallocating): the only invariant is that the budget can't go
+ *     below zero. We do NOT block pulling the budget below what's already been
+ *     spent — the allocation is a freely-editable planning number, not a cash
+ *     reserve. Deallocating an overspent envelope frees no cash anyway (its
+ *     held = max(0, allocated − consumed) is already 0), so the Unbudgeted
+ *     pool is protected by that clamp regardless of how low the budget goes.
  */
 export const createEnvelopAllocation = authorizedProcedure
     .input(
@@ -105,18 +109,21 @@ export const createEnvelopAllocation = authorizedProcedure
                             cadence === "none" ? null : effPeriod;
 
                         if (input.amount < 0) {
-                            // Deallocating: the period must have enough
-                            // remaining to cover the pull without going
-                            // artificially negative.
+                            // Deallocating: the only guard is that the budget
+                            // (allocated) can't go negative. `remaining` is
+                            // deliberately NOT used here — pulling the budget
+                            // below what's already spent is a valid edit of a
+                            // planning number and frees no cash (the held
+                            // clamp keeps the pool correct). See header note.
                             const bal = await resolveEnvelopePeriodBalance({
                                 trx,
                                 envelopId: input.envelopId,
                                 at: effPeriod,
                             });
-                            if (bal.remaining + input.amount < 0) {
+                            if (bal.allocated + input.amount < 0) {
                                 throw new TRPCError({
                                     code: "BAD_REQUEST",
-                                    message: `Envelope only has ${bal.remaining.toFixed(2)} available to deallocate.`,
+                                    message: `Envelope budget is ${bal.allocated.toFixed(2)} — you can't deallocate more than that.`,
                                 });
                             }
                         }
