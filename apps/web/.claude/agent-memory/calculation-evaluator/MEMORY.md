@@ -1,1 +1,2 @@
 - [Budgeting model invariants (migration 048)](budgeting-model.md) — one-row-per-(envelope,period); held=GREATEST(0,alloc−consumed); spendable−Σheld=unallocated.
+- [Analytics category-breakdown invariants](analytics-category-breakdown-invariants.md) — Σdirect==Σroot-subtree identity; trends filter zeroes transfers; empty-intersection behavior.

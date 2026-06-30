@@ -294,6 +294,7 @@ export function fromInputDate(v: string): Date | null {
 
 export type PeriodPresetId =
     | "this-month"
+    | "last-30-days"
     | "last-month"
     | "last-3-months"
     | "last-6-months"
@@ -327,6 +328,16 @@ export function resolvePeriod(
     if (preset === "this-month") {
         const start = startOfMonth(now);
         return { preset, start, end: clampEnd(addMonths(start, 1)) };
+    }
+    if (preset === "last-30-days") {
+        // Rolling 30-day window ending today (inclusive of today's
+        // partial day). Matches the DateRangePicker's "Last 30 days"
+        // convenience preset so the picker highlights it when open.
+        return {
+            preset,
+            start: startOfDay(addDays(now, -29)),
+            end: clampEnd(endOfDay(now)),
+        };
     }
     if (preset === "last-month") {
         const end = startOfMonth(now);
@@ -362,6 +373,7 @@ export function resolvePeriod(
 
 export const PERIOD_LABELS: Record<PeriodPresetId, string> = {
     "this-month": "This month",
+    "last-30-days": "Last 30 days",
     "last-month": "Last month",
     "last-3-months": "Last 3 months",
     "last-6-months": "Last 6 months",

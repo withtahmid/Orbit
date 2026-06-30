@@ -99,7 +99,7 @@ function PerAccountTooltip({
 
 export default function BalanceHistoryView() {
     const { space } = useCurrentSpace();
-    const { period } = usePeriod("last-3-months");
+    const { period } = usePeriod("last-30-days");
 
     // Accounts available to filter on. For a real space that's every
     // account in the space; for the virtual personal space it's every
@@ -374,7 +374,7 @@ export default function BalanceHistoryView() {
     return (
         <AnalyticsDetailLayout
             title="Balance history"
-            description="Balance per account over time. Assets shown positive, liabilities negative. Auto-bucketed weekly."
+            description="Balance per account over time. Assets shown positive, liabilities negative. Buckets adapt to the selected range."
             actions={
                 <div className="flex flex-wrap items-center gap-2">
                     <DropdownMenu>
@@ -457,7 +457,7 @@ export default function BalanceHistoryView() {
                             <SelectItem value="year">Year</SelectItem>
                         </SelectContent>
                     </Select>
-                    <PeriodChip defaultPreset="last-3-months" />
+                    <PeriodChip defaultPreset="last-30-days" />
                 </div>
             }
         >
@@ -590,6 +590,8 @@ export default function BalanceHistoryView() {
                                         tickLine={false}
                                         axisLine={false}
                                         tickMargin={8}
+                                        interval="preserveStartEnd"
+                                        minTickGap={24}
                                     />
                                     {/* Y-axis carries compact-money tick
                                         labels ($91k, $96k, $102k...) so the
@@ -761,6 +763,8 @@ export default function BalanceHistoryView() {
                                     tickLine={false}
                                     axisLine={false}
                                     tickMargin={8}
+                                    interval="preserveStartEnd"
+                                    minTickGap={24}
                                 />
                                 <YAxis
                                     domain={[

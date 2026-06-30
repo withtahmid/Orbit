@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
+import { intersectAccountIds } from "../analytics/utils/trendsFilters.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 /**
@@ -15,6 +16,8 @@ export const personalSpendingHeatmap = authorizedProcedure
         z.object({
             periodStart: z.coerce.date(),
             periodEnd: z.coerce.date(),
+            /* Only the account filter is meaningful on `/s/me`. */
+            accountIds: z.array(z.string().uuid()).max(200).optional(),
         })
     )
     .query(async ({ ctx, input }) => {
@@ -28,7 +31,15 @@ export const personalSpendingHeatmap = authorizedProcedure
                     ctx.services.qb,
                     ctx.auth.user.id
                 );
-                if (owned.length === 0 || memberSpaces.length === 0) return [];
+                /* Narrow to the user-picked accounts. An empty
+                   intersection means the filter excludes every owned
+                   account → nothing to show. */
+                const scopedAccounts = intersectAccountIds(
+                    owned,
+                    input.accountIds
+                );
+                if (scopedAccounts.length === 0 || memberSpaces.length === 0)
+                    return [];
 
                 const query = sql<{ day: Date; total: string }>`
                     SELECT day, SUM(amount)::text AS total FROM (
@@ -36,7 +47,7 @@ export const personalSpendingHeatmap = authorizedProcedure
                         FROM transactions
                         WHERE space_id = ANY(${memberSpaces})
                           AND type = 'expense'
-                          AND source_account_id = ANY(${owned})
+                          AND source_account_id = ANY(${scopedAccounts})
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
                     ) entries

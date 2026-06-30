@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
+import { intersectAccountIds } from "../analytics/utils/trendsFilters.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 /**
@@ -17,6 +18,9 @@ export const personalCategoryBreakdown = authorizedProcedure
         z.object({
             periodStart: z.coerce.date(),
             periodEnd: z.coerce.date(),
+            /* Only the account filter is meaningful on `/s/me` —
+               envelopes/categories are space-scoped and hidden there. */
+            accountIds: z.array(z.string().uuid()).max(200).optional(),
         })
     )
     .query(async ({ ctx, input }) => {
@@ -31,6 +35,15 @@ export const personalCategoryBreakdown = authorizedProcedure
                     ctx.auth.user.id
                 );
                 if (memberSpaces.length === 0) return [];
+
+                /* Narrow to the user-picked accounts (intersected with
+                   owned). When the intersection is empty, `= ANY('{}')`
+                   yields zero spend — categories still return with zero
+                   totals, which is the correct "nothing matched" view. */
+                const scopedAccounts = intersectAccountIds(
+                    owned,
+                    input.accountIds
+                );
 
                 const query = sql<{
                     id: string;
@@ -60,7 +73,7 @@ export const personalCategoryBreakdown = authorizedProcedure
                         WHERE space_id = ANY(${memberSpaces})
                           AND type = 'expense'
                           AND expense_category_id IS NOT NULL
-                          AND source_account_id = ANY(${owned})
+                          AND source_account_id = ANY(${scopedAccounts})
                           AND transaction_datetime >= ${input.periodStart}
                           AND transaction_datetime < ${input.periodEnd}
                     ),

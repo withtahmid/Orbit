@@ -4,6 +4,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { AnalyticsFilterBar } from "../components/AnalyticsFilterBar";
+import { useAnalyticsFilters } from "../components/useAnalyticsFilters";
 import { trpc } from "@/trpc";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { addMonths, startOfMonth } from "@/lib/dates";
@@ -30,6 +32,7 @@ const WEEKDAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  */
 export default function HeatmapView() {
     const { space } = useCurrentSpace();
+    const f = useAnalyticsFilters();
 
     /**
      * Window: most-recent 12 months ending at the start of the next month.
@@ -50,11 +53,14 @@ export default function HeatmapView() {
             spaceId: space.id,
             periodStart,
             periodEnd,
+            envelopeIds: f.envelopeIdsArg,
+            accountIds: f.accountIdsArg,
+            categoryIds: f.categoryIdsArg,
         },
         { enabled: !space.isPersonal }
     );
     const qPersonal = trpc.personal.spendingHeatmap.useQuery(
-        { periodStart, periodEnd },
+        { periodStart, periodEnd, accountIds: f.accountIdsArg },
         { enabled: space.isPersonal }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
@@ -81,11 +87,16 @@ export default function HeatmapView() {
             ? recurringPersonalQ.data
             : recurringSpaceQ.data) ?? [];
     const recurringByDay = useMemo(() => {
+        const m = new Map<number, { color: string; label: string; amount: number }>();
+        /* The recurring detector runs over the whole space/owned set, so
+           its dots would contradict the filtered cells (e.g. a bill paid
+           from an account that's been filtered out). Hide them while any
+           filter is active and restore on clear. */
+        if (f.hasAnyFilter) return m;
         const monthlyBills = recurringData
             .filter((r) => r.cadence === "monthly")
             .sort((a, b) => b.avgAmount - a.avgAmount)
             .slice(0, TOP_N_BILLS);
-        const m = new Map<number, { color: string; label: string; amount: number }>();
         for (const r of monthlyBills) {
             const dt = r.nextExpectedDate
                 ? new Date(r.nextExpectedDate)
@@ -108,7 +119,7 @@ export default function HeatmapView() {
             });
         }
         return m;
-    }, [recurringData]);
+    }, [recurringData, f.hasAnyFilter]);
     const hasBills = recurringByDay.size > 0;
 
     /** Indexed lookup: `YYYY-MM-DD` → spend total. */
@@ -262,6 +273,17 @@ export default function HeatmapView() {
             title="Spending calendar"
             description="Every day of the last twelve months. Cell intensity shows daily spend; small dots mark detected recurring monthly charges; the gold cell is the year's peak day."
         >
+            <AnalyticsFilterBar
+                spaceId={space.id}
+                isPersonal={space.isPersonal}
+                envelopeIds={f.envelopeIds}
+                accountIds={f.accountIds}
+                categoryIds={f.categoryIds}
+                onChange={f.setFilterIds}
+                onClearAll={f.clearAllFilters}
+                hasAnyFilter={f.hasAnyFilter}
+            />
+
             <KpiStrip items={kpiItems} isLoading={isLoading} />
 
             <Card>
