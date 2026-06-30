@@ -18,3 +18,4 @@
 - [Allocation upsert race](alloc_upsert_race.md) — LIKELY FIXED as of 2026-06-24: createAllocation/transfer now `.forUpdate()`-lock the envelope row(s) before the read-then-upsert; re-verify before citing.
 - [Period boundary native getters](period_boundary_native_getters.md) — Web allocation mutations must build periodStart via `startOfMonth()` (APP-TZ), not native `Date.getMonth/getFullYear`; drift outside Asia/Dhaka.
 - [Simplify-budgeting 048](simplify_budgeting_048.md) — One-row-per-(envelope,period) model invariants + classes verified CLEAN (dangling trigger, tx-edit/alloc interplay, locking, tz casts, spaceSummary current-month-only).
+- [EnvelopeGlass overRatio](envelope_glass_overratio.md) — Glass spend gauge draws NO red deficit for no-budget-but-spent (allocated=0,consumed>0): overRatio forced 0 when total<=0, regressing old full-red ProgressBar.

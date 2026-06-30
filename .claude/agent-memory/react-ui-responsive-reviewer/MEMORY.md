@@ -10,3 +10,4 @@
 - [Orbit form primitives](orbit_form_primitives.md) — OrbitField/OrbitSelect/OrbitInfoPill conventions and the envelope-chip disclosure pattern.
 - [Analytics CategoriesView](analytics_categories_view.md) — Donut/ranked-list layout, breadcrumb ml-auto wrap fragility, DrillableDonut a11y mitigated by legend buttons.
 - [simplify-budgeting removal pass](project_simplify_budgeting_removal.md) — Borrow/reckoning/carry ripped out; sparse BudgetDetailPage, lopsided grids, orphaned CSS, bare-div OrbitFieldRow.
+- [Budgets glass gauge](budgets_glass_gauge.md) — EnvelopeGlass SVG gauge (card/pot sizes); color-only-signal trap on list rows, sub-pixel "1× BUDGET" text, list density.

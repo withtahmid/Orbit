@@ -4,10 +4,6 @@ import {
     Mail,
     ChevronLeft,
     ChevronRight,
-    ChevronRight as ChevronRightIcon,
-    Folder as FolderIcon,
-    Grid3x3,
-    List as ListIcon,
     MoreHorizontal,
     Pencil,
     Plus,
@@ -70,11 +66,11 @@ import {
 } from "@/lib/dates";
 import { formatInAppTz } from "@/lib/formatDate";
 import { EnvelopeTargetDatePicker } from "./EnvelopeTargetDatePicker";
+import { EnvelopeGlass } from "@/components/budget-gauge/EnvelopeGlass";
 import type { RouterOutput } from "@/trpc";
 
 type Cadence = "none" | "monthly";
 type EnvelopeRow = RouterOutput["analytics"]["envelopeUtilization"][number];
-type ViewMode = "grouped" | "list" | "grid";
 type SortMode =
     | "cadence"
     | "urgency"
@@ -98,6 +94,54 @@ function pctOf(consumed: number, allocated: number): number {
     if (allocated > 0) return (consumed / allocated) * 100;
     if (consumed > 0) return Infinity;
     return 0;
+}
+
+/** Overspend label kept legible at both extremes: a sub-1% overspend reads
+ * "<1%" (instead of a misleading "0%"), and once the percentage stops being
+ * meaningful (≥10× over) it switches to a multiple ("12× over budget"). */
+function overBudgetLabel(consumed: number, total: number): string {
+    const r = (consumed - total) / total;
+    if (r < 0.01) return "<1% over budget";
+    const pct = Math.round(r * 100);
+    // Gate the ×-switch on the rounded percent (not the raw ratio) so the
+    // %-branch can never print an unwieldy "1000% over budget".
+    if (pct >= 1000) return `${Math.round(r)}× over budget`;
+    return `${pct}% over budget`;
+}
+
+/** Concise spoken summary of an envelope's gauge for screen readers. The card
+ * is a navigable <Link>, so without this a reader would announce the raw
+ * concatenation of every figure on the card; this gives the gauge's value as a
+ * single sentence (the accessible-value standard for a performance gauge). */
+function envelopeAriaLabel(env: EnvelopeRow): string {
+    const fmt = (n: number) =>
+        Math.abs(n).toLocaleString("en-US", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+    const total = env.allocated;
+    const isGoal = env.targetAmount != null && env.targetAmount > 0;
+    if (isGoal) {
+        const saved = env.lifetimeFunded ?? 0;
+        const target = env.targetAmount ?? 0;
+        const pct = Math.round(Math.min(1, saved / target) * 100);
+        return saved > target
+            ? `${env.name} goal: ${fmt(saved)} saved, over-funded past a ${fmt(target)} target`
+            : `${env.name} goal: ${fmt(saved)} saved of a ${fmt(target)} target, ${pct}% complete`;
+    }
+    if (env.consumed > total) {
+        const over = env.consumed - total;
+        const pct = Math.round((over / total) * 100);
+        // Match the visible label: never announce a misleading "0%" for a
+        // sub-1% overspend.
+        const pctStr = pct < 1 ? "<1%" : `${pct}%`;
+        return total > 0
+            ? `${env.name}: ${fmt(over)} (${pctStr}) over a ${fmt(total)} budget`
+            : `${env.name}: ${fmt(env.consumed)} spent with no budget set`;
+    }
+    return total > 0
+        ? `${env.name}: ${fmt(total - env.consumed)} left of a ${fmt(total)} budget`
+        : `${env.name}: no budget set`;
 }
 
 function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
@@ -125,71 +169,28 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
         arr.sort(
             (a, b) => (b.pctComplete ?? 0) - (a.pctComplete ?? 0)
         );
-    else
-        // Default "cadence" sort: monthly group first, then rolling.
-        // Within each group, preserve the server's natural order
-        // (created_at ASC from analytics.envelopeUtilization). Array.sort
-        // is spec-stable (ES2019+), so returning 0 keeps the input order
-        // — editing an envelope's name no longer relocates its row.
-        arr.sort((a, b) => {
-            if (a.cadence === b.cadence) return 0;
-            return a.cadence === "monthly" ? -1 : 1;
-        });
+    else {
+        // Default "cadence" sort, three tiers so the flat grid reads as
+        // contiguous bands without a grouped view: monthly budgets first,
+        // then rolling envelopes, then goals (gold cards) clustered last.
+        // Within each tier, preserve the server's natural order (created_at
+        // ASC) — Array.sort is spec-stable (ES2019+), so equal tiers keep
+        // input order and editing a name never relocates a row.
+        const tier = (e: EnvelopeRow) =>
+            e.cadence === "monthly"
+                ? 0
+                : e.targetAmount != null && e.targetAmount > 0
+                  ? 2
+                  : 1;
+        arr.sort((a, b) => tier(a) - tier(b));
+    }
     return arr;
-}
-
-/**
- * Three-way grouping that surfaces the merged budget/goal model:
- *   - monthly: cadence='monthly' envelopes
- *   - goals:   cadence='none' envelopes that carry a target_amount
- *   - rolling: cadence='none' envelopes without a target
- *
- * The page renders the groups in this order so the user sees their
- * recurring budgets first, the long-horizon goals next, and any
- * uncategorized rolling cash at the bottom.
- */
-type Group = "monthly" | "goals" | "rolling";
-
-function groupEnvelopes(list: EnvelopeRow[]): Record<Group, EnvelopeRow[]> {
-    const out: Record<Group, EnvelopeRow[]> = { monthly: [], goals: [], rolling: [] };
-    for (const e of list) {
-        if (e.cadence === "monthly") out.monthly.push(e);
-        else if (e.targetAmount != null) out.goals.push(e);
-        else out.rolling.push(e);
-    }
-    return out;
-}
-
-
-function buildAttention(envelopes: EnvelopeRow[]) {
-    const items: Array<{
-        envelopId: string;
-        name: string;
-        color: string;
-        icon: string;
-        text: string;
-    }> = [];
-    for (const e of envelopes) {
-        const total = e.allocated;
-        const over = e.consumed - total;
-        if (over > 0) {
-            items.push({
-                envelopId: e.envelopId,
-                name: e.name,
-                color: e.color,
-                icon: e.icon,
-                text: `over by ${over.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-            });
-        }
-    }
-    return items;
 }
 
 export default function BudgetsPage() {
     const { space } = useCurrentSpace();
     const [monthOffset, setMonthOffset] = useState(0);
     const [query, setQuery] = useState("");
-    const [view, setView] = useState<ViewMode>("grid");
     const [sort, setSort] = useState<SortMode>("cadence");
     const debouncedQuery = useDebouncedValue(query, 200);
 
@@ -199,12 +200,6 @@ export default function BudgetsPage() {
     const periodEnd = useMemo(() => endOfMonth(viewingDate), [viewingDate]);
 
     const utilizationQuery = trpc.analytics.envelopeUtilization.useQuery({
-        spaceId: space.id,
-        periodStart,
-        periodEnd,
-    });
-
-    const priorityQuery = trpc.analytics.priorityBreakdown.useQuery({
         spaceId: space.id,
         periodStart,
         periodEnd,
@@ -246,21 +241,6 @@ export default function BudgetsPage() {
     }, [envelopes, debouncedQuery]);
 
     const sorted = useMemo(() => sortEnvelopes(filtered, sort), [filtered, sort]);
-    // Grouped view: deadline / progress sorts are only meaningful for
-    // goals — applying them across Monthly / Rolling reorders rows that
-    // have no target by an irrelevant axis. Reorder the Goals group by
-    // the requested sort, keep Monthly / Rolling on cadence order.
-    const grouped3 = useMemo(() => {
-        const cadenceSorted =
-            sort === "deadline" || sort === "progress"
-                ? sortEnvelopes(filtered, "cadence")
-                : sorted;
-        const groups = groupEnvelopes(cadenceSorted);
-        if (sort === "deadline" || sort === "progress") {
-            groups.goals = sortEnvelopes(groups.goals, sort);
-        }
-        return groups;
-    }, [filtered, sorted, sort]);
 
     const totals = useMemo(() => {
         const allocated = envelopes.reduce(
@@ -334,10 +314,6 @@ export default function BudgetsPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [envelopes, monthOffset, space.id]);
 
-    const attention = useMemo(() => buildAttention(envelopes), [envelopes]);
-    const priority = (priorityQuery.data ?? []).filter((p) => p.total > 0);
-    const prioritySum = priority.reduce((s, p) => s + Number(p.total), 0);
-
     return (
         <div className="orbit-design env-root">
             <style>{ENV_STYLES}</style>
@@ -345,17 +321,9 @@ export default function BudgetsPage() {
             {/* Topbar */}
             <header className="env-topbar">
                 <div className="env-topbar-text">
-                    <span className="eyebrow">
-                        {monthLabel}
-                        {daysLeft !== null
-                            ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
-                            : ""}
-                    </span>
+                    {/* Period context lives in the summary strip's month nav
+                        below — don't duplicate the month/days-left here. */}
                     <h1 className="display env-title">Budgets</h1>
-                    <p className="env-sub">
-                        Envelopes that hold your monthly budget, and goals you're
-                        saving toward.
-                    </p>
                 </div>
                 <div className="env-topbar-actions">
                     <SortPicker sort={sort} setSort={setSort} />
@@ -375,68 +343,61 @@ export default function BudgetsPage() {
             </header>
 
             <div className="env-scroll">
-                {/* Period summary + Needs attention */}
-                <div className="env-hero-grid">
-                    <div className="od-card vignette env-hero">
-                        <div className="env-hero-head">
-                            <span className="eyebrow">
-                                {monthLabel}
-                                {daysLeft != null
-                                    ? ` — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`
-                                    : ""}
-                            </span>
-                            <div className="env-hero-arrows">
-                                <button
-                                    type="button"
-                                    className="env-hero-arrow"
-                                    onClick={() => setMonthOffset((m) => m - 1)}
-                                    aria-label="Previous month"
-                                >
-                                    <ChevronLeft className="size-3.5" />
-                                </button>
-                                <button
-                                    type="button"
-                                    className="env-hero-arrow"
-                                    onClick={() => setMonthOffset((m) => m + 1)}
-                                    disabled={monthOffset >= 0}
-                                    aria-label="Next month"
-                                >
-                                    <ChevronRight className="size-3.5" />
-                                </button>
-                            </div>
+                {/* Summary strip — month nav, period totals, unbudgeted. The
+                    envelope cards below carry their own over / running-low
+                    state, so there's no separate attention or priority surface. */}
+                <div className="od-card env-summary">
+                    <div className="env-summary-main">
+                        <div className="env-month-nav">
+                            <button
+                                type="button"
+                                className="env-hero-arrow"
+                                onClick={() => setMonthOffset((m) => m - 1)}
+                                aria-label="Previous month"
+                            >
+                                <ChevronLeft className="size-3.5" />
+                            </button>
+                            <span className="env-month-label">{monthLabel}</span>
+                            <button
+                                type="button"
+                                className="env-hero-arrow"
+                                onClick={() => setMonthOffset((m) => m + 1)}
+                                disabled={monthOffset >= 0}
+                                aria-label="Next month"
+                            >
+                                <ChevronRight className="size-3.5" />
+                            </button>
+                            {daysLeft != null && (
+                                <span className="env-month-days">
+                                    {daysLeft} day{daysLeft === 1 ? "" : "s"} left
+                                </span>
+                            )}
                         </div>
-                        {/* Banner is only meaningful for the current month —
-                            spaceSummary.unallocated is always computed
-                            against NOW on the server, so showing it on
-                            past/future months would be misleading. */}
-                        {summaryQuery.data && monthOffset === 0 && (
-                            <UnbudgetedBanner
-                                unallocated={summaryQuery.data.unallocated}
-                                isOverAllocated={summaryQuery.data.isOverAllocated}
-                                spaceId={space.id}
-                                viewingDate={viewingDate}
-                            />
-                        )}
-                        <div className="env-hero-stats">
+                        <div className="env-summary-stats">
                             <HeroStat
                                 label="Allocated"
                                 amount={totals.allocated}
-                                sub={`across ${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
+                                size={26}
+                                sub={`${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
                             />
+                            <span className="env-summary-divider" />
                             <HeroStat
                                 label="Spent"
                                 amount={totals.consumed}
                                 tone="brand"
+                                size={26}
                                 sub={
                                     totals.allocated > 0
                                         ? `${((totals.consumed / totals.allocated) * 100).toFixed(0)}% of allocated`
                                         : ""
                                 }
                             />
+                            <span className="env-summary-divider" />
                             <HeroStat
                                 label="Remaining"
                                 amount={totals.remaining}
                                 tone="gold"
+                                size={26}
                                 sub={
                                     totals.overAmount > 0 ? (
                                         <span style={{ color: "var(--expense)" }}>
@@ -455,108 +416,21 @@ export default function BudgetsPage() {
                                 }
                             />
                         </div>
-                        {prioritySum > 0 && (
-                            <div className="env-hero-priority">
-                                <div className="env-hero-priority-head">
-                                    <span className="eyebrow">Spent by priority</span>
-                                    <Money
-                                        amount={prioritySum}
-                                        size={11}
-                                        variant="muted"
-                                    />
-                                </div>
-                                <div className="env-hero-priority-bar">
-                                    {priority.map((p) => {
-                                        const w = (Number(p.total) / prioritySum) * 100;
-                                        return (
-                                            <span
-                                                key={p.priority}
-                                                style={{
-                                                    width: `${w}%`,
-                                                    background: p.color,
-                                                }}
-                                                title={p.label}
-                                            />
-                                        );
-                                    })}
-                                </div>
-                                <div className="env-hero-priority-legend">
-                                    {priority.map((p) => (
-                                        <span
-                                            key={p.priority}
-                                            className="env-priority-legend-cell"
-                                        >
-                                            <span
-                                                className="env-priority-legend-dot"
-                                                style={{ background: p.color }}
-                                            />
-                                            {p.label}{" "}
-                                            <Money
-                                                amount={Number(p.total)}
-                                                size={11}
-                                                variant="muted"
-                                            />
-                                        </span>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
                     </div>
-
-                    <div className="od-card env-attention">
-                        <div className="env-sect-head">
-                            <h2 className="display env-sect-title">Needs attention</h2>
-                            <span className="env-sect-sub">
-                                {attention.length} envelope
-                                {attention.length === 1 ? "" : "s"}
-                            </span>
-                        </div>
-                        {attention.length === 0 ? (
-                            <div className="env-attention-empty">
-                                <Check
-                                    className="size-4"
-                                    style={{ color: "var(--income)" }}
-                                />
-                                Everything's on track.
-                            </div>
-                        ) : (
-                            <div className="env-attention-list">
-                                {attention.slice(0, 6).map((a) => (
-                                    <Link
-                                        key={a.envelopId}
-                                        to={ROUTES.spaceBudgetDetail(
-                                            space.id,
-                                            a.envelopId
-                                        )}
-                                        className="env-attention-row"
-                                    >
-                                        <span className="env-attention-row-name">
-                                            <EntityAvatar
-                                                icon={a.icon}
-                                                colorVar={a.color}
-                                                size={26}
-                                            />
-                                            <span>
-                                                <span className="env-attention-title">
-                                                    {a.name}
-                                                </span>
-                                                <span className="env-attention-text">
-                                                    {a.text}
-                                                </span>
-                                            </span>
-                                        </span>
-                                        <ChevronRightIcon
-                                            className="size-3.5"
-                                            style={{ color: "var(--fg-4)" }}
-                                        />
-                                    </Link>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                    {/* Unbudgeted is only meaningful for the current month —
+                        spaceSummary.unallocated is computed against NOW on the
+                        server, so past/future months would be misleading. */}
+                    {summaryQuery.data && monthOffset === 0 && (
+                        <UnbudgetedBanner
+                            unallocated={summaryQuery.data.unallocated}
+                            isOverAllocated={summaryQuery.data.isOverAllocated}
+                            spaceId={space.id}
+                            viewingDate={viewingDate}
+                        />
+                    )}
                 </div>
 
-                {/* Search + view toggle */}
+                {/* Search */}
                 <div className="env-toolbar">
                     <label className="env-search">
                         <Search
@@ -570,33 +444,6 @@ export default function BudgetsPage() {
                             onChange={(e) => setQuery(e.target.value)}
                         />
                     </label>
-                    <div className="env-view-toggle">
-                        {(
-                            [
-                                { v: "grouped", label: "Grouped", icon: FolderIcon },
-                                { v: "list", label: "List", icon: ListIcon },
-                                { v: "grid", label: "Grid", icon: Grid3x3 },
-                            ] as const
-                        ).map((b) => (
-                            <button
-                                key={b.v}
-                                type="button"
-                                className={`env-view-cell ${view === b.v ? "is-active" : ""}`}
-                                onClick={() => setView(b.v)}
-                            >
-                                <b.icon
-                                    className="size-3"
-                                    style={{
-                                        color:
-                                            view === b.v
-                                                ? "var(--brand)"
-                                                : "var(--fg-3)",
-                                    }}
-                                />
-                                {b.label}
-                            </button>
-                        ))}
-                    </div>
                 </div>
 
                 {/* Content */}
@@ -643,7 +490,7 @@ export default function BudgetsPage() {
                     >
                         No envelopes match &ldquo;{debouncedQuery}&rdquo;.
                     </div>
-                ) : view === "grid" ? (
+                ) : (
                     <div className="env-grid">
                         {sorted.map((e) => (
                             <EnvelopeCard
@@ -652,62 +499,6 @@ export default function BudgetsPage() {
                                 spaceId={space.id}
                             />
                         ))}
-                    </div>
-                ) : view === "list" ? (
-                    <div className="od-card env-list">
-                        {sorted.map((e, i) => (
-                            <EnvelopeListRow
-                                key={e.envelopId}
-                                env={e}
-                                spaceId={space.id}
-                                last={i === sorted.length - 1}
-                            />
-                        ))}
-                    </div>
-                ) : (
-                    <div className="env-groups">
-                        {(
-                            [
-                                {
-                                    key: "monthly" as const,
-                                    label: "Monthly · resets on the 1st",
-                                },
-                                {
-                                    key: "goals" as const,
-                                    label: "Goals · long-term targets",
-                                },
-                                {
-                                    key: "rolling" as const,
-                                    label: "Rolling · accumulates",
-                                },
-                            ]
-                        ).map(({ key, label }) => {
-                            const items = grouped3[key];
-                            if (!items || items.length === 0) return null;
-                            return (
-                                <div key={key} className="env-group">
-                                    <div className="env-group-head">
-                                        <span className="eyebrow">{label}</span>
-                                        <span className="env-group-count">
-                                            {items.length}{" "}
-                                            {key === "goals"
-                                                ? `goal${items.length === 1 ? "" : "s"}`
-                                                : `envelope${items.length === 1 ? "" : "s"}`}
-                                        </span>
-                                    </div>
-                                    <div className="od-card env-list">
-                                        {items.map((e, i) => (
-                                            <EnvelopeListRow
-                                                key={e.envelopId}
-                                                env={e}
-                                                spaceId={space.id}
-                                                last={i === items.length - 1}
-                                            />
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })}
                     </div>
                 )}
 
@@ -765,16 +556,12 @@ function EnvelopeCard({
     const total = env.allocated;
     const remaining = total - env.consumed;
     const drift = env.consumed > total;
-    // Spend gauge: fraction of budget consumed, so the bar FILLS left→right as
-    // you spend (the universal progress convention) instead of draining. >1
-    // when overspent — ProgressBar caps the width and turns it red, so "full
-    // bar" means one thing (used up) in every state. No-budget-but-spent shows
-    // full red via 1.5.
-    const spentFrac =
-        total > 0 ? env.consumed / total : env.consumed > 0 ? 1.5 : 0;
-    const pctSpent =
-        total > 0 ? env.consumed / total : env.consumed > 0 ? Infinity : 0;
-    const isGoal = env.targetAmount != null;
+    // A target of exactly 0 is not a goal — treat it like a plain envelope so
+    // the gauge and the "over-funded" copy stay consistent.
+    const isGoal = env.targetAmount != null && env.targetAmount > 0;
+    // Running low: ≥ warnAt (80%) of the budget spent but not yet over. Paired
+    // with a textual cue below so the amber glass isn't a colour-only signal.
+    const low = !isGoal && !drift && total > 0 && env.consumed / total >= 0.8;
     const goalSaved = env.lifetimeFunded ?? 0;
     const goalPct =
         isGoal && env.targetAmount && env.targetAmount > 0
@@ -785,7 +572,8 @@ function EnvelopeCard({
     return (
         <Link
             to={ROUTES.spaceBudgetDetail(spaceId, env.envelopId)}
-            className={`od-card env-card${isGoal ? " env-card-goal" : ""}${env.archived ? " env-card-archived" : ""}`}
+            aria-label={envelopeAriaLabel(env)}
+            className={`od-card env-card${isGoal ? " env-card-goal" : ""}${env.archived ? " env-card-archived" : ""}${drift && !isGoal ? " env-card-over" : ""}`}
         >
             <div className="env-card-head">
                 <span className="env-card-name">
@@ -815,11 +603,11 @@ function EnvelopeCard({
                                     </span>
                                 </>
                             )}
-                            {drift && (
+                            {low && (
                                 <>
                                     <span aria-hidden>·</span>
-                                    <span style={{ color: "var(--expense)" }}>
-                                        drift
+                                    <span style={{ color: "var(--warn)" }}>
+                                        running low
                                     </span>
                                 </>
                             )}
@@ -846,11 +634,31 @@ function EnvelopeCard({
                 </span>
                 <EnvelopeMenu env={env} />
             </div>
+
+            {/* The gauge: a fluid glass of money, centered as the card's hero.
+                Cards are narrow (the grid packs several per row) so the bottle
+                fills the card instead of stranding it in empty space. */}
+            <div className="env-card-glass-wrap">
+                <EnvelopeGlass
+                    variant={isGoal ? "save" : "spend"}
+                    current={isGoal ? goalSaved : env.consumed}
+                    total={isGoal ? env.targetAmount ?? 0 : total}
+                    height={132}
+                />
+            </div>
+
             {isGoal ? (
                 <>
-                    <div className="env-card-amt-row">
-                        <Money amount={goalSaved} size={26} variant="neutral" />
-                        <span className="env-card-of">
+                    <div className="env-card-hero env-card-hero-center">
+                        <span className="env-card-hero-amt">
+                            <Money
+                                amount={goalSaved}
+                                size={24}
+                                weight={600}
+                                variant="neutral"
+                            />
+                        </span>
+                        <span className="env-card-hero-label">
                             saved of{" "}
                             <Money
                                 amount={env.targetAmount ?? 0}
@@ -859,7 +667,6 @@ function EnvelopeCard({
                             />
                         </span>
                     </div>
-                    <ProgressBar value={goalPct} color={env.color} height={5} />
                     <div className="env-card-foot">
                         {goalSaved > (env.targetAmount ?? 0) ? (
                             <span
@@ -875,37 +682,32 @@ function EnvelopeCard({
                                 />
                             </span>
                         ) : (
-                            <span style={{ color: "var(--fg-4)" }}>
+                            <span style={{ color: "var(--fg-3)" }}>
                                 {`${Math.round(goalPct * 100)}% complete`}
                             </span>
                         )}
-                        <span style={{ color: "var(--fg-4)" }}>
-                            {env.consumed > 0 ? (
-                                <>
-                                    spent{" "}
-                                    <Money
-                                        amount={env.consumed}
-                                        size={11}
-                                        variant="muted"
-                                    />
-                                </>
-                            ) : null}
-                        </span>
+                        {env.consumed > 0 && (
+                            <span style={{ color: "var(--fg-3)" }}>
+                                spent{" "}
+                                <Money
+                                    amount={env.consumed}
+                                    size={11}
+                                    variant="muted"
+                                />
+                            </span>
+                        )}
                     </div>
                 </>
             ) : (
                 <>
                     {/* Hero: what's left this period. When overspent we show a
-                        SIGNED negative figure ("−2,029.77") in the expense
-                        color and label it "over" — never a bare positive number
-                        that reads like money you still have. */}
-                    <div className="env-card-hero">
+                        SIGNED negative figure ("−2,029.77") in the expense color
+                        and label it "over" — never a bare positive number. */}
+                    <div className="env-card-hero env-card-hero-center">
                         <span className="env-card-hero-amt">
-                            {/* `remaining` is already signed (negative when
-                                overspent), so Money renders "−2,029.77". */}
                             <Money
                                 amount={remaining}
-                                size={28}
+                                size={26}
                                 weight={600}
                                 variant={drift ? "expense" : "neutral"}
                             />
@@ -914,216 +716,50 @@ function EnvelopeCard({
                             className="env-card-hero-label"
                             style={drift ? { color: "var(--expense)" } : undefined}
                         >
-                            {/* Overspend must NOT be signalled by color alone
-                                (red/green is invisible to color-blind users) —
-                                pair it with an icon and the literal word "over". */}
+                            {/* Color alone can't carry overspend (invisible to
+                                color-blind users) — pair it with an icon + word. */}
                             {drift && (
                                 <AlertTriangle className="size-3" aria-hidden />
                             )}
                             {total > 0
                                 ? drift
-                                    ? "over"
+                                    ? overBudgetLabel(env.consumed, total)
                                     : "left"
                                 : env.consumed > 0
                                   ? "spent · no budget"
                                   : "no budget"}
                         </span>
                     </div>
-                    <ProgressBar
-                        value={spentFrac}
-                        color={env.color}
-                        height={6}
-                    />
-                    {/* Spent · Allocated — ordered to match the spend gauge
-                        above: the bar fills left→right from Spent toward the
-                        Allocated cap, so Spent sits under the fill origin and
-                        Allocated under the target. "Left" is NOT repeated here —
-                        the hero figure above already IS the signed amount left,
-                        so a third cell would show the same value twice. */}
                     <div className="env-card-stats">
                         <div className="env-card-stat">
                             <span className="env-card-stat-label">Spent</span>
                             <Money
                                 amount={env.consumed}
-                                size={13}
+                                size={12}
                                 weight={500}
                                 variant={drift ? "expense" : "neutral"}
                             />
                         </div>
                         <div className="env-card-stat env-card-stat-end">
                             <span className="env-card-stat-label">Allocated</span>
-                            <Money amount={total} size={13} weight={500} />
+                            <Money amount={total} size={12} weight={500} />
                         </div>
                     </div>
-                    {/* % footer: useful at 0–99% to show how close to the cap.
-                        Suppressed when overspent — the hero ("over"), the icon,
-                        and the note below already carry that, no need for a
-                        fourth red surface saying "140%". */}
-                    {!drift && (
-                        <div className="env-card-foot">
-                            <span style={{ color: "var(--fg-4)" }}>
-                                {Number.isFinite(pctSpent)
-                                    ? `${Math.round(pctSpent * 100)}% of budget spent`
-                                    : "spent without a budget"}
+                    {/* Share of budget still in the glass, so the words agree
+                        with the draining liquid. Suppressed when overspent. */}
+                    {!drift && total > 0 && (
+                        <div className="env-card-foot env-card-foot-center">
+                            <span style={{ color: "var(--fg-3)" }}>
+                                {Math.min(
+                                    100,
+                                    Math.round((remaining / total) * 100)
+                                )}
+                                % left
                             </span>
-                        </div>
-                    )}
-                    {/* Overspend is money ALREADY spent from accounts — the cash
-                        is gone, so "free to budget" has already absorbed it.
-                        State this plainly: allocating more here just relabels
-                        past spend and will NOT change the Unbudgeted pool. This
-                        is the conceptual fix for the "I allocated but Unbudgeted
-                        didn't move" confusion — the surprise lived in the UI,
-                        not the math. */}
-                    {drift && (
-                        <div className="env-card-overspend-note">
-                            Already spent from your accounts. Adding budget here
-                            covers it on paper but won't change your Unbudgeted
-                            pool.
                         </div>
                     )}
                 </>
             )}
-        </Link>
-    );
-}
-
-function EnvelopeListRow({
-    env,
-    spaceId,
-    last,
-}: {
-    env: EnvelopeRow;
-    spaceId: string;
-    last: boolean;
-}) {
-    const total = env.allocated;
-    const remaining = total - env.consumed;
-    const drift = env.consumed > total;
-    // Spend gauge (fills as you spend) — see EnvelopeCard for rationale.
-    const spentFrac =
-        total > 0 ? env.consumed / total : env.consumed > 0 ? 1.5 : 0;
-    const isGoal = env.targetAmount != null;
-    const goalSaved = env.lifetimeFunded ?? 0;
-    const goalPct =
-        isGoal && env.targetAmount && env.targetAmount > 0
-            ? Math.max(0, Math.min(1, goalSaved / env.targetAmount))
-            : 0;
-    const targetDate = env.targetDate ? new Date(env.targetDate) : null;
-    return (
-        <Link
-            to={ROUTES.spaceBudgetDetail(spaceId, env.envelopId)}
-            className={`env-list-row${isGoal ? " env-list-row-goal" : ""}`}
-            style={{
-                borderBottom: last ? "none" : "1px solid var(--line-soft)",
-            }}
-        >
-            <div className="env-list-row-name">
-                <EntityAvatar icon={env.icon} colorVar={env.color} size={26} />
-                <div className="env-list-row-text">
-                    <div className="env-list-row-title">{env.name}</div>
-                    {/* Wrap-safe: flex + structural "·" separators (CSS) so a
-                        goal-date + drift + lifetime-overrun stack reflows
-                        instead of overflowing the name column on narrow rows. */}
-                    <div className="env-list-row-cadence">
-                        <span>
-                            {isGoal
-                                ? "Goal"
-                                : env.cadence === "monthly"
-                                  ? "Monthly"
-                                  : "Rolling"}
-                        </span>
-                        {isGoal && targetDate && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <span style={{ color: "var(--fg-3)" }}>
-                                    by {formatInAppTz(targetDate, "MMM yyyy")}
-                                </span>
-                            </>
-                        )}
-                        {drift && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <span style={{ color: "var(--expense)" }}>drift</span>
-                            </>
-                        )}
-                        {/* Lifetime overrun on a rolling envelope. */}
-                        {(env.lifetimeOverrun ?? 0) > 0 && (
-                            <>
-                                <span aria-hidden>·</span>
-                                <span
-                                    style={{ color: "var(--expense)" }}
-                                    title={`Net overspent across all time by ${(env.lifetimeOverrun ?? 0).toFixed(2)}.`}
-                                    aria-label={`Net overspent across all time by ${(env.lifetimeOverrun ?? 0).toFixed(2)}`}
-                                >
-                                    net −
-                                    {(env.lifetimeOverrun ?? 0).toLocaleString(
-                                        "en-US",
-                                        { maximumFractionDigits: 0 }
-                                    )}
-                                </span>
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-            <div className="env-list-row-bar">
-                <ProgressBar
-                    value={isGoal ? goalPct : spentFrac}
-                    color={env.color}
-                    height={4}
-                />
-            </div>
-            <div className="env-list-row-amt">
-                {isGoal ? (
-                    <>
-                        <Money amount={goalSaved} size={12.5} variant="neutral" />{" "}
-                        <span style={{ color: "var(--fg-4)" }}>
-                            of{" "}
-                            <Money
-                                amount={env.targetAmount ?? 0}
-                                size={11}
-                                variant="muted"
-                            />
-                        </span>
-                    </>
-                ) : (
-                    <>
-                        {/* Signed remaining: overspent rows show "−X over",
-                            never a bare positive number. */}
-                        <Money
-                            amount={remaining}
-                            size={12.5}
-                            weight={drift ? 600 : 500}
-                            variant={drift ? "expense" : "neutral"}
-                        />{" "}
-                        <span
-                            style={{
-                                color: drift ? "var(--expense)" : "var(--fg-4)",
-                            }}
-                        >
-                            {drift ? (
-                                "over"
-                            ) : total > 0 ? (
-                                <>
-                                    left of{" "}
-                                    <Money
-                                        amount={total}
-                                        size={12.5}
-                                        variant="muted"
-                                    />
-                                </>
-                            ) : (
-                                "no budget"
-                            )}
-                        </span>
-                    </>
-                )}
-            </div>
-            <ChevronRightIcon
-                className="size-3.5"
-                style={{ color: "var(--fg-4)" }}
-            />
         </Link>
     );
 }
@@ -1339,11 +975,13 @@ function HeroStat({
     amount,
     tone,
     sub,
+    size = 28,
 }: {
     label: string;
     amount: number;
     tone?: "fg" | "brand" | "gold";
     sub?: ReactNode;
+    size?: number;
 }) {
     const color =
         tone === "brand"
@@ -1357,7 +995,7 @@ function HeroStat({
             <span
                 className="tabular"
                 style={{
-                    fontSize: 28,
+                    fontSize: size,
                     fontWeight: 500,
                     color,
                     letterSpacing: "-0.04em",
@@ -1487,38 +1125,6 @@ function DesignIcon({
         >
             <path d={d} />
         </svg>
-    );
-}
-
-function ProgressBar({
-    value,
-    color = "var(--brand)",
-    height = 6,
-}: {
-    value: number;
-    color?: string;
-    height?: number;
-}) {
-    const v = Math.max(0, Math.min(1.5, value));
-    const over = v > 1;
-    return (
-        <div
-            style={{
-                height,
-                borderRadius: 999,
-                background: "var(--bg-elev-3)",
-                overflow: "hidden",
-            }}
-        >
-            <div
-                style={{
-                    height: "100%",
-                    width: `${Math.min(v, 1) * 100}%`,
-                    background: over ? "var(--expense)" : color,
-                    borderRadius: 999,
-                }}
-            />
-        </div>
     );
 }
 
@@ -2024,7 +1630,6 @@ const ENV_STYLES = `
     color: var(--fg);
     margin: 0;
 }
-.env-sub { font-size: 13px; color: var(--fg-3); margin: 0; }
 .env-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 720px) {
     .env-topbar { padding: 18px 18px 14px; }
@@ -2041,31 +1646,54 @@ const ENV_STYLES = `
     .env-scroll { padding: 16px 18px 28px; }
 }
 
-/* Hero */
-.env-hero-grid {
-    display: grid;
-    grid-template-columns: 1.4fr 1fr;
-    gap: 14px;
+/* Summary strip — the period header: month nav + the three headline totals,
+   with the unbudgeted banner beneath. Given real presence so the top of the
+   page reads as a deliberate summary, not a cramped toolbar. */
+.orbit-design .od-card.env-summary {
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
 }
-@media (max-width: 1100px) {
-    .env-hero-grid { grid-template-columns: 1fr; }
-}
-
-.orbit-design .od-card.env-hero {
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-}
-.env-hero-head {
+.env-summary-main {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    position: relative;
-    z-index: 1;
+    gap: 36px;
+    flex-wrap: wrap;
 }
-.env-hero-arrows {
+.env-month-nav {
     display: inline-flex;
-    gap: 4px;
+    align-items: center;
+    gap: 8px;
+}
+.env-month-label {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--fg);
+    min-width: 96px;
+}
+.env-month-days {
+    font-size: 12px;
+    color: var(--fg-4);
+    margin-left: 2px;
+}
+.env-summary-stats {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    flex-wrap: wrap;
+}
+.env-summary-divider {
+    width: 1px;
+    align-self: stretch;
+    min-height: 40px;
+    background: var(--line-soft);
+}
+@media (max-width: 640px) {
+    .orbit-design .od-card.env-summary { padding: 16px; gap: 14px; }
+    .env-summary-main { gap: 16px; }
+    .env-summary-stats { gap: 18px; }
+    .env-summary-divider { display: none; }
 }
 .env-hero-arrow {
     width: 26px;
@@ -2191,130 +1819,17 @@ const ENV_STYLES = `
     line-height: 1.5;
 }
 
-.env-hero-stats {
-    margin-top: 14px;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 24px;
-    position: relative;
-    z-index: 1;
-}
-@media (max-width: 720px) {
-    .env-hero-stats { grid-template-columns: 1fr; }
-}
 .env-hero-stat {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
 }
-.env-hero-stat-sub { font-size: 11.5px; color: var(--fg-4); }
-.env-hero-priority {
-    margin-top: 22px;
-    position: relative;
-    z-index: 1;
-}
-.env-hero-priority-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-}
-.env-hero-priority-bar {
-    height: 8px;
-    border-radius: 99px;
-    overflow: hidden;
-    display: flex;
-    background: var(--bg-elev-3);
-}
-.env-hero-priority-legend {
-    display: flex;
-    gap: 16px;
-    margin-top: 10px;
-    font-size: 11px;
-    color: var(--fg-3);
-    flex-wrap: wrap;
-}
-.env-priority-legend-cell {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-}
-.env-priority-legend-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    display: inline-block;
-}
-
-/* Attention card */
-.orbit-design .od-card.env-attention { padding: 20px; }
-.env-sect-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 14px;
-}
-.env-sect-title {
-    font-size: 16px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    color: var(--fg);
-    margin: 0;
-}
-.env-sect-sub { font-size: 12px; color: var(--fg-3); }
-.env-attention-empty {
-    padding: 20px 0;
-    text-align: center;
-    color: var(--fg-3);
-    font-size: 13px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-}
-.env-attention-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.env-attention-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: var(--bg-elev-2);
-    text-decoration: none;
-    color: inherit;
-    transition: background 140ms ease;
-}
-.env-attention-row:hover { background: var(--bg-elev-3); }
-.env-attention-row-name {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-}
-.env-attention-row-name > span:last-child {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.2;
-    min-width: 0;
-}
-.env-attention-title {
-    font-size: 13px;
-    color: var(--fg);
-}
-.env-attention-text {
-    font-size: 11px;
-    color: var(--fg-4);
-}
+.env-hero-stat-sub { font-size: 11px; color: var(--fg-3); }
 
 /* Toolbar */
 .env-toolbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
     flex-wrap: wrap;
 }
@@ -2322,7 +1837,7 @@ const ENV_STYLES = `
     position: relative;
     display: flex;
     flex: 1;
-    max-width: 360px;
+    width: 100%;
     align-items: center;
 }
 .env-search > svg {
@@ -2335,54 +1850,20 @@ const ENV_STYLES = `
     width: 100%;
     padding-left: 36px;
 }
-.env-view-toggle {
-    display: inline-flex;
-    gap: 4px;
-    padding: 3px;
-    border-radius: 10px;
-    background: var(--bg-elev-2);
-    border: 1px solid var(--line);
-}
-.env-view-cell {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 10px;
-    height: 26px;
-    border-radius: 7px;
-    background: transparent;
-    border: 0;
-    color: var(--fg-3);
-    font-size: 12px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: inherit;
-    transition: background 140ms ease, color 140ms ease;
-}
-.env-view-cell:hover { color: var(--fg-2); }
-.env-view-cell.is-active {
-    background: var(--bg-elev-3);
-    color: var(--fg);
-}
-
 /* Grid */
 .env-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* Narrow auto-fill columns so the portrait bottle cards pack several per
+       row and each card hugs its gauge instead of stranding it. */
+    grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
     gap: 14px;
-}
-@media (max-width: 1100px) {
-    .env-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 720px) {
-    .env-grid { grid-template-columns: 1fr; }
 }
 
 .orbit-design .od-card.env-card {
-    padding: 20px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 12px;
     text-decoration: none;
     color: inherit;
     transition: border-color 140ms ease, background 140ms ease;
@@ -2391,6 +1872,35 @@ const ENV_STYLES = `
 .orbit-design .od-card.env-card:hover {
     border-color: var(--line-strong);
     background: var(--bg-elev-2);
+}
+.orbit-design .od-card.env-card:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+/* The bottle gauge, centered as the card's hero. Cards are narrow (see the
+   grid) so a centered portrait glass fills the card cleanly. */
+.env-card-glass-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 2px 0;
+}
+/* Centered readout under the glass (number stacked over its label). */
+.env-card-hero-center {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 3px;
+}
+.env-card-foot-center {
+    justify-content: center;
+}
+/* Overspent cards earn a quiet red edge — the glass already shows the red
+   deficit, so this is a calm reinforcement, not a second alarm. */
+.orbit-design .od-card.env-card.env-card-over {
+    border-color: color-mix(in oklab, var(--expense) 32%, var(--line));
+}
+.orbit-design .od-card.env-card.env-card-over:hover {
+    border-color: color-mix(in oklab, var(--expense) 45%, var(--line));
 }
 /* Goal envelopes (cadence='none' + target_amount). Gold tint matches
    the goal accent used on Overview/section headers so the user can
@@ -2453,16 +1963,6 @@ const ENV_STYLES = `
     column-gap: 4px;
     row-gap: 2px;
 }
-.env-card-amt-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 8px;
-}
-.env-card-of {
-    font-size: 11px;
-    color: var(--fg-4);
-}
 /* Hero amount: the big "left / over" number with a small label beneath. */
 .env-card-hero {
     display: flex;
@@ -2480,6 +1980,10 @@ const ENV_STYLES = `
        up with the big hero number. The icon has no text baseline, so it's
        nudged to optical center via the svg rule below. */
     align-items: baseline;
+    /* wrap + center so a long overspend label ("900% over budget") on a
+       narrow card breaks onto a second line cleanly instead of lopsiding. */
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 4px;
     font-size: 11px;
     font-weight: 500;
@@ -2510,7 +2014,11 @@ const ENV_STYLES = `
     display: flex;
     flex-direction: column;
     gap: 3px;
+    /* Equal halves + clip so one large taka figure can't steal the other's
+       space or spill past the narrow card edge (numbers don't wrap). */
+    flex: 1 1 0;
     min-width: 0;
+    overflow: hidden;
 }
 .env-card-stat-end {
     align-items: flex-end;
@@ -2528,17 +2036,9 @@ const ENV_STYLES = `
     display: flex;
     justify-content: space-between;
     font-size: 11.5px;
-}
-/* Overspend explainer: framed as a quiet info note, not an alarm, so the
-   user understands covering past overspend won't move their free pool. */
-.env-card-overspend-note {
-    font-size: 11px;
-    line-height: 1.4;
-    color: var(--fg-3);
-    background: color-mix(in oklab, var(--expense) 8%, transparent);
-    border: 1px solid color-mix(in oklab, var(--expense) 18%, transparent);
-    border-radius: 8px;
-    padding: 7px 9px;
+    /* Pin the foot to the card bottom so spend cards (with a stats row) and
+       goal cards (without) bottom-align in a stretched grid row. */
+    margin-top: auto;
 }
 .env-card-menu {
     display: inline-flex;
@@ -2560,91 +2060,6 @@ const ENV_STYLES = `
     background: var(--bg-elev-2);
     color: var(--fg);
 }
-
-/* List rows */
-.orbit-design .od-card.env-list { padding: 0; overflow: hidden; }
-.env-list-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) auto auto;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 18px;
-    text-decoration: none;
-    color: inherit;
-    transition: background 140ms ease;
-}
-.env-list-row:hover { background: var(--bg-elev-2); }
-.env-list-row-name {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-}
-.env-list-row-text {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.2;
-    min-width: 0;
-}
-.env-list-row-title {
-    font-size: 13px;
-    color: var(--fg);
-    font-weight: 500;
-}
-.env-list-row-cadence {
-    font-size: 11px;
-    color: var(--fg-4);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: 4px;
-    row-gap: 2px;
-}
-.env-list-row-bar {
-    min-width: 80px;
-}
-.env-list-row-amt {
-    font-size: 12.5px;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    text-align: right;
-}
-/* Goal rows: gold eyebrow signal so the "Goal" word is visible at a
-   glance, matching the grid card affordance. */
-.env-list-row-goal .env-list-row-cadence > :first-child {
-    color: var(--gold);
-    font-weight: 500;
-}
-@media (max-width: 720px) {
-    /* name | amount | chevron — the bar is hidden on mobile, so without the
-       third track the chevron wraps to a second row under the name. */
-    .env-list-row { grid-template-columns: 1fr auto auto; gap: 12px; }
-    .env-list-row-bar { display: none; }
-    /* Goal rows keep their progress bar even on mobile — it's the only
-       signal of completion left once the row is this compact. Bar moves
-       beneath the title row in its own grid track. */
-    .env-list-row-goal { grid-template-columns: 1fr auto auto; }
-    .env-list-row-goal .env-list-row-bar {
-        display: block;
-        grid-column: 1 / -1;
-        margin-top: 4px;
-    }
-}
-
-/* Groups */
-.env-groups {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-}
-.env-group { display: flex; flex-direction: column; gap: 8px; }
-.env-group-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding: 0 4px;
-}
-.env-group-count { font-size: 11px; color: var(--fg-4); }
 
 /* Empty */
 .orbit-design .od-card.env-empty {
@@ -2760,9 +2175,11 @@ const ENV_STYLES = `
     .env-topbar { padding: 14px 14px 10px; }
     .env-title { font-size: 22px; }
     .env-scroll { padding: 12px 14px 22px; gap: 12px; }
-    .env-grid { grid-template-columns: 1fr; }
+    /* Two compact bottle cards fit a phone comfortably; let auto-fill pack
+       them (narrowing the floor a touch) rather than forcing a single column. */
+    .env-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
     .env-empty { padding: 24px; }
-    .orbit-design .od-card.env-hero { padding: 16px; }
+    .orbit-design .od-card.env-summary { padding: 14px; }
     .env-unbudgeted {
         padding: 10px 12px;
         gap: 10px;
@@ -2773,14 +2190,11 @@ const ENV_STYLES = `
         display: inline-flex;
         align-items: center;
     }
-    .env-hero-stats { gap: 14px; margin-top: 12px; }
-    .env-hero-priority { margin-top: 16px; }
     .orbit-design .od-card.env-card { padding: 14px; gap: 12px; }
     .env-card-menu {
         width: 32px;
         height: 32px;
     }
-    .env-list-row { padding: 12px 14px; gap: 10px; }
     .env-archived-section { margin-top: 16px; padding-top: 14px; }
 }
 `;

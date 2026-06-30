@@ -20,3 +20,4 @@
 - [Allocations analytics degenerate post-collapse](allocations_analytics_degenerate_post_collapse.md) — analytics.allocations all-time SUM of per-month rows = unbounded "committed budget" + spurious Drift KPI.
 - [Unbudgeted clamp is correct](unbudgeted_clamp_inconsistency.md) — 2026-06-24: GREATEST(0,...) held clamp is a load-bearing cash-conservation invariant; NEVER remove it. "Allocate didn't move Unbudgeted" is a UI confusion, fixed with framing.
 - [Free-pool term fragmentation](free_pool_term_fragmentation.md) — one free-cash number labeled Unbudgeted/Unallocated/Free/Free-to-budget/Free-after-save across surfaces; standardize on "Unbudgeted".
+- [Budget glass-gauge review](budget_glass_gauge_review.md) — 2026-06-30: drain metaphor is right; keep. Mistakes: cue doing double-duty, calm=arbitrary hex, skeuomorphism vs editorial-dark.

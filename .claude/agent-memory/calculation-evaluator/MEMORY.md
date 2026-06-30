@@ -16,4 +16,5 @@
 - [Envelope target lock-step cascade](envelope_target_lockstep_cascade.md) — Cascade only fires on explicit non-null→null with partner column undefined; preserves no-op echoes.
 - [Category breakdown semantics](category_breakdown_semantics.md) — directTotal vs subtreeTotal; why summing ROOT subtreeTotals never double-counts (strict forest via single parent_id FK)
 - [spaceSummary window is always now](spacesummary_window.md) — spaceSummary held/unallocated ignore the input window (hardcoded DATE_TRUNC month NOW); pairing with envelopeUtilization off-current-month mixes periods.
+- [Budget gauge geometry](budget_gauge_geometry.md) — EnvelopeGlass: spend path correct; goal liquid jumps DOWN at target (full ratio into deficitFraction vs 1× line at 0.781); deficitFraction discontinuous at r=1.
 - [App timezone conventions](feedback-app-tz-conventions.md) — APP_TIMEZONE=Asia/Dhaka; never call native Date getters/setters on Dates returned by `@/lib/dates` helpers; they're browser-local and silently wrong for non-Dhaka users.
