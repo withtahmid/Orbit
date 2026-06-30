@@ -128,6 +128,16 @@ export function scopeAccountsFilter(
  *   query that would silently return everything (since `ANY('{}')` is
  *   always false but downstream OR'd `destination_account_id` predicates
  *   would still match unrelated rows).
+ *
+ * Empty-set policy is the caller's to choose, and the two valid choices
+ * are equivalent in result:
+ *   - Procedures with an OR'd `destination_account_id` branch (e.g.
+ *     `personalSpendingHeatmap`) MUST early-return `[]` — see above.
+ *   - Procedures whose ONLY account predicate is `source_account_id =
+ *     ANY(${ids})` (e.g. `personalCategoryBreakdown`) may safely run the
+ *     query: `ANY('{}')` is uniformly false, yielding zero spend (and,
+ *     for the breakdown, every category at a zero total — the correct
+ *     "nothing matched" view).
  */
 export function intersectAccountIds(
     owned: string[],
