@@ -4,6 +4,7 @@ on:
     push:
         branches:
             - main
+            - demo
         paths:
             - apps/server/**
             - package.json
@@ -16,18 +17,11 @@ on:
 jobs:
     deploy:
         runs-on: ubuntu-latest
-        strategy:
-            fail-fast: false
-            matrix:
-                target:
-                    - name: production
-                      project_id_secret: VERCEL_PROJECT_ID
-                    - name: demo
-                      project_id_secret: VERCEL_PROJECT_ID_DEMO
-        name: deploy (${{ matrix.target.name }})
+        name: deploy (${{ github.ref_name == 'main' && 'production' || 'demo' }})
         env:
+            TARGET: ${{ github.ref_name == 'main' && 'production' || 'demo' }}
             VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-            VERCEL_PROJECT_ID: ${{ secrets[matrix.target.project_id_secret] }}
+            VERCEL_PROJECT_ID: ${{ github.ref_name == 'main' && secrets.VERCEL_PROJECT_ID || secrets.VERCEL_PROJECT_ID_DEMO }}
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
