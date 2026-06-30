@@ -2,13 +2,10 @@ import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
-import { PeriodChip } from "@/components/shared/PeriodChip";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { DrillableDonut } from "@/components/shared/charts/DrillableDonut";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import { usePeriod } from "@/hooks/usePeriod";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { cn } from "@/lib/utils";
 
 type Tier = "essential" | "important" | "discretionary" | "luxury" | "unclassified";
@@ -25,10 +22,12 @@ const TIER_DESCRIPTION: Record<Tier, string> = {
     unclassified: "transfer principal · pre-categorization",
 };
 
+const TITLE = "Expenses by priority";
+const DESCRIPTION =
+    "Each envelope inherits a priority tier from its categories. This view rolls up to four buckets — must-spend versus want-spend, with the unclassified residue separated.";
 
-export default function PriorityView() {
-    const { space } = useCurrentSpace();
-    const { period } = usePeriod("this-month");
+export function PrioritySection() {
+    const { space, period } = useCockpit();
 
     const q = trpc.analytics.priorityBreakdown.useQuery(
         {
@@ -36,7 +35,7 @@ export default function PriorityView() {
             periodStart: period.start,
             periodEnd: period.end,
         },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
 
     const rows = useMemo(() => q.data ?? [], [q.data]);
@@ -125,27 +124,36 @@ export default function PriorityView() {
 
     if (space.isPersonal) {
         return (
-            <AnalyticsDetailLayout
-                title="Expenses by priority"
-                description="Each envelope inherits a priority tier from its categories. This view rolls up to four buckets — must-spend versus want-spend, with the unclassified residue separated."
-            >
+            <section className="grid gap-5 sm:gap-6">
+                <div>
+                    <h2 className="text-base font-semibold tracking-tight">
+                        {TITLE}
+                    </h2>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                        {DESCRIPTION}
+                    </p>
+                </div>
                 <Card>
                     <CardContent className="py-12 text-center text-sm text-muted-foreground">
-                        Priority breakdown is a per-space view. Open a real space
-                        to see it.
+                        Priority breakdown isn't available for personal money.
                     </CardContent>
                 </Card>
-            </AnalyticsDetailLayout>
+            </section>
         );
     }
 
     return (
-        <AnalyticsDetailLayout
-            title="Expenses by priority"
-            description="Each envelope inherits a priority tier from its categories. This view rolls up to four buckets — must-spend versus want-spend, with the unclassified residue separated."
-            actions={<PeriodChip defaultPreset="this-month" />}
-        >
-            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    {TITLE}
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    {DESCRIPTION}
+                </p>
+            </div>
+
+            <KpiStrip items={kpiItems} isLoading={q.isLoading && !q.data} />
 
             <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
                 {/* Donut */}
@@ -154,7 +162,7 @@ export default function PriorityView() {
                         <CardTitle>Where the month went</CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-4">
-                        {q.isLoading ? (
+                        {q.isLoading && !q.data ? (
                             <Skeleton className="h-[280px] w-full" />
                         ) : donutData.length === 0 ? (
                             <p className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
@@ -195,7 +203,7 @@ export default function PriorityView() {
                             Drilldown shows envelopes contributing to each tier.
                         </p>
                     </div>
-                    {q.isLoading ? (
+                    {q.isLoading && !q.data ? (
                         <div className="px-6 pb-5">
                             <Skeleton className="h-64 w-full" />
                         </div>
@@ -320,7 +328,7 @@ export default function PriorityView() {
                     </div>
                 </CardContent>
             </Card>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 

@@ -1,3 +1,5 @@
+import { autoBucket, type Bucket } from "./chartBucket";
+
 /**
  * App-wide timezone. Mirrors the server's `ENV.APP_TIMEZONE`. The whole
  * UI (period windows, datetime inputs, formatted display) interprets
@@ -370,3 +372,115 @@ export const PERIOD_LABELS: Record<PeriodPresetId, string> = {
     "all-time": "All time",
     custom: "Custom",
 };
+
+/* ─── Cursor period (analytics cockpit) ───────────────────────────────
+ *
+ * A different mental model from the presets above: instead of a named
+ * range, the cockpit holds a *cursor* — a granularity plus an anchor
+ * date — that the user steps forward/back one unit at a time. This
+ * resolves to a concrete {start, end} window the same procedures
+ * consume. Kept separate from `usePeriod`/`resolvePeriod` so the two
+ * URL schemes (?period= vs ?g=&anchor=) never collide. */
+
+export type Granularity = "day" | "week" | "month" | "year" | "custom";
+
+export interface CursorPeriod {
+    granularity: Granularity;
+    /** Window start (inclusive), aligned to the granularity in APP_TZ. */
+    start: Date;
+    /** Window end (EXCLUSIVE = next-unit start). Server queries are
+     *  `txn_datetime < end`, so this must never be an inclusive
+     *  `:59:59.999` value or the boundary bucket is dropped. */
+    end: Date;
+    /** Bucket to feed time-series procedures for an intra-period series.
+     *  day/week/month focus → "day"; year → "month" (cashFlow rejects
+     *  "year"). Custom → auto-selected by span. */
+    bucket: Bucket;
+}
+
+/** Clamp an exclusive end to no later than the start of tomorrow (APP_TZ)
+ *  so series/charts don't extend into the future. Mirrors the clamp in
+ *  `resolvePeriod` (only "custom" opts out — the user chose that range). */
+function clampFutureEnd(end: Date, now: Date = new Date()): Date {
+    const tomorrow = addDays(startOfDay(now), 1);
+    return end.getTime() > tomorrow.getTime() ? tomorrow : end;
+}
+
+/**
+ * Resolve a {granularity, anchor} cursor to a concrete window. `start` is
+ * always re-derived from the start-of-unit helper, so a deep link
+ * carrying an unaligned anchor (e.g. `?g=month&anchor=2026-06-15`) still
+ * snaps to the month. Week uses ISO (Monday) boundaries to match the
+ * server's `date_trunc('week', …)`.
+ */
+export function resolveCursorPeriod(
+    granularity: Granularity,
+    anchor: Date,
+    custom?: { start?: Date; end?: Date }
+): CursorPeriod {
+    if (granularity === "day") {
+        const start = startOfDay(anchor);
+        return { granularity, start, end: clampFutureEnd(addDays(start, 1)), bucket: "day" };
+    }
+    if (granularity === "week") {
+        const start = startOfIsoWeek(anchor);
+        return { granularity, start, end: clampFutureEnd(addDays(start, 7)), bucket: "day" };
+    }
+    if (granularity === "month") {
+        const start = startOfMonth(anchor);
+        return { granularity, start, end: clampFutureEnd(addMonths(start, 1)), bucket: "day" };
+    }
+    if (granularity === "year") {
+        const start = startOfYear(anchor);
+        return { granularity, start, end: clampFutureEnd(endOfYear(anchor)), bucket: "month" };
+    }
+    // custom — caller passes an already-exclusive end (matching the
+    // DateRangePicker / usePeriod custom contract). No future clamp.
+    const start = custom?.start ?? startOfMonth(anchor);
+    const end = custom?.end ?? addMonths(start, 1);
+    return { granularity, start, end, bucket: autoBucket(start, end) };
+}
+
+/** Move a cursor anchor by `dir` (±1) units of its granularity. Returns a
+ *  new anchor aligned to the unit start. No-op for "custom". */
+export function stepCursorAnchor(granularity: Granularity, anchor: Date, dir: number): Date {
+    if (granularity === "day") return addDays(startOfDay(anchor), dir);
+    if (granularity === "week") return addDays(startOfIsoWeek(anchor), dir * 7);
+    if (granularity === "month") return addMonths(startOfMonth(anchor), dir);
+    if (granularity === "year")
+        return makeAppTzDate(getAppTzYear(anchor) + dir, 0, 1);
+    return anchor; // custom
+}
+
+/** True when `anchor` resolves to the same window-start as "now" for the
+ *  given granularity — used to keep the bare URL clean (omit ?anchor=
+ *  when it's the current period) and to disable the "next" stepper. */
+export function isCurrentCursor(granularity: Granularity, anchor: Date, now: Date = new Date()): boolean {
+    if (granularity === "custom") return false;
+    const a = resolveCursorPeriod(granularity, anchor);
+    const cur = resolveCursorPeriod(granularity, now);
+    return a.start.getTime() === cur.start.getTime();
+}
+
+/**
+ * A trailing N-month window ending at the (clamped) start of the month
+ * after `anchor`. Used by "context/trend" panels (e.g. the 6-month cash
+ * flow comparison) that intentionally show more than the focused unit —
+ * the cursor itself is unchanged. `bucket` is always "month".
+ */
+export function trailingMonthWindow(
+    anchor: Date,
+    months: number
+): { start: Date; end: Date } {
+    const endNominal = addMonths(startOfMonth(anchor), 1);
+    return { start: addMonths(endNominal, -months), end: clampFutureEnd(endNominal) };
+}
+
+/** date-fns pattern for the stepper's center label, per granularity. */
+export function cursorLabelPattern(granularity: Granularity): string {
+    if (granularity === "day") return "EEE, MMM d, yyyy";
+    if (granularity === "week") return "MMM d";
+    if (granularity === "month") return "MMMM yyyy";
+    if (granularity === "year") return "yyyy";
+    return "MMM d, yyyy";
+}

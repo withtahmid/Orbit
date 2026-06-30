@@ -33,13 +33,10 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
-import { PeriodChip } from "@/components/shared/PeriodChip";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import { usePeriod } from "@/hooks/usePeriod";
 import {
     autoBucket,
     bucketLabelPattern,
@@ -97,9 +94,11 @@ function PerAccountTooltip({
     );
 }
 
-export default function BalanceHistoryView() {
-    const { space } = useCurrentSpace();
-    const { period } = usePeriod("last-3-months");
+export function BalanceSection() {
+    const { space, granularity, trailingMonths } = useCockpit();
+    const { start: periodStart, end: periodEnd } = trailingMonths(
+        granularity === "year" ? 12 : 6
+    );
 
     // Accounts available to filter on. For a real space that's every
     // account in the space; for the virtual personal space it's every
@@ -136,8 +135,8 @@ export default function BalanceHistoryView() {
     const [bucketSelection, setBucketSelection] =
         useState<BucketSelection>("auto");
     const resolvedBucket = useMemo(
-        () => autoBucket(period.start, period.end),
-        [period.start, period.end]
+        () => autoBucket(periodStart, periodEnd),
+        [periodStart, periodEnd]
     );
     const effectiveBucket: Bucket =
         bucketSelection === "auto" ? resolvedBucket : bucketSelection;
@@ -147,21 +146,21 @@ export default function BalanceHistoryView() {
     const qSpace = trpc.analytics.balanceHistory.useQuery(
         {
             spaceId: space.id,
-            periodStart: period.start,
-            periodEnd: period.end,
+            periodStart,
+            periodEnd,
             bucket: effectiveBucket,
             accountIds,
         },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const qPersonal = trpc.personal.balanceHistory.useQuery(
         {
-            periodStart: period.start,
-            periodEnd: period.end,
+            periodStart,
+            periodEnd,
             bucket: effectiveBucket,
             accountIds,
         },
-        { enabled: space.isPersonal }
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
@@ -172,14 +171,14 @@ export default function BalanceHistoryView() {
     const summarySpaceQ = trpc.analytics.spaceSummary.useQuery(
         {
             spaceId: space.id,
-            periodStart: period.start,
-            periodEnd: period.end,
+            periodStart,
+            periodEnd,
         },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const summaryPersonalQ = trpc.personal.summary.useQuery(
-        { periodStart: period.start, periodEnd: period.end },
-        { enabled: space.isPersonal }
+        { periodStart, periodEnd },
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const summaryData =
         (space.isPersonal ? summaryPersonalQ.data : summarySpaceQ.data) ?? null;
@@ -334,7 +333,7 @@ export default function BalanceHistoryView() {
     /* Covenant tile — only shown when no account filter is active
        (otherwise the balance-vs-cash check compares apples to oranges:
        the chart sums a subset of accounts but cash flow is whole-space).
-       The spaceSummary period covers exactly `[period.start, period.end)`
+       The spaceSummary period covers exactly `[periodStart, periodEnd)`
        which equals the chart's window, so `periodNet` and the chart's
        `kpi.periodChange` should agree to within rounding. */
     if (!hasFilter && summaryData) {
@@ -372,96 +371,101 @@ export default function BalanceHistoryView() {
         : "All accounts";
 
     return (
-        <AnalyticsDetailLayout
-            title="Balance history"
-            description="Balance per account over time. Assets shown positive, liabilities negative. Auto-bucketed weekly."
-            actions={
-                <div className="flex flex-wrap items-center gap-2">
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="justify-between gap-2"
-                            >
-                                <span className="inline-flex items-center gap-1.5">
-                                    <Wallet className="size-3.5" />
-                                    {triggerLabel}
-                                </span>
-                                <ChevronDown className="size-3.5 opacity-60" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-64">
-                            <DropdownMenuLabel>Filter by account</DropdownMenuLabel>
-                            <DropdownMenuSeparator />
-                            {accounts.length === 0 ? (
-                                <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                                    No accounts available.
-                                </p>
-                            ) : (
-                                <>
-                                    <DropdownMenuItem
-                                        onSelect={(e) => {
-                                            e.preventDefault();
-                                            setSelected(new Set());
-                                        }}
-                                        disabled={!hasFilter}
-                                    >
-                                        Clear selection
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <div className="max-h-[260px] overflow-y-auto">
-                                        {accounts.map((a) => (
-                                            <DropdownMenuCheckboxItem
-                                                key={a.id}
-                                                checked={selected.has(a.id)}
-                                                onCheckedChange={() => toggle(a.id)}
-                                                onSelect={(e) => e.preventDefault()}
-                                            >
-                                                <span className="flex min-w-0 items-center gap-2">
-                                                    <EntityAvatar
-                                                        size="sm"
-                                                        color={a.color}
-                                                        icon={a.icon}
-                                                    />
-                                                    <span className="truncate">
-                                                        {a.name}
-                                                    </span>
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Balance history
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    Balance per account over time. Assets shown positive,
+                    liabilities negative. Auto-bucketed weekly.
+                </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="justify-between gap-2"
+                        >
+                            <span className="inline-flex items-center gap-1.5">
+                                <Wallet className="size-3.5" />
+                                {triggerLabel}
+                            </span>
+                            <ChevronDown className="size-3.5 opacity-60" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-64">
+                        <DropdownMenuLabel>Filter by account</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {accounts.length === 0 ? (
+                            <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                                No accounts available.
+                            </p>
+                        ) : (
+                            <>
+                                <DropdownMenuItem
+                                    onSelect={(e) => {
+                                        e.preventDefault();
+                                        setSelected(new Set());
+                                    }}
+                                    disabled={!hasFilter}
+                                >
+                                    Clear selection
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <div className="max-h-[260px] overflow-y-auto">
+                                    {accounts.map((a) => (
+                                        <DropdownMenuCheckboxItem
+                                            key={a.id}
+                                            checked={selected.has(a.id)}
+                                            onCheckedChange={() => toggle(a.id)}
+                                            onSelect={(e) => e.preventDefault()}
+                                        >
+                                            <span className="flex min-w-0 items-center gap-2">
+                                                <EntityAvatar
+                                                    size="sm"
+                                                    color={a.color}
+                                                    icon={a.icon}
+                                                />
+                                                <span className="truncate">
+                                                    {a.name}
                                                 </span>
-                                            </DropdownMenuCheckboxItem>
-                                        ))}
-                                    </div>
-                                </>
-                            )}
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Select
-                        value={bucketSelection}
-                        onValueChange={(v) =>
-                            setBucketSelection(v as BucketSelection)
-                        }
-                    >
-                        <SelectTrigger className="w-full min-w-[10rem] sm:w-auto">
-                            <Clock className="size-4 text-muted-foreground" />
-                            <SelectValue>
-                                {bucketSelection === "auto"
-                                    ? `Auto · ${BUCKET_LABEL[resolvedBucket]}`
-                                    : BUCKET_LABEL[bucketSelection]}
-                            </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="auto">Auto</SelectItem>
-                            <SelectItem value="day">Day</SelectItem>
-                            <SelectItem value="week">Week</SelectItem>
-                            <SelectItem value="month">Month</SelectItem>
-                            <SelectItem value="year">Year</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <PeriodChip defaultPreset="last-3-months" />
-                </div>
-            }
-        >
-            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+                                            </span>
+                                        </DropdownMenuCheckboxItem>
+                                    ))}
+                                </div>
+                            </>
+                        )}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+                <Select
+                    value={bucketSelection}
+                    onValueChange={(v) =>
+                        setBucketSelection(v as BucketSelection)
+                    }
+                >
+                    <SelectTrigger className="w-full min-w-[10rem] sm:w-auto">
+                        <Clock className="size-4 text-muted-foreground" />
+                        <SelectValue>
+                            {bucketSelection === "auto"
+                                ? `Auto · ${BUCKET_LABEL[resolvedBucket]}`
+                                : BUCKET_LABEL[bucketSelection]}
+                        </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="auto">Auto</SelectItem>
+                        <SelectItem value="day">Day</SelectItem>
+                        <SelectItem value="week">Week</SelectItem>
+                        <SelectItem value="month">Month</SelectItem>
+                        <SelectItem value="year">Year</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+
+            <KpiStrip items={kpiItems} isLoading={q.isLoading && !q.data} />
 
             <Tabs
                 value={chartMode}
@@ -528,7 +532,7 @@ export default function BalanceHistoryView() {
                     </div>
                 )}
                 <CardContent className="h-[360px] px-1 sm:h-[440px] sm:px-4">
-                    {q.isLoading ? (
+                    {q.isLoading && !q.data ? (
                         <Skeleton className="h-full w-full" />
                     ) : chartMode === "total" ? (
                         totalSeries.length === 0 ? (
@@ -823,7 +827,7 @@ export default function BalanceHistoryView() {
                     moments with their date so the user can read the chart's
                     story without scrubbing. Only shown on the Total tab; the
                     per-account view's legend already serves a similar role. */}
-                {chartMode === "total" && totalSeries.length > 0 && !q.isLoading && (
+                {chartMode === "total" && totalSeries.length > 0 && !(q.isLoading && !q.data) && (
                     <div className="grid gap-3 border-t border-border/40 px-6 py-4 sm:grid-cols-3">
                         <Annotation
                             icon="up"
@@ -856,7 +860,7 @@ export default function BalanceHistoryView() {
                     </div>
                 )}
             </Card>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 

@@ -13,17 +13,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
-import { PeriodChip } from "@/components/shared/PeriodChip";
 import {
     DrillableDonut,
     type DrillableDonutSlice,
 } from "@/components/shared/charts/DrillableDonut";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import { usePeriod } from "@/hooks/usePeriod";
 import { ROUTES } from "@/router/routes";
 import { cn } from "@/lib/utils";
 
@@ -53,10 +50,9 @@ type EnvelopeMeta = {
     icon: string;
 };
 
-export default function CategoriesView() {
-    const { space } = useCurrentSpace();
+export function CategoriesSection() {
+    const { space, period } = useCockpit();
     const navigate = useNavigate();
-    const { period } = usePeriod("this-month");
     const [params, setParams] = useSearchParams();
     const focusId = params.get("cat");
 
@@ -76,14 +72,14 @@ export default function CategoriesView() {
             periodStart: period.start,
             periodEnd: period.end,
         },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const qPersonal = trpc.personal.categoryBreakdown.useQuery(
         {
             periodStart: period.start,
             periodEnd: period.end,
         },
-        { enabled: space.isPersonal }
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
@@ -95,14 +91,14 @@ export default function CategoriesView() {
             periodStart: prevPeriod.start,
             periodEnd: prevPeriod.end,
         },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const prevPersonalQ = trpc.personal.categoryBreakdown.useQuery(
         {
             periodStart: prevPeriod.start,
             periodEnd: prevPeriod.end,
         },
-        { enabled: space.isPersonal }
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const prevQ = space.isPersonal ? prevPersonalQ : prevSpaceQ;
 
@@ -119,11 +115,11 @@ export default function CategoriesView() {
     // level in the drill hierarchy; the donut drills the category tree.
     const envSpaceQ = trpc.envelop.listBySpace.useQuery(
         { spaceId: space.id },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const envPersonalQ = trpc.personal.envelopeUtilization.useQuery(
         { periodStart: period.start, periodEnd: period.end },
-        { enabled: space.isPersonal }
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const envelopeMeta = useMemo<Map<string, EnvelopeMeta>>(() => {
         const m = new Map<string, EnvelopeMeta>();
@@ -399,11 +395,17 @@ export default function CategoriesView() {
         focus.subtreeTotal === focus.directTotal;
 
     return (
-        <AnalyticsDetailLayout
-            title="Spending by category"
-            description="Click a slice or row to drill into sub-categories. The breadcrumb above the chart shows where you are."
-            actions={<PeriodChip />}
-        >
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Spending by category
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    Click a slice or row to drill into sub-categories. The breadcrumb
+                    above the chart shows where you are.
+                </p>
+            </div>
+
             {/* Breadcrumb in a thin pill row matching the design */}
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3.5 py-2.5">
                 <Folder className="size-3.5 text-muted-foreground" />
@@ -462,7 +464,7 @@ export default function CategoriesView() {
                 </span>
             </div>
 
-            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+            <KpiStrip items={kpiItems} isLoading={q.isLoading && !q.data} />
 
             {isLeaf ? (
                 <Card>
@@ -503,7 +505,7 @@ export default function CategoriesView() {
                             </p>
                         </CardHeader>
                         <CardContent>
-                            {q.isLoading ? (
+                            {q.isLoading && !q.data ? (
                                 <Skeleton className="h-[280px] w-full" />
                             ) : donutData.length === 0 ? (
                                 <p className="flex h-[280px] items-center justify-center text-sm text-muted-foreground">
@@ -538,7 +540,7 @@ export default function CategoriesView() {
                                 Click a row to drill in · arrow indicates drillable.
                             </p>
                         </div>
-                        {q.isLoading ? (
+                        {q.isLoading && !q.data ? (
                             <div className="px-6 pb-5">
                                 <Skeleton className="h-64 w-full" />
                             </div>
@@ -644,7 +646,7 @@ export default function CategoriesView() {
                     </Card>
                 </div>
             )}
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 

@@ -4,19 +4,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import { usePeriod } from "@/hooks/usePeriod";
-import { PeriodChip } from "@/components/shared/PeriodChip";
 import { formatInAppTz } from "@/lib/formatDate";
 import { cn } from "@/lib/utils";
 
-export default function AnomaliesView() {
-    const { space } = useCurrentSpace();
+export function AnomaliesSection() {
+    const { space, period } = useCockpit();
     const isPersonal = space.isPersonal;
-    const { period } = usePeriod("this-month");
 
+    // Focused window: outliers, streaks, and shape stats follow the cursor.
     const outliersSpaceQ = trpc.analytics.anomalies.outliers.useQuery(
         {
             spaceId: space.id,
@@ -25,72 +22,76 @@ export default function AnomaliesView() {
             sigma: 2,
             limit: 20,
         },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal, placeholderData: (prev) => prev }
     );
     const outliersPersonalQ = trpc.personal.anomalies.outliers.useQuery(
         { periodStart: period.start, periodEnd: period.end, sigma: 2, limit: 20 },
-        { enabled: isPersonal }
+        { enabled: isPersonal, placeholderData: (prev) => prev }
     );
     const outliers =
         (isPersonal ? outliersPersonalQ.data : outliersSpaceQ.data) ?? [];
     const outliersLoading = isPersonal
-        ? outliersPersonalQ.isLoading
-        : outliersSpaceQ.isLoading;
+        ? outliersPersonalQ.isLoading && !outliersPersonalQ.data
+        : outliersSpaceQ.isLoading && !outliersSpaceQ.data;
 
+    // Trailing-from-now (server default lookback): does not follow the cursor.
     const recurringSpaceQ = trpc.analytics.anomalies.recurring.useQuery(
         { spaceId: space.id },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal, placeholderData: (prev) => prev }
     );
     const recurringPersonalQ = trpc.personal.anomalies.recurring.useQuery(
         {},
-        { enabled: isPersonal }
+        { enabled: isPersonal, placeholderData: (prev) => prev }
     );
     const recurring =
         (isPersonal ? recurringPersonalQ.data : recurringSpaceQ.data) ?? [];
     const recurringLoading = isPersonal
-        ? recurringPersonalQ.isLoading
-        : recurringSpaceQ.isLoading;
+        ? recurringPersonalQ.isLoading && !recurringPersonalQ.data
+        : recurringSpaceQ.isLoading && !recurringSpaceQ.data;
 
+    // Trailing-from-now (server default lookback): does not follow the cursor.
     const patternsSpaceQ = trpc.analytics.anomalies.patternBreaks.useQuery(
         { spaceId: space.id },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal, placeholderData: (prev) => prev }
     );
     const patternsPersonalQ = trpc.personal.anomalies.patternBreaks.useQuery(
         {},
-        { enabled: isPersonal }
+        { enabled: isPersonal, placeholderData: (prev) => prev }
     );
     const patterns =
         (isPersonal ? patternsPersonalQ.data : patternsSpaceQ.data) ?? [];
     const patternsLoading = isPersonal
-        ? patternsPersonalQ.isLoading
-        : patternsSpaceQ.isLoading;
+        ? patternsPersonalQ.isLoading && !patternsPersonalQ.data
+        : patternsSpaceQ.isLoading && !patternsSpaceQ.data;
 
+    // Focused window.
     const streaksSpaceQ = trpc.analytics.anomalies.streaks.useQuery(
         { spaceId: space.id, periodStart: period.start, periodEnd: period.end },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal, placeholderData: (prev) => prev }
     );
     const streaksPersonalQ = trpc.personal.anomalies.streaks.useQuery(
         { periodStart: period.start, periodEnd: period.end },
-        { enabled: isPersonal }
+        { enabled: isPersonal, placeholderData: (prev) => prev }
     );
     const streaks =
         (isPersonal ? streaksPersonalQ.data : streaksSpaceQ.data) ?? [];
     const streaksLoading = isPersonal
-        ? streaksPersonalQ.isLoading
-        : streaksSpaceQ.isLoading;
+        ? streaksPersonalQ.isLoading && !streaksPersonalQ.data
+        : streaksSpaceQ.isLoading && !streaksSpaceQ.data;
 
+    // Focused window.
     const shapeSpaceQ = trpc.analytics.anomalies.shapeStats.useQuery(
         { spaceId: space.id, periodStart: period.start, periodEnd: period.end },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal, placeholderData: (prev) => prev }
     );
     const shapePersonalQ = trpc.personal.anomalies.shapeStats.useQuery(
         { periodStart: period.start, periodEnd: period.end },
-        { enabled: isPersonal }
+        { enabled: isPersonal, placeholderData: (prev) => prev }
     );
     const shape = (isPersonal ? shapePersonalQ.data : shapeSpaceQ.data) ?? null;
     const shapeLoading = isPersonal
-        ? shapePersonalQ.isLoading
-        : shapeSpaceQ.isLoading;
+        ? shapePersonalQ.isLoading && !shapePersonalQ.data
+        : shapeSpaceQ.isLoading && !shapeSpaceQ.data;
 
     const recurringIncreased = recurring.filter((r) => r.status === "increase");
     const recurringCancelled = recurring.filter((r) => r.status === "cancelled");
@@ -125,11 +126,17 @@ export default function AnomaliesView() {
     ];
 
     return (
-        <AnalyticsDetailLayout
-            title="Anomalies & signals"
-            description="Surprises in your spend — outlier transactions, recurring-charge changes, broken patterns, and streaks. Surfaced automatically."
-            actions={<PeriodChip defaultPreset="this-month" />}
-        >
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Anomalies & signals
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    Surprises in your spend — outlier transactions, recurring-charge
+                    changes, broken patterns, and streaks. Surfaced automatically.
+                </p>
+            </div>
+
             <KpiStrip
                 items={kpiItems}
                 isLoading={
@@ -218,7 +225,8 @@ export default function AnomaliesView() {
                     <CardHeader>
                         <CardTitle>Recurring charges</CardTitle>
                         <p className="text-xs text-muted-foreground">
-                            Subscriptions whose price or cadence changed.
+                            Subscriptions whose price or cadence changed · trailing 120
+                            days (doesn't move with the cursor).
                         </p>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3">
@@ -270,7 +278,8 @@ export default function AnomaliesView() {
                                 Pattern breaks
                             </CardTitle>
                             <p className="text-xs text-muted-foreground">
-                                Expected charges that haven't posted yet.
+                                Expected charges that haven't posted yet · trailing 120
+                                days (doesn't move with the cursor).
                             </p>
                         </div>
                         {patternsLoading ? (
@@ -415,7 +424,7 @@ export default function AnomaliesView() {
                     )}
                 </CardContent>
             </Card>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 

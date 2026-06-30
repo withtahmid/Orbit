@@ -7,9 +7,8 @@ import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
 import { DrillableDonut } from "@/components/shared/charts/DrillableDonut";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
 import { cn } from "@/lib/utils";
 
@@ -25,21 +24,22 @@ type Account = {
 };
 
 /**
- * Account distribution view — where every dollar lives, broken into
+ * Account distribution section — where every dollar lives, broken into
  * three visually distinct groups so the user can read assets, debt,
  * and locked savings as separate concepts. Net worth = assets + locked
  * − liabilities. The donut visualises the asset+locked composition;
  * liabilities live in their own (red-tinted) card so they never bleed
  * into the asset slice colors.
  */
-export default function AccountsView() {
-    const { space } = useCurrentSpace();
+export function AccountsSection() {
+    const { space } = useCockpit();
     const qSpace = trpc.analytics.accountDistribution.useQuery(
         { spaceId: space.id },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const qPersonal = trpc.personal.accountDistribution.useQuery(undefined, {
         enabled: space.isPersonal,
+        placeholderData: (prev) => prev,
     });
     const q = space.isPersonal ? qPersonal : qSpace;
 
@@ -135,11 +135,19 @@ export default function AccountsView() {
     ];
 
     return (
-        <AnalyticsDetailLayout
-            title="Account distribution"
-            description="Where your money lives. Liabilities are debt and reduce net worth — always shown separately. Locked accounts (e.g. retirement) are in their own group."
-        >
-            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Account distribution
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    Where your money lives. Liabilities are debt and reduce net
+                    worth — always shown separately. Locked accounts (e.g.
+                    retirement) are in their own group.
+                </p>
+            </div>
+
+            <KpiStrip items={kpiItems} isLoading={q.isLoading && !q.data} />
 
             <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
                 {/* Donut + per-account legend rows on the left */}
@@ -148,7 +156,7 @@ export default function AccountsView() {
                         <CardTitle>Assets distribution</CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-4">
-                        {q.isLoading ? (
+                        {q.isLoading && !q.data ? (
                             <Skeleton className="h-[280px] w-full" />
                         ) : donutSlices.length === 0 ? (
                             <p className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
@@ -167,44 +175,50 @@ export default function AccountsView() {
                         )}
 
                         {/* Per-account rows underneath — name + value + pct */}
-                        {!q.isLoading && donutSlices.length > 0 && (
-                            <div className="flex flex-col gap-1.5 border-t border-border/40 pt-3">
-                                {donutSlices.map((s) => {
-                                    const pct =
-                                        totals.totalAssets > 0
-                                            ? (s.value / totals.totalAssets) * 100
-                                            : 0;
-                                    return (
-                                        <div
-                                            key={s.id}
-                                            className="grid items-center gap-2 grid-cols-[12px_minmax(0,1fr)_auto_40px]"
-                                        >
-                                            <span
-                                                className="size-1.5 rounded-full"
-                                                style={{ backgroundColor: s.color }}
-                                            />
-                                            <span className="truncate text-[12px] text-foreground/85">
-                                                {s.name}
-                                            </span>
-                                            <MoneyDisplay
-                                                amount={s.value}
-                                                variant="neutral"
-                                                className="text-[12px]"
-                                            />
-                                            <span className="text-right text-[11px] tabular-nums text-muted-foreground">
-                                                {pct.toFixed(0)}%
-                                            </span>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        )}
+                        {!(q.isLoading && !q.data) &&
+                            donutSlices.length > 0 && (
+                                <div className="flex flex-col gap-1.5 border-t border-border/40 pt-3">
+                                    {donutSlices.map((s) => {
+                                        const pct =
+                                            totals.totalAssets > 0
+                                                ? (s.value /
+                                                      totals.totalAssets) *
+                                                  100
+                                                : 0;
+                                        return (
+                                            <div
+                                                key={s.id}
+                                                className="grid items-center gap-2 grid-cols-[12px_minmax(0,1fr)_auto_40px]"
+                                            >
+                                                <span
+                                                    className="size-1.5 rounded-full"
+                                                    style={{
+                                                        backgroundColor:
+                                                            s.color,
+                                                    }}
+                                                />
+                                                <span className="truncate text-[12px] text-foreground/85">
+                                                    {s.name}
+                                                </span>
+                                                <MoneyDisplay
+                                                    amount={s.value}
+                                                    variant="neutral"
+                                                    className="text-[12px]"
+                                                />
+                                                <span className="text-right text-[11px] tabular-nums text-muted-foreground">
+                                                    {pct.toFixed(0)}%
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                     </CardContent>
                 </Card>
 
                 {/* Three group cards on the right */}
                 <div className="flex flex-col gap-3.5">
-                    {q.isLoading ? (
+                    {q.isLoading && !q.data ? (
                         <>
                             <Skeleton className="h-44 w-full" />
                             <Skeleton className="h-32 w-full" />
@@ -251,7 +265,7 @@ export default function AccountsView() {
                     )}
                 </div>
             </div>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 

@@ -5,12 +5,10 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
-import { PeriodChip } from "@/components/shared/PeriodChip";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
 import { trpc, type RouterOutput } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import { usePeriod } from "@/hooks/usePeriod";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
+import { startOfMonth, addMonths } from "@/lib/dates";
 import { ROUTES } from "@/router/routes";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/money";
@@ -22,24 +20,29 @@ type Envelope = RouterOutput["analytics"]["envelopeUtilization"][number] & {
     spaceId?: string;
 };
 
-export default function EnvelopesView() {
-    const { space } = useCurrentSpace();
-    const { period } = usePeriod("this-month");
+export function EnvelopesSection() {
+    const { space, period } = useCockpit();
+
+    // envelopeUtilization allocation rows are keyed to calendar-month
+    // starts, so a sub-month cursor would report zero allocated. Clamp the
+    // focused window out to whole calendar months.
+    const wStart = startOfMonth(period.start);
+    const wEnd = addMonths(startOfMonth(new Date(period.end.getTime() - 1)), 1);
 
     const qSpace = trpc.analytics.envelopeUtilization.useQuery(
         {
             spaceId: space.id,
-            periodStart: period.start,
-            periodEnd: period.end,
+            periodStart: wStart,
+            periodEnd: wEnd,
         },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const qPersonal = trpc.personal.envelopeUtilization.useQuery(
         {
-            periodStart: period.start,
-            periodEnd: period.end,
+            periodStart: wStart,
+            periodEnd: wEnd,
         },
-        { enabled: space.isPersonal }
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
     const envelopes = useMemo<Envelope[]>(
@@ -117,12 +120,19 @@ export default function EnvelopesView() {
     ];
 
     return (
-        <AnalyticsDetailLayout
-            title="Envelope utilization"
-            description="How much of each envelope is left. Bars drain as you spend; envelopes you've overspent appear red with the overage to the right of the cap."
-            actions={<PeriodChip />}
-        >
-            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Envelope utilization
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    How much of each envelope is left. Bars drain as you spend;
+                    envelopes you've overspent appear red with the overage to
+                    the right of the cap.
+                </p>
+            </div>
+
+            <KpiStrip items={kpiItems} isLoading={q.isLoading && !q.data} />
 
             <Card className="overflow-hidden p-0">
                 <div className="flex flex-col gap-0.5 px-6 pt-5 pb-4">
@@ -131,7 +141,7 @@ export default function EnvelopesView() {
                         Sorted by % consumed — click any envelope to drill in.
                     </p>
                 </div>
-                {q.isLoading ? (
+                {q.isLoading && !q.data ? (
                     <div className="px-6 pb-5">
                         <Skeleton className="h-72 w-full" />
                     </div>
@@ -202,8 +212,7 @@ export default function EnvelopesView() {
                     )}
                 </Card>
             )}
-
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 

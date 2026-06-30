@@ -12,6 +12,7 @@ import { FullPageSpinner } from "@/components/shared/LoadingScreen";
 import NotFoundPage from "@/pages/NotFoundPage";
 import ErrorBoundaryPage from "@/pages/ErrorBoundaryPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
+import { RedirectToTab } from "@/pages/space/analytics/RedirectToTab";
 
 const SignupPage = lazy(() => import("@/pages/auth/signup/index"));
 const ForgotPasswordPage = lazy(() => import("@/pages/auth/forgot-password/index"));
@@ -34,36 +35,8 @@ const YearReportPage = lazy(() => import("@/pages/space/year/YearReportPage"));
 const CategoriesPage = lazy(() => import("@/pages/space/categories/CategoriesPage"));
 const EventsPage = lazy(() => import("@/pages/space/events/EventsPage"));
 const EventDetailPage = lazy(() => import("@/pages/space/events/EventDetailPage"));
-const AnalyticsPage = lazy(() => import("@/pages/space/analytics/AnalyticsPage"));
-const AnalyticsCashFlowView = lazy(
-    () => import("@/pages/space/analytics/views/CashFlowView")
-);
-const AnalyticsCategoriesView = lazy(
-    () => import("@/pages/space/analytics/views/CategoriesView")
-);
-const AnalyticsEnvelopesView = lazy(
-    () => import("@/pages/space/analytics/views/EnvelopesView")
-);
-const AnalyticsBalanceView = lazy(
-    () => import("@/pages/space/analytics/views/BalanceHistoryView")
-);
-const AnalyticsAccountsView = lazy(
-    () => import("@/pages/space/analytics/views/AccountsView")
-);
-const AnalyticsHeatmapView = lazy(
-    () => import("@/pages/space/analytics/views/HeatmapView")
-);
-const AnalyticsAllocationsView = lazy(
-    () => import("@/pages/space/analytics/views/AllocationsView")
-);
-const AnalyticsTrendsView = lazy(
-    () => import("@/pages/space/analytics/views/TrendsView")
-);
-const AnalyticsAnomaliesView = lazy(
-    () => import("@/pages/space/analytics/views/AnomaliesView")
-);
-const AnalyticsPriorityView = lazy(
-    () => import("@/pages/space/analytics/views/PriorityView")
+const AnalyticsCockpitPage = lazy(
+    () => import("@/pages/space/analytics/AnalyticsCockpitPage")
 );
 const SpaceSettingsPage = lazy(() => import("@/pages/space/settings/SpaceSettingsPage"));
 
@@ -190,47 +163,50 @@ export const router = createBrowserRouter([
                                     },
                                     {
                                         path: "analytics",
-                                        element: withSuspense(<AnalyticsPage />),
+                                        element: withSuspense(<AnalyticsCockpitPage />),
                                     },
+                                    // Legacy per-view routes now redirect into
+                                    // the cockpit with the matching tab so old
+                                    // bookmarks and shared links keep working.
                                     {
                                         path: "analytics/cash-flow",
-                                        element: withSuspense(<AnalyticsCashFlowView />),
+                                        element: <RedirectToTab tab="cashflow" />,
                                     },
                                     {
                                         path: "analytics/categories",
-                                        element: withSuspense(<AnalyticsCategoriesView />),
+                                        element: <RedirectToTab tab="spending" />,
                                     },
                                     {
                                         path: "analytics/envelopes",
-                                        element: withSuspense(<AnalyticsEnvelopesView />),
+                                        element: <RedirectToTab tab="budget" />,
                                     },
                                     {
                                         path: "analytics/balance",
-                                        element: withSuspense(<AnalyticsBalanceView />),
+                                        element: <RedirectToTab tab="accounts" />,
                                     },
                                     {
                                         path: "analytics/accounts",
-                                        element: withSuspense(<AnalyticsAccountsView />),
+                                        element: <RedirectToTab tab="accounts" />,
                                     },
                                     {
                                         path: "analytics/heatmap",
-                                        element: withSuspense(<AnalyticsHeatmapView />),
+                                        element: <RedirectToTab tab="spending" />,
                                     },
                                     {
                                         path: "analytics/allocations",
-                                        element: withSuspense(<AnalyticsAllocationsView />),
+                                        element: <RedirectToTab tab="budget" />,
                                     },
                                     {
                                         path: "analytics/trends",
-                                        element: withSuspense(<AnalyticsTrendsView />),
+                                        element: <RedirectToTab tab="insights" />,
                                     },
                                     {
                                         path: "analytics/anomalies",
-                                        element: withSuspense(<AnalyticsAnomaliesView />),
+                                        element: <RedirectToTab tab="insights" />,
                                     },
                                     {
                                         path: "analytics/priority",
-                                        element: withSuspense(<AnalyticsPriorityView />),
+                                        element: <RedirectToTab tab="spending" />,
                                     },
                                     {
                                         path: "settings",

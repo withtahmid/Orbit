@@ -9,7 +9,7 @@ import { ROUTES } from "@/router/routes";
 import { addDays, addMonths, endOfMonth, startOfMonth } from "@/lib/dates";
 import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 import { useStore } from "@/stores/useStore";
-import { CumulativeRaceChart } from "@/pages/space/analytics/views/TrendsView";
+import { CumulativeRaceChart } from "@/pages/space/analytics/tabs/sections/TrendsSection";
 import { MetricToggle, useMetricMode } from "@/components/shared/MetricMode";
 
 /* =============================================================

@@ -1,14 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import {
-    ArrowDown,
-    ArrowUp,
-    ChevronDown,
-    FolderTree,
-    Tags,
-    Wallet,
-    X,
-} from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, FolderTree, Tags, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -25,22 +17,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
-import { MetricToggle, useMetricMode } from "@/components/shared/MetricMode";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import {
-    addDays,
-    addMonths,
-    startOfIsoWeek,
-    startOfMonth,
-    startOfQuarter,
-    startOfYear,
-} from "@/lib/dates";
+import { addDays, addMonths } from "@/lib/dates";
 import { formatInAppTz } from "@/lib/formatDate";
 
-type Granularity = "week" | "month" | "quarter" | "year";
+/** The granularities the `trends.dailyComparison` procedure accepts —
+ *  there is no "day" bucket; the cockpit's "day" granularity is mapped
+ *  to "week" so the cumulative race chart always has a meaningful span. */
+type DailyGranularity = "week" | "month" | "quarter" | "year";
 
 /** Cheap RFC-4122-ish gate for URL filter params. The server runs a
  *  proper Zod uuid validator; this just stops a single malformed pasted
@@ -49,66 +35,36 @@ const UUID_RE =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (s: string): boolean => UUID_RE.test(s);
 
-const GRANULARITY_OPTIONS: ReadonlyArray<{
-    id: Granularity;
-    label: string;
-    /** Singular noun for "vs last X" copy. */
-    noun: string;
-}> = [
-    { id: "week", label: "Week", noun: "week" },
-    { id: "month", label: "Month", noun: "month" },
-    { id: "quarter", label: "Quarter", noun: "quarter" },
-    { id: "year", label: "Year", noun: "year" },
-];
-
-/** Window bounds for the selected granularity, aligned with Postgres
- *  `date_trunc(granularity, ...)` semantics so frontend-derived periods
- *  (movers card) match the backend's bucket boundaries. */
-function periodBoundsFor(g: Granularity, now: Date = new Date()): {
-    start: Date;
-    end: Date;
-} {
-    if (g === "week") {
-        const start = startOfIsoWeek(now);
-        return { start, end: addDays(start, 7) };
-    }
-    if (g === "month") {
-        const start = startOfMonth(now);
-        return { start, end: addMonths(start, 1) };
-    }
-    if (g === "quarter") {
-        const start = startOfQuarter(now);
-        return { start, end: addMonths(start, 3) };
-    }
-    const start = startOfYear(now);
-    return { start, end: addMonths(start, 12) };
-}
+/** Singular noun for "vs last X" copy, keyed by daily-comparison granularity. */
+const NOUN_BY_GRANULARITY: Record<DailyGranularity, string> = {
+    week: "week",
+    month: "month",
+    quarter: "quarter",
+    year: "year",
+};
 
 /* ============================================================
-   VIEW
+   SECTION
    ============================================================ */
 
-export default function TrendsView() {
-    const { space } = useCurrentSpace();
+export function TrendsSection() {
+    const { space, mode, period, granularity: cockpitGranularity, anchor, year } =
+        useCockpit();
     const isPersonal = space.isPersonal;
 
+    /* The cockpit owns the time control; map its granularity onto the
+       set this procedure understands. "day" has no daily-comparison
+       bucket, so it folds into "week"; "custom" hides the panel below. */
+    const isCustom = cockpitGranularity === "custom";
+    const granularity: DailyGranularity =
+        cockpitGranularity === "year"
+            ? "year"
+            : cockpitGranularity === "month"
+              ? "month"
+              : "week";
+    const noun = NOUN_BY_GRANULARITY[granularity];
+
     const [params, setParams] = useSearchParams();
-    const granularity = ((): Granularity => {
-        const q = params.get("g");
-        return q === "week" || q === "quarter" || q === "year" ? q : "month";
-    })();
-    const setGranularity = (g: Granularity) => {
-        setParams(
-            (p) => {
-                const next = new URLSearchParams(p);
-                if (g === "month") next.delete("g");
-                else next.set("g", g);
-                return next;
-            },
-            { replace: true }
-        );
-    };
-    const noun = GRANULARITY_OPTIONS.find((o) => o.id === granularity)!.noun;
 
     /* Filter state — read multi-value params straight off the URL so
        links are shareable. Empty arrays → no filter on that dimension.
@@ -163,40 +119,29 @@ export default function TrendsView() {
     const hasAnyFilter =
         envelopeIds.length + accountIds.length + categoryIds.length > 0;
 
-    const now = useMemo(() => new Date(), []);
-    const period = useMemo(() => periodBoundsFor(granularity, now), [granularity, now]);
-
-    /* Spending Trends defaults to `operational` — the user looking at
-       a "trends" page wants true spending velocity, not a chart that
-       spikes the day they shifted savings between two of their own
-       accounts. They can still toggle to `cash` to see the bank view. */
-    const { mode } = useMetricMode("operational");
-
     const dailySpaceQ = trpc.analytics.trends.dailyComparison.useQuery(
         {
             spaceId: space.id,
-            anchor: now,
+            anchor,
             granularity,
             mode,
             envelopeIds: envelopeIdsArg,
             accountIds: accountIdsArg,
             categoryIds: categoryIdsArg,
         },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal && !isCustom, placeholderData: (prev) => prev }
     );
     const dailyPersonalQ = trpc.personal.trends.dailyComparison.useQuery(
-        { anchor: now, granularity, mode, accountIds: accountIdsArg },
-        { enabled: isPersonal }
+        { anchor, granularity, mode, accountIds: accountIdsArg },
+        { enabled: isPersonal && !isCustom, placeholderData: (prev) => prev }
     );
     const dailyData = (isPersonal ? dailyPersonalQ.data : dailySpaceQ.data) ?? null;
-    const dailyLoading = isPersonal
-        ? dailyPersonalQ.isLoading
-        : dailySpaceQ.isLoading;
+    const dailyQ = isPersonal ? dailyPersonalQ : dailySpaceQ;
+    const dailyLoading = dailyQ.isLoading && !dailyQ.data;
 
     /* YoY card always compares calendar years — independent of the
-       selected granularity. Pin to the current year as Dhaka knows it,
-       not browser-local; near year-end the two can disagree by one. */
-    const yoyYear = Number(formatInAppTz(now, "yyyy"));
+       selected granularity. Anchored on the cockpit cursor's year. */
+    const yoyYear = year;
     const yoySpaceQ = trpc.analytics.trends.yearOverYear.useQuery(
         {
             spaceId: space.id,
@@ -205,11 +150,11 @@ export default function TrendsView() {
             accountIds: accountIdsArg,
             categoryIds: categoryIdsArg,
         },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal, placeholderData: (prev) => prev }
     );
     const yoyPersonalQ = trpc.personal.trends.yearOverYear.useQuery(
         { year: yoyYear, accountIds: accountIdsArg },
-        { enabled: isPersonal }
+        { enabled: isPersonal, placeholderData: (prev) => prev }
     );
     const yoyData = (isPersonal ? yoyPersonalQ.data : yoySpaceQ.data) ?? null;
 
@@ -223,7 +168,7 @@ export default function TrendsView() {
             accountIds: accountIdsArg,
             categoryIds: categoryIdsArg,
         },
-        { enabled: !isPersonal }
+        { enabled: !isPersonal, placeholderData: (prev) => prev }
     );
     const moversPersonalQ = trpc.personal.trends.categoryMovers.useQuery(
         {
@@ -232,7 +177,7 @@ export default function TrendsView() {
             limit: 6,
             accountIds: accountIdsArg,
         },
-        { enabled: isPersonal }
+        { enabled: isPersonal, placeholderData: (prev) => prev }
     );
     const moversResponse =
         (isPersonal ? moversPersonalQ.data : moversSpaceQ.data) ?? null;
@@ -409,23 +354,18 @@ export default function TrendsView() {
     }, [yoyData]);
 
     return (
-        <AnalyticsDetailLayout
-            title="Spending trends"
-            description={
-                mode === "cash"
-                    ? "Cash outflow over time — includes cross-space transfer principal as spending. Switch to Operational for the true expense-only view."
-                    : "True expense over time — transfer principal excluded; only real expenses and transfer fees count as spending."
-            }
-            actions={
-                <div className="flex flex-wrap items-center gap-2">
-                    <MetricToggle />
-                    <GranularityToggle
-                        value={granularity}
-                        onChange={setGranularity}
-                    />
-                </div>
-            }
-        >
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Spending trends
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    {mode === "cash"
+                        ? "Cash outflow over time — includes cross-space transfer principal as spending. Switch to Operational for the true expense-only view."
+                        : "True expense over time — transfer principal excluded; only real expenses and transfer fees count as spending."}
+                </p>
+            </div>
+
             <TrendsFilterBar
                 spaceId={space.id}
                 isPersonal={isPersonal}
@@ -436,72 +376,89 @@ export default function TrendsView() {
                 onClearAll={clearAllFilters}
                 hasAnyFilter={hasAnyFilter}
             />
-            <KpiStrip items={kpiItems} isLoading={dailyLoading} />
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>
-                        Cumulative spend race · this {noun} vs last {noun}
-                    </CardTitle>
-                    <p className="text-xs text-muted-foreground">
-                        {bucketLabel} {TODAY} of {DAYS_IN_MONTH} · projection
-                        extends through {noun}-end based on current pace. The
-                        flat line is the typical pace from the last 3 {noun}s.
-                    </p>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-4">
-                    {dailyLoading ? (
-                        <Skeleton className="h-[380px] w-full" />
-                    ) : (
-                        <CumulativeRaceChart
-                            cur={cumulative.cur}
-                            prv={cumulative.prv}
-                            avg={cumulative.avg}
-                            today={TODAY}
-                            daysInMonth={DAYS_IN_MONTH}
-                            projection={projected}
-                            bucketUnit={BUCKET_UNIT}
-                            periodStart={period.start}
-                        />
-                    )}
-                    {/* Endpoint strip — replaces the inline right-edge
-                        labels that used to overlap. Each row is a single
-                        line's identity + its terminal value. Reads
-                        top-to-bottom in the same visual order as the
-                        chart's lines stack at period end. */}
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border/40 pt-3 text-[11.5px] sm:grid-cols-4">
-                        <EndpointStat
-                            color="var(--warning)"
-                            kind="solid"
-                            label={`This ${noun} (so far)`}
-                            value={monthSoFar}
-                        />
-                        <EndpointStat
-                            color="var(--muted-foreground)"
-                            kind="dashed"
-                            label={`Last ${noun}`}
-                            value={lastMonthFull}
-                        />
-                        <EndpointStat
-                            color="var(--warning)"
-                            kind="dotted"
-                            label="Projection"
-                            value={projected}
-                        />
-                        {cumulative.avg ? (
-                            <EndpointStat
-                                color="var(--income)"
-                                kind="solid"
-                                label={`Typical (avg of all prior ${noun}s)`}
-                                value={
-                                    cumulative.avg[cumulative.avg.length - 1] ??
-                                    0
-                                }
-                            />
-                        ) : null}
-                    </div>
-                </CardContent>
-            </Card>
+            {/* Cumulative race + velocity rely on a within-period bucket
+                progression, which a free-form custom range can't supply.
+                We hide them on custom and keep the year-over-year and
+                movers panels (which work off the focused window). */}
+            {isCustom ? (
+                <p className="rounded-lg border border-dashed border-border/60 bg-muted/10 px-4 py-3 text-sm text-muted-foreground">
+                    The cumulative spend race is available for week, month,
+                    quarter, and year views. Pick one of those granularities to
+                    see it.
+                </p>
+            ) : (
+                <>
+                    <KpiStrip items={kpiItems} isLoading={dailyLoading} />
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>
+                                Cumulative spend race · this {noun} vs last {noun}
+                            </CardTitle>
+                            <p className="text-xs text-muted-foreground">
+                                {bucketLabel} {TODAY} of {DAYS_IN_MONTH} ·
+                                projection extends through {noun}-end based on
+                                current pace. The flat line is the typical pace
+                                from the last 3 {noun}s.
+                            </p>
+                        </CardHeader>
+                        <CardContent className="flex flex-col gap-4">
+                            {dailyLoading ? (
+                                <Skeleton className="h-[380px] w-full" />
+                            ) : (
+                                <CumulativeRaceChart
+                                    cur={cumulative.cur}
+                                    prv={cumulative.prv}
+                                    avg={cumulative.avg}
+                                    today={TODAY}
+                                    daysInMonth={DAYS_IN_MONTH}
+                                    projection={projected}
+                                    bucketUnit={BUCKET_UNIT}
+                                    periodStart={period.start}
+                                />
+                            )}
+                            {/* Endpoint strip — replaces the inline right-edge
+                                labels that used to overlap. Each row is a single
+                                line's identity + its terminal value. Reads
+                                top-to-bottom in the same visual order as the
+                                chart's lines stack at period end. */}
+                            <div className="grid grid-cols-2 gap-x-6 gap-y-2 border-t border-border/40 pt-3 text-[11.5px] sm:grid-cols-4">
+                                <EndpointStat
+                                    color="var(--warning)"
+                                    kind="solid"
+                                    label={`This ${noun} (so far)`}
+                                    value={monthSoFar}
+                                />
+                                <EndpointStat
+                                    color="var(--muted-foreground)"
+                                    kind="dashed"
+                                    label={`Last ${noun}`}
+                                    value={lastMonthFull}
+                                />
+                                <EndpointStat
+                                    color="var(--warning)"
+                                    kind="dotted"
+                                    label="Projection"
+                                    value={projected}
+                                />
+                                {cumulative.avg ? (
+                                    <EndpointStat
+                                        color="var(--income)"
+                                        kind="solid"
+                                        label={`Typical (avg of all prior ${noun}s)`}
+                                        value={
+                                            cumulative.avg[
+                                                cumulative.avg.length - 1
+                                            ] ?? 0
+                                        }
+                                    />
+                                ) : null}
+                            </div>
+                        </CardContent>
+                    </Card>
+                </>
+            )}
 
             <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
                 <Card>
@@ -559,46 +516,55 @@ export default function TrendsView() {
                         </p>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-2.5">
-                        <VelocityRow
-                            label={`Per day this ${noun}`}
-                            value={dailyAvg / BUCKET_DAYS}
-                            sub={`Across ${TODAY} ${bucketLabel.toLowerCase()}${TODAY === 1 ? "" : "s"} so far`}
-                        />
-                        <VelocityRow
-                            label={`Per day last ${noun}`}
-                            value={
-                                TODAY > 0
-                                    ? lastMonthSoFar / TODAY / BUCKET_DAYS
-                                    : 0
-                            }
-                            sub={`Same window, prior ${noun}`}
-                            muted
-                        />
-                        {cumulative.avg ? (
-                            <VelocityRow
-                                label={`Per day typical`}
-                                value={typicalDailyAvg}
-                                sub={`Avg across all prior ${noun}s`}
-                                muted
-                            />
-                        ) : null}
-                        <VelocityRow
-                            label="Acceleration"
-                            value={paceDelta ?? 0}
-                            sub={
-                                paceDelta == null
-                                    ? `No spend last ${noun} to compare`
-                                    : `% change vs last ${noun}'s daily burn`
-                            }
-                            tone={
-                                paceDelta != null && paceDelta >= 0
-                                    ? "expense"
-                                    : undefined
-                            }
-                            unit="%"
-                            decimals={1}
-                            muted={paceDelta == null}
-                        />
+                        {isCustom ? (
+                            <p className="py-4 text-center text-sm text-muted-foreground">
+                                Velocity needs a week, month, quarter, or year
+                                view.
+                            </p>
+                        ) : (
+                            <>
+                                <VelocityRow
+                                    label={`Per day this ${noun}`}
+                                    value={dailyAvg / BUCKET_DAYS}
+                                    sub={`Across ${TODAY} ${bucketLabel.toLowerCase()}${TODAY === 1 ? "" : "s"} so far`}
+                                />
+                                <VelocityRow
+                                    label={`Per day last ${noun}`}
+                                    value={
+                                        TODAY > 0
+                                            ? lastMonthSoFar / TODAY / BUCKET_DAYS
+                                            : 0
+                                    }
+                                    sub={`Same window, prior ${noun}`}
+                                    muted
+                                />
+                                {cumulative.avg ? (
+                                    <VelocityRow
+                                        label={`Per day typical`}
+                                        value={typicalDailyAvg}
+                                        sub={`Avg across all prior ${noun}s`}
+                                        muted
+                                    />
+                                ) : null}
+                                <VelocityRow
+                                    label="Acceleration"
+                                    value={paceDelta ?? 0}
+                                    sub={
+                                        paceDelta == null
+                                            ? `No spend last ${noun} to compare`
+                                            : `% change vs last ${noun}'s daily burn`
+                                    }
+                                    tone={
+                                        paceDelta != null && paceDelta >= 0
+                                            ? "expense"
+                                            : undefined
+                                    }
+                                    unit="%"
+                                    decimals={1}
+                                    muted={paceDelta == null}
+                                />
+                            </>
+                        )}
                     </CardContent>
                 </Card>
             </div>
@@ -690,7 +656,7 @@ export default function TrendsView() {
                     )}
                 </CardContent>
             </Card>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 
@@ -1189,45 +1155,6 @@ function TooltipRow({
                           maximumFractionDigits: 0,
                       })}
             </span>
-        </div>
-    );
-}
-
-/** Segmented control for the granularity selector. URL-persisted via
- *  `?g=` so links are shareable and reload-stable. */
-function GranularityToggle({
-    value,
-    onChange,
-}: {
-    value: Granularity;
-    onChange: (g: Granularity) => void;
-}) {
-    return (
-        <div
-            role="tablist"
-            aria-label="Trends granularity"
-            className="inline-flex h-9 items-center rounded-md border border-border bg-card p-0.5 text-[12.5px]"
-        >
-            {GRANULARITY_OPTIONS.map((opt) => {
-                const active = opt.id === value;
-                return (
-                    <button
-                        key={opt.id}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => onChange(opt.id)}
-                        className={cn(
-                            "h-8 rounded px-3 transition-colors",
-                            active
-                                ? "bg-accent text-foreground"
-                                : "text-muted-foreground hover:text-foreground"
-                        )}
-                    >
-                        {opt.label}
-                    </button>
-                );
-            })}
         </div>
     );
 }

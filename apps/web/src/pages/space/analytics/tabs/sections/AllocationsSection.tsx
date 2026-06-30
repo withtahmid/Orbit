@@ -5,9 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 
 /**
  * Allocation map — two perspectives on your space-wide budget intent.
@@ -15,30 +14,41 @@ import { useCurrentSpace } from "@/hooks/useCurrentSpace";
  *   1. By envelope — how much is committed to each envelope (bar per envelope)
  *   2. Totals      — space-wide partition of every dollar (KPIs + sankey-ish bar)
  */
-export default function AllocationsView() {
-    const { space } = useCurrentSpace();
+export function AllocationsSection() {
+    const { space } = useCockpit();
 
     if (space.isPersonal) {
         return (
-            <AnalyticsDetailLayout
-                title="Allocation map"
-                description="Where your budget is committed across envelopes."
-            >
+            <section className="grid gap-5 sm:gap-6">
+                <div>
+                    <h2 className="text-base font-semibold tracking-tight">
+                        Allocation map
+                    </h2>
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                        Where your budget is committed across envelopes.
+                    </p>
+                </div>
                 <Card>
                     <CardContent className="py-12 text-center text-sm text-muted-foreground">
-                        Allocation map is a per-space view. Open a real space
-                        to see it.
+                        Allocation maps aren't available for personal money —
+                        envelopes are space-wide.
                     </CardContent>
                 </Card>
-            </AnalyticsDetailLayout>
+            </section>
         );
     }
 
     return (
-        <AnalyticsDetailLayout
-            title="Allocation map"
-            description="Where your budget is committed. Envelopes are space-wide budget intent — this view shows how much sits in each."
-        >
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Allocation map
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    Where your budget is committed. Envelopes are space-wide
+                    budget intent — this view shows how much sits in each.
+                </p>
+            </div>
             <Tabs defaultValue="by-envelope">
                 <TabsList>
                     <TabsTrigger value="by-envelope">By envelope</TabsTrigger>
@@ -51,7 +61,7 @@ export default function AllocationsView() {
                     <TotalsPanel spaceId={space.id} />
                 </TabsContent>
             </Tabs>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 
@@ -60,7 +70,10 @@ export default function AllocationsView() {
  * read from the cache because react-query dedupes identical inputs.
  */
 function useAllocations(spaceId: string) {
-    return trpc.analytics.allocations.useQuery({ spaceId });
+    return trpc.analytics.allocations.useQuery(
+        { spaceId },
+        { placeholderData: (prev) => prev }
+    );
 }
 
 /* ============================================================
@@ -95,7 +108,7 @@ function ByEnvelopePanel({ spaceId }: { spaceId: string }) {
                 </p>
             </CardHeader>
             <CardContent className="grid gap-5">
-                {q.isLoading ? (
+                {q.isLoading && !q.data ? (
                     <Skeleton className="h-48 w-full" />
                 ) : rows.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
@@ -155,13 +168,16 @@ function TotalsPanel({ spaceId }: { spaceId: string }) {
     const [now] = useState(() => new Date());
     const monthStart = startOfMonth(now);
     const monthEnd = addMonths(monthStart, 1);
-    const summary = trpc.analytics.spaceSummary.useQuery({
-        spaceId,
-        periodStart: monthStart,
-        periodEnd: monthEnd,
-    });
+    const summary = trpc.analytics.spaceSummary.useQuery(
+        {
+            spaceId,
+            periodStart: monthStart,
+            periodEnd: monthEnd,
+        },
+        { placeholderData: (prev) => prev }
+    );
 
-    const loading = q.isLoading || summary.isLoading;
+    const loading = (q.isLoading && !q.data) || (summary.isLoading && !summary.data);
 
     const t = useMemo(() => {
         if (!q.data || !summary.data) {

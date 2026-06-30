@@ -15,16 +15,17 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
-import { PeriodChip } from "@/components/shared/PeriodChip";
-import { MetricToggle, useMetricMode } from "@/components/shared/MetricMode";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
-import { usePeriod } from "@/hooks/usePeriod";
 import { ROUTES } from "@/router/routes";
 import { formatInAppTz } from "@/lib/formatDate";
 import { formatMoney } from "@/lib/money";
+import {
+    startOfMonth as startOfMonthAppTz,
+    addMonths as addMonthsAppTz,
+    toInputDate,
+} from "@/lib/dates";
 
 type Row = {
     bucket: Date | string;
@@ -33,56 +34,37 @@ type Row = {
     net: number;
 };
 
-export default function CashFlowView() {
-    const { space } = useCurrentSpace();
+/**
+ * Monthly income-vs-expense bars + savings-rate line over a trailing
+ * window (6 months, or 12 at Year granularity). This is a "context"
+ * panel: it deliberately shows more than the focused period so the user
+ * reads the trend, while the cockpit cursor stays put.
+ */
+export function CashFlowSection() {
+    const { space, mode, granularity, trailingMonths } = useCockpit();
     const navigate = useNavigate();
-    const { period } = usePeriod("last-6-months");
-    const { mode } = useMetricMode();
+    const { start: periodStart, end: periodEnd } = trailingMonths(
+        granularity === "year" ? 12 : 6
+    );
 
     const qSpace = trpc.analytics.cashFlow.useQuery(
-        {
-            spaceId: space.id,
-            periodStart: period.start,
-            periodEnd: period.end,
-            bucket: "month",
-            mode,
-        },
-        { enabled: !space.isPersonal }
+        { spaceId: space.id, periodStart, periodEnd, bucket: "month", mode },
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const qPersonal = trpc.personal.cashFlow.useQuery(
-        {
-            periodStart: period.start,
-            periodEnd: period.end,
-            bucket: "month",
-            mode,
-        },
-        { enabled: space.isPersonal }
+        { periodStart, periodEnd, bucket: "month", mode },
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
-    /* Per-month top expense category — one leader per bucket so each
-       row of the breakdown table can show its own month's winner. */
     const topByBucketSpaceQ = trpc.analytics.topCategoriesByBucket.useQuery(
-        {
-            spaceId: space.id,
-            periodStart: period.start,
-            periodEnd: period.end,
-            bucket: "month",
-        },
-        { enabled: !space.isPersonal }
+        { spaceId: space.id, periodStart, periodEnd, bucket: "month" },
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const topByBucketPersonalQ = trpc.personal.topCategoriesByBucket.useQuery(
-        {
-            periodStart: period.start,
-            periodEnd: period.end,
-            bucket: "month",
-        },
-        { enabled: space.isPersonal }
+        { periodStart, periodEnd, bucket: "month" },
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
-    /* Bucket lookup keyed by app-timezone yyyy-MM. `toISOString` would
-       return UTC year-month, which is off by a month for any BST bucket
-       at the period edge (April BST starts at 18:00 UTC on March 31).
-       Both producer and consumer must use the same key derivation. */
     const topByBucket = useMemo(() => {
         const data =
             (space.isPersonal
@@ -124,27 +106,12 @@ export default function CashFlowView() {
                 const expense = Number(r.expense);
                 const net = income - expense;
                 const rate = income > 0 ? (net / income) * 100 : 0;
-                // Overage label sits above the expense bar only when the
-                // month was a drawdown — communicates "spent X over income"
-                // at a glance. `null` (not 0) so recharts skips the label
-                // entirely on positive-net months.
                 const overage = expense > income ? -(expense - income) : null;
-                return {
-                    bucket: r.bucket,
-                    income,
-                    expense,
-                    net,
-                    rate,
-                    overage,
-                };
+                return { bucket: r.bucket, income, expense, net, rate, overage };
             }),
         [rows]
     );
 
-    /* Labels swap based on metric mode so the user always knows
-       which definition they're reading.
-         - cash       → "Inflow / Outflow / Net cash" (incl. transfers)
-         - operational → "Income / Expense / Net" (true earnings/spend) */
     const inLabel = mode === "cash" ? "Inflow" : "Income";
     const outLabel = mode === "cash" ? "Outflow" : "Expense";
     const netLabel = mode === "cash" ? "Net cash" : "Net";
@@ -152,6 +119,7 @@ export default function CashFlowView() {
         mode === "cash"
             ? "incl. cross-space transfers"
             : "transfer principal excluded";
+    const windowNote = granularity === "year" ? "trailing 12 months" : "trailing 6 months";
 
     const kpiItems: KpiItem[] = [
         {
@@ -192,31 +160,28 @@ export default function CashFlowView() {
         },
     ];
 
-    const isEmpty = !q.isLoading && rows.length === 0;
+    const loading = q.isLoading && !q.data;
+    const isEmpty = !loading && rows.length === 0;
 
     return (
-        <AnalyticsDetailLayout
-            title="Cash flow"
-            description={
-                mode === "cash"
-                    ? "Money in versus money out, month by month — includes cross-space transfer principal. Switch to Operational for the true income vs expense view."
-                    : "True income versus expense, month by month — transfer principal excluded. Switch to Cash for the bank-balance view that includes cross-space transfers."
-            }
-            actions={
-                <div className="flex flex-wrap items-center gap-2">
-                    <MetricToggle />
-                    <PeriodChip defaultPreset="last-6-months" />
-                </div>
-            }
-        >
-            <KpiStrip items={kpiItems} isLoading={q.isLoading} />
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">Cash flow</h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    {mode === "cash"
+                        ? "Money in versus money out, month by month — includes cross-space transfer principal."
+                        : "True income versus expense, month by month — transfer principal excluded."}{" "}
+                    Showing the {windowNote}.
+                </p>
+            </div>
+
+            <KpiStrip items={kpiItems} isLoading={loading} />
 
             <Card>
                 <CardHeader className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <CardTitle>
-                            Monthly {inLabel.toLowerCase()} vs{" "}
-                            {outLabel.toLowerCase()}
+                            Monthly {inLabel.toLowerCase()} vs {outLabel.toLowerCase()}
                         </CardTitle>
                         <p className="mt-1 text-xs text-muted-foreground">
                             Bars are paired; the dotted line plots the
@@ -227,7 +192,7 @@ export default function CashFlowView() {
                     <ChartLegend inLabel={inLabel} outLabel={outLabel} />
                 </CardHeader>
                 <CardContent className="h-[320px] px-1 sm:h-[380px] sm:px-6">
-                    {q.isLoading ? (
+                    {loading ? (
                         <Skeleton className="h-full w-full" />
                     ) : isEmpty ? (
                         <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -265,15 +230,7 @@ export default function CashFlowView() {
                                         v >= 1000 ? `${Math.round(v / 100) / 10}k` : `${v}`
                                     }
                                 />
-                                {/* Hidden right axis — drives the savings-rate
-                                    line's scaling, but the design renders
-                                    the line as a pure trend signal without
-                                    numeric tick labels. */}
-                                <YAxis
-                                    yAxisId="right"
-                                    orientation="right"
-                                    hide
-                                />
+                                <YAxis yAxisId="right" orientation="right" hide />
                                 <RTooltip
                                     cursor={{ fill: "var(--accent)", opacity: 0.4 }}
                                     content={({ active, payload, label }) => {
@@ -288,20 +245,20 @@ export default function CashFlowView() {
                                                     {formatInAppTz(label as never, "MMMM yyyy")}
                                                 </p>
                                                 <div className="flex flex-col gap-1 tabular-nums">
-                                                    <Row
+                                                    <TooltipRow
                                                         dot="var(--income)"
                                                         label={inLabel}
                                                         value={d.income}
                                                         tone="income"
                                                     />
-                                                    <Row
+                                                    <TooltipRow
                                                         dot="var(--expense)"
                                                         label={outLabel}
                                                         value={d.expense}
                                                         tone="expense"
                                                     />
                                                     <div className="my-0.5 h-px bg-border/60" />
-                                                    <Row
+                                                    <TooltipRow
                                                         dot="var(--muted-foreground)"
                                                         label={netLabel}
                                                         value={d.net}
@@ -336,9 +293,7 @@ export default function CashFlowView() {
                                         dataKey="overage"
                                         position="top"
                                         formatter={(v) =>
-                                            typeof v === "number"
-                                                ? formatOverage(v)
-                                                : ""
+                                            typeof v === "number" ? formatOverage(v) : ""
                                         }
                                         fill="var(--expense)"
                                         fontSize={10}
@@ -372,7 +327,7 @@ export default function CashFlowView() {
                         Click any month to drill into transactions.
                     </p>
                 </div>
-                {q.isLoading ? (
+                {loading ? (
                     <div className="px-6 pb-5">
                         <Skeleton className="h-40 w-full" />
                     </div>
@@ -391,10 +346,7 @@ export default function CashFlowView() {
                                         { label: outLabel, align: "right" },
                                         { label: netLabel, align: "right" },
                                         { label: "Rate", align: "right" },
-                                        {
-                                            label: "Top expense category",
-                                            align: "left",
-                                        },
+                                        { label: "Top expense category", align: "left" },
                                     ].map((h) => (
                                         <th
                                             key={h.label}
@@ -418,11 +370,9 @@ export default function CashFlowView() {
                                                 d.bucket instanceof Date
                                                     ? d.bucket
                                                     : new Date(d.bucket);
-                                            const from = ymd(startOfMonth(start));
+                                            const from = ymd(monthStart(start));
                                             const to = ymd(
-                                                new Date(
-                                                    nextMonth(start).getTime() - 1
-                                                )
+                                                new Date(nextMonth(start).getTime() - 1)
                                             );
                                             navigate(
                                                 `${ROUTES.spaceTransactions(
@@ -436,23 +386,15 @@ export default function CashFlowView() {
                                             {formatInAppTz(d.bucket, "MMM yyyy")}
                                         </td>
                                         <td className="px-5 py-3 text-right">
-                                            <MoneyDisplay
-                                                amount={d.income}
-                                                variant="income"
-                                            />
+                                            <MoneyDisplay amount={d.income} variant="income" />
                                         </td>
                                         <td className="px-5 py-3 text-right">
-                                            <MoneyDisplay
-                                                amount={d.expense}
-                                                variant="expense"
-                                            />
+                                            <MoneyDisplay amount={d.expense} variant="expense" />
                                         </td>
                                         <td className="px-5 py-3 text-right">
                                             <MoneyDisplay
                                                 amount={d.net}
-                                                variant={
-                                                    d.net >= 0 ? "income" : "expense"
-                                                }
+                                                variant={d.net >= 0 ? "income" : "expense"}
                                                 signed
                                             />
                                         </td>
@@ -480,8 +422,7 @@ export default function CashFlowView() {
                                                         <span
                                                             className="size-1.5 rounded-full"
                                                             style={{
-                                                                backgroundColor:
-                                                                    top.color,
+                                                                backgroundColor: top.color,
                                                             }}
                                                         />
                                                         <span className="truncate">
@@ -498,17 +439,11 @@ export default function CashFlowView() {
                     </div>
                 )}
             </Card>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 
-function ChartLegend({
-    inLabel,
-    outLabel,
-}: {
-    inLabel: string;
-    outLabel: string;
-}) {
+function ChartLegend({ inLabel, outLabel }: { inLabel: string; outLabel: string }) {
     return (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1.5">
@@ -538,7 +473,7 @@ function ChartLegend({
     );
 }
 
-function Row({
+function TooltipRow({
     dot,
     label,
     value,
@@ -549,14 +484,9 @@ function Row({
     label: string;
     value: number;
     signed?: boolean;
-    /** Override variant for inflow/outflow rows where the label is
-     *  user-facing copy (Inflow / Outflow / Income / Expense) and we
-     *  shouldn't infer color from the string. Net falls through to
-     *  sign-based inference. */
     tone?: "income" | "expense";
 }) {
-    const inferred: "income" | "expense" =
-        tone ?? (value < 0 ? "expense" : "income");
+    const inferred: "income" | "expense" = tone ?? (value < 0 ? "expense" : "income");
     return (
         <div className="flex items-center justify-between gap-6">
             <span className="inline-flex items-center gap-2">
@@ -568,16 +498,7 @@ function Row({
     );
 }
 
-/* Re-export the BST-aware helpers so the navigation URLs we build for
-   month-row drilldowns use the same wall-clock boundaries the server
-   queries against, not the user's browser tz. */
-import {
-    startOfMonth as startOfMonthAppTz,
-    addMonths as addMonthsAppTz,
-} from "@/lib/dates";
-import { toInputDate } from "@/lib/dates";
-
-function startOfMonth(d: Date): Date {
+function monthStart(d: Date): Date {
     return startOfMonthAppTz(d);
 }
 
@@ -589,11 +510,6 @@ function ymd(d: Date): string {
     return toInputDate(d);
 }
 
-/**
- * Compact formatter for the bar-overage label. Negative values render
- * with a leading minus and `k` suffix at one decimal — matches the
- * design's `−1.2k` / `−3.0k` styling.
- */
 function formatOverage(n: number): string {
     const abs = Math.abs(n);
     if (abs >= 1000) return `−${(abs / 1000).toFixed(1)}k`;

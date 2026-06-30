@@ -3,9 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MoneyDisplay } from "@/components/shared/MoneyDisplay";
 import { KpiStrip, type KpiItem } from "@/components/shared/KpiStrip";
-import { AnalyticsDetailLayout } from "./_AnalyticsLayout";
+import { useCockpit } from "@/pages/space/analytics/CockpitContext";
 import { trpc } from "@/trpc";
-import { useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { addMonths, startOfMonth } from "@/lib/dates";
 import { formatInAppTz } from "@/lib/formatDate";
 import { formatMoney } from "@/lib/money";
@@ -28,13 +27,16 @@ const WEEKDAY_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
  * Daily totals come from `spendingHeatmap`; recurring-charge dots come
  * from `recurring.list` filtered to monthly cadence.
  */
-export default function HeatmapView() {
-    const { space } = useCurrentSpace();
+export function HeatmapSection() {
+    const { space } = useCockpit();
 
     /**
      * Window: most-recent 12 months ending at the start of the next month.
      * That gives 12 full months + the partial current one is handled by
      * the data simply being absent for future days.
+     *
+     * The spending heatmap is inherently a trailing-12-month calendar, so
+     * it computes its own window rather than following the cockpit cursor.
      */
     const periodEnd = useMemo(
         () => addMonths(startOfMonth(new Date()), 1),
@@ -51,11 +53,11 @@ export default function HeatmapView() {
             periodStart,
             periodEnd,
         },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const qPersonal = trpc.personal.spendingHeatmap.useQuery(
         { periodStart, periodEnd },
-        { enabled: space.isPersonal }
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const q = space.isPersonal ? qPersonal : qSpace;
 
@@ -70,11 +72,11 @@ export default function HeatmapView() {
     const TOP_N_BILLS = 5;
     const recurringSpaceQ = trpc.analytics.recurring.useQuery(
         { spaceId: space.id, kind: "bill" },
-        { enabled: !space.isPersonal }
+        { enabled: !space.isPersonal, placeholderData: (prev) => prev }
     );
     const recurringPersonalQ = trpc.personal.recurring.useQuery(
         { kind: "bill" },
-        { enabled: space.isPersonal }
+        { enabled: space.isPersonal, placeholderData: (prev) => prev }
     );
     const recurringData =
         (space.isPersonal
@@ -215,7 +217,7 @@ export default function HeatmapView() {
             .slice(0, 5);
     }, [byDay]);
 
-    const isLoading = q.isLoading;
+    const isLoading = q.isLoading && !q.data;
     const peakDateLabel = stats.peakDate
         ? formatInAppTz(stats.peakDate, "MMM d")
         : "—";
@@ -258,10 +260,18 @@ export default function HeatmapView() {
     ];
 
     return (
-        <AnalyticsDetailLayout
-            title="Spending calendar"
-            description="Every day of the last twelve months. Cell intensity shows daily spend; small dots mark detected recurring monthly charges; the gold cell is the year's peak day."
-        >
+        <section className="grid gap-5 sm:gap-6">
+            <div>
+                <h2 className="text-base font-semibold tracking-tight">
+                    Spending calendar
+                </h2>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                    Every day of the last twelve months. Cell intensity shows
+                    daily spend; small dots mark detected recurring monthly
+                    charges; the gold cell is the year's peak day.
+                </p>
+            </div>
+
             <KpiStrip items={kpiItems} isLoading={isLoading} />
 
             <Card>
@@ -465,7 +475,7 @@ export default function HeatmapView() {
                     </CardContent>
                 </Card>
             </div>
-        </AnalyticsDetailLayout>
+        </section>
     );
 }
 
