@@ -21,3 +21,5 @@
 - [Unbudgeted clamp is correct](unbudgeted_clamp_inconsistency.md) — 2026-06-24: GREATEST(0,...) held clamp is a load-bearing cash-conservation invariant; NEVER remove it. "Allocate didn't move Unbudgeted" is a UI confusion, fixed with framing.
 - [Free-pool term fragmentation](free_pool_term_fragmentation.md) — one free-cash number labeled Unbudgeted/Unallocated/Free/Free-to-budget/Free-after-save across surfaces; standardize on "Unbudgeted".
 - [Budget glass-gauge review](budget_glass_gauge_review.md) — 2026-06-30: drain metaphor is right; keep. Mistakes: cue doing double-duty, calm=arbitrary hex, skeuomorphism vs editorial-dark.
+- [period_start tz read/write asymmetry](period_start_tz_read_write_asymmetry.md) — write side literal-string hardened, spaceSummary read still session-tz `::date` drift; migration 049 repairs.
+- [personal/summary window parity gap](personal_summary_window_parity_gap.md) — twin still hardcoded DATE_TRUNC(NOW()) after spaceSummary moved to honor requested periodStart.

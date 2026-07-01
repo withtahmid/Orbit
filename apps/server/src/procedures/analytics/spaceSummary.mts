@@ -72,9 +72,13 @@ export const spaceSummary = authorizedProcedure
                 // On-read envelope aggregates.
                 //
                 // `allocated` and `consumed` are scoped to the envelope's own
-                // window: monthly → current calendar month (they reset each
-                // period, no carry-over); rolling/goal → lifetime pool. The
-                // displayed "Allocated / Spent" totals depend on that shape.
+                // window: monthly → the requested [periodStart, periodEnd)
+                // (they reset each period, no carry-over); rolling/goal →
+                // lifetime pool. This mirrors `envelopeUtilization`, so the
+                // Budgets/BudgetMonth screens see held computed for the month
+                // they are actually viewing — allocating to that month reduces
+                // Unbudgeted. The displayed "Allocated / Spent" totals depend
+                // on that shape.
                 //
                 // `remaining` is the source of `unallocated` downstream and
                 // is held = GREATEST(0, allocated − consumed), clamped so an
@@ -82,7 +86,11 @@ export const spaceSummary = authorizedProcedure
                 // unbudgeted pool. The clamp is a cash-conservation invariant:
                 // overspent cash already left the accounts, so spendable already
                 // dropped — crediting negative remaining back would push
-                // Unbudgeted above net worth. Matches `resolveSpaceUnallocated`.
+                // Unbudgeted above net worth. The clamp matches
+                // `resolveSpaceUnallocated`; note that helper is pinned to the
+                // current month, so the two `unallocated` figures agree only
+                // when the requested window IS the current month (the case its
+                // transfer/guard callers care about).
                 const envelopeRow = await sql<{
                     allocated: string;
                     consumed: string;
@@ -94,11 +102,11 @@ export const spaceSummary = authorizedProcedure
                             e.cadence,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '1970-01-01'
-                                WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
+                                WHEN 'monthly' THEN ${input.periodStart}::date
                             END AS p_start,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '9999-12-31'
-                                WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
+                                WHEN 'monthly' THEN ${input.periodEnd}::date
                             END AS p_end
                         FROM envelops e
                         WHERE e.space_id = ${input.spaceId}

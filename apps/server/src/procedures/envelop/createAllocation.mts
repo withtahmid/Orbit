@@ -6,7 +6,11 @@ import { authorizedProcedure } from "../../trpc/middlewares/authorized.mjs";
 import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 import { resolveEnvelopePeriodBalance } from "./utils/resolveEnvelopePeriodBalance.mjs";
-import { effectivePeriodStart, type Cadence } from "./utils/periodWindow.mjs";
+import {
+    appTzMonthStartString,
+    effectivePeriodStart,
+    type Cadence,
+} from "./utils/periodWindow.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
 
 /**
@@ -100,13 +104,21 @@ export const createEnvelopAllocation = authorizedProcedure
 
                         const cadence = envelop.cadence as Cadence;
                         const nowRef = new Date();
+                        // `effPeriod` (an instant) still drives the period
+                        // window for the balance guard below. The value STORED
+                        // into the tz-less `period_start` column is an explicit
+                        // APP_TZ date string so it can't drift with session tz.
                         const effPeriod = effectivePeriodStart(
                             cadence,
                             input.periodStart ?? null,
                             nowRef
                         );
                         const storedPeriodStart =
-                            cadence === "none" ? null : effPeriod;
+                            cadence === "none"
+                                ? null
+                                : appTzMonthStartString(
+                                      input.periodStart ?? nowRef
+                                  );
 
                         if (input.amount < 0) {
                             // Deallocating: the only guard is that the budget

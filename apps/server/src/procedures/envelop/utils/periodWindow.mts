@@ -87,6 +87,22 @@ export function appTzMonthStart(at: Date): Date {
     return appTzMonthStartInstant(year, month);
 }
 
+/**
+ * APP_TZ month start for the month containing `at`, as a `YYYY-MM-01` calendar
+ * date STRING. Use this — not `appTzMonthStart` (a `Date` instant) — for the
+ * value written into the tz-less `envelop_allocations.period_start` column.
+ *
+ * A `Date` instant is stored by casting to `date` in the *session* TimeZone,
+ * so it silently drifts to the previous day whenever the session isn't APP_TZ
+ * (e.g. an APP_TZ month-start instant is `…T18:00Z`, which is the prior day in
+ * UTC). Persisting an explicit APP_TZ date string removes that dependency
+ * entirely — it is stored verbatim regardless of session tz.
+ */
+export function appTzMonthStartString(at: Date): string {
+    const { year, month } = appTzYearMonth(at);
+    return `${year}-${String(month + 1).padStart(2, "0")}-01`;
+}
+
 export function resolvePeriodWindow(
     cadence: Cadence,
     at: Date = new Date()

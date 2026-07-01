@@ -417,9 +417,13 @@ export default function BudgetsPage() {
                             />
                         </div>
                     </div>
-                    {/* Unbudgeted is only meaningful for the current month —
-                        spaceSummary.unallocated is computed against NOW on the
-                        server, so past/future months would be misleading. */}
+                    {/* Unbudgeted is only meaningful for the current month.
+                        `spaceSummary.unallocated` now honors the requested
+                        window server-side, but it subtracts the viewed month's
+                        held from *current* spendable cash — for a past/future
+                        month that mixes today's cash with another month's plan,
+                        a hypothetical rather than a real balance. So we gate the
+                        banner to the current month; do not relax this. */}
                     {summaryQuery.data && monthOffset === 0 && (
                         <UnbudgetedBanner
                             unallocated={summaryQuery.data.unallocated}
@@ -889,15 +893,6 @@ function UnbudgetedBanner({
         ? "Your envelopes hold more than your accounts have. Add income or reduce an envelope."
         : "Money in your accounts that isn't planned for anything yet.";
 
-    // 90-day drain breakdown — surfaces silent overspend absorption that
-    // would otherwise drain the pool invisibly.
-    const trendQuery = trpc.analytics.unbudgetedTrend.useQuery({
-        spaceId,
-        windowDays: 90,
-    });
-    const [showBreakdown, setShowBreakdown] = useState(false);
-    const t = trendQuery.data;
-
     return (
         <div className="env-unbudgeted">
             <div className="env-unbudgeted-cell">
@@ -922,42 +917,8 @@ function UnbudgetedBanner({
                                 maximumFractionDigits: 2,
                             })}
                         </span>
-                        {t && t.absorbedOverspend > 0 && (
-                            <button
-                                type="button"
-                                className="env-unbudgeted-trend"
-                                onClick={() => setShowBreakdown((v) => !v)}
-                                title="See what's drained the pool over the last 90 days"
-                            >
-                                ↓ {t.absorbedOverspend.toFixed(0)} past
-                                overspend (90d)
-                            </button>
-                        )}
                     </span>
                     <span className="env-unbudgeted-sub">{sub}</span>
-                    {showBreakdown && t && (
-                        <div className="env-unbudgeted-breakdown">
-                            <div className="env-unbudgeted-breakdown-row">
-                                <span>Income (90d)</span>
-                                <span className="tabular">
-                                    +{t.income.toFixed(2)}
-                                </span>
-                            </div>
-                            <div className="env-unbudgeted-breakdown-row env-unbudgeted-breakdown-emph">
-                                <span>Past overspend (completed months)</span>
-                                <span
-                                    className="tabular"
-                                    style={{ color: "var(--expense)" }}
-                                >
-                                    −{t.absorbedOverspend.toFixed(2)}
-                                </span>
-                            </div>
-                            <div className="env-unbudgeted-breakdown-hint">
-                                Spending past an envelope's monthly budget draws
-                                from your unbudgeted pool. Each month starts fresh.
-                            </div>
-                        </div>
-                    )}
                 </span>
             </div>
             <Link
@@ -1770,55 +1731,6 @@ const ENV_STYLES = `
     background: var(--bg-elev-3);
     border-color: var(--line-strong);
 }
-.env-unbudgeted-trend {
-    margin-left: 10px;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: color-mix(in oklab, var(--expense) 12%, transparent);
-    border: 1px solid color-mix(in oklab, var(--expense) 30%, transparent);
-    color: var(--expense);
-    font-size: 10.5px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: inherit;
-    vertical-align: middle;
-}
-.env-unbudgeted-trend:hover {
-    background: color-mix(in oklab, var(--expense) 18%, transparent);
-}
-.env-unbudgeted-breakdown {
-    margin-top: 10px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: var(--bg);
-    border: 1px solid var(--line-soft);
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    width: 100%;
-    max-width: 420px;
-}
-.env-unbudgeted-breakdown-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    color: var(--fg-3);
-    font-variant-numeric: tabular-nums;
-}
-.env-unbudgeted-breakdown-emph {
-    border-top: 1px dashed var(--line);
-    padding-top: 6px;
-    margin-top: 2px;
-    color: var(--fg);
-    font-weight: 500;
-}
-.env-unbudgeted-breakdown-hint {
-    font-size: 10.5px;
-    color: var(--fg-4);
-    margin-top: 4px;
-    line-height: 1.5;
-}
-
 .env-hero-stat {
     display: flex;
     flex-direction: column;

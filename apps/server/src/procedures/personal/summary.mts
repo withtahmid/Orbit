@@ -139,11 +139,11 @@ export const personalSummary = authorizedProcedure
                             e.cadence,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '1970-01-01'
-                                WHEN 'monthly' THEN DATE_TRUNC('month', NOW())::date
+                                WHEN 'monthly' THEN ${input.periodStart}::date
                             END AS p_start,
                             CASE e.cadence
                                 WHEN 'none' THEN DATE '9999-12-31'
-                                WHEN 'monthly' THEN (DATE_TRUNC('month', NOW()) + INTERVAL '1 month')::date
+                                WHEN 'monthly' THEN ${input.periodEnd}::date
                             END AS p_end
                         FROM envelops e
                         WHERE e.space_id = ANY(${memberSpaces})
