@@ -1,7 +1,13 @@
 import { useRef, useState, useMemo, useEffect, type FormEvent, type ReactNode } from "react";
 import { useCanEdit } from "@/hooks/useCurrentSpace";
+import { useStore } from "@/stores/useStore";
 import { usePins, type PinField } from "./usePins";
 import { PinControl, PIN_CONTROL_STYLES } from "./PinControl";
+import {
+    useOptimisticTransactionCache,
+    computeDelta,
+    type OptimisticTxRow,
+} from "./useOptimisticTransactionCache";
 import { TransactionDatePicker, TDP_POPOVER_STYLES } from "./TransactionDatePicker";
 import {
     Plus,
@@ -1190,6 +1196,8 @@ function IncomeForm({
     const accountsQuery = trpc.account.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
     const pinState = usePins(spaceId);
+    const optimistic = useOptimisticTransactionCache();
+    const { authStore } = useStore();
 
     const lastAccountKey = `orbit:last-account:${spaceId}:income`;
     const [amount, setAmount] = useState("");
@@ -1255,16 +1263,59 @@ function IncomeForm({
 
     const idem = useIdempotencyKey();
     const mutate = trpc.transaction.income.useMutation({
+        onMutate: async (variables) => {
+            await optimistic.cancelBoth();
+            const tempId = variables.idempotencyKey ?? idem.key;
+            const delta = computeDelta("income", variables.amount);
+            const row: OptimisticTxRow = {
+                id: tempId,
+                space_id: variables.spaceId,
+                created_by: authStore.user?.id ?? "",
+                type: "income",
+                amount: String(variables.amount),
+                source_account_id: null,
+                destination_account_id: variables.accountId,
+                description: variables.description ?? null,
+                location: null,
+                transaction_datetime: (variables.datetime ?? new Date()).toISOString(),
+                created_at: new Date().toISOString(),
+                expense_category_id: null,
+                envelop_id: null,
+                event_id: variables.eventId ?? null,
+                parent_transfer_id: null,
+                created_by_first_name: authStore.user?.name?.split(" ")[0] ?? null,
+                created_by_last_name:
+                    authStore.user?.name?.split(" ").slice(1).join(" ") || null,
+                created_by_avatar_file_id: authStore.user?.avatarFileId ?? null,
+                account_balances_after: {},
+                __pending: true,
+            };
+            optimistic.addPendingRow(row);
+            optimistic.applyDelta(delta);
+            return { tempId, delta };
+        },
         onSuccess: async () => {
             toast.success("Income recorded");
             if (typeof window !== "undefined" && accountId) {
                 window.localStorage.setItem(lastAccountKey, accountId);
             }
-            idem.rotate();
             await invalidate(spaceId);
-            onDone();
         },
-        onError: (e) => toast.error(e.message),
+        onError: async (e, variables, ctx) => {
+            if (ctx) {
+                optimistic.removePendingRow(ctx.tempId);
+                optimistic.reverseDelta(ctx.delta);
+                // A sibling "Save & add another" submission may have already
+                // invalidated filteredTotals to server truth (which never
+                // included this failed row) before this reverseDelta runs —
+                // blind arithmetic reversal would then undercount. Resync to
+                // truth rather than trust the local subtraction.
+                await invalidate(spaceId);
+            }
+            toast.error(`Income of ${variables.amount} didn't save — ${e.message}`, {
+                duration: Infinity,
+            });
+        },
     });
     useEffect(() => {
         onPendingChange(mutate.isPending);
@@ -1281,6 +1332,10 @@ function IncomeForm({
                     toast.error("Pick an account");
                     return;
                 }
+                if (!(Number(amount) > 0)) {
+                    toast.error("Enter an amount");
+                    return;
+                }
                 mutate.mutate({
                     spaceId,
                     accountId,
@@ -1291,6 +1346,8 @@ function IncomeForm({
                     attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
                 });
+                idem.rotate();
+                onDone();
             }}
         >
             <OrbitAmountCard value={amount} onChange={setAmount} tone="income" autoFocus />
@@ -1393,6 +1450,8 @@ function ExpenseForm({
     const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
     const pinState = usePins(spaceId);
+    const optimistic = useOptimisticTransactionCache();
+    const { authStore } = useStore();
 
     // Remember the user's last-used source account per space so the
     // form doesn't make them re-pick the same account every time. The
@@ -1552,6 +1611,37 @@ function ExpenseForm({
 
     const idem = useIdempotencyKey();
     const mutate = trpc.transaction.expense.useMutation({
+        onMutate: async (variables) => {
+            await optimistic.cancelBoth();
+            const tempId = variables.idempotencyKey ?? idem.key;
+            const delta = computeDelta("expense", variables.amount);
+            const row: OptimisticTxRow = {
+                id: tempId,
+                space_id: variables.spaceId,
+                created_by: authStore.user?.id ?? "",
+                type: "expense",
+                amount: String(variables.amount),
+                source_account_id: variables.sourceAccountId,
+                destination_account_id: null,
+                description: null,
+                location: null,
+                transaction_datetime: (variables.datetime ?? new Date()).toISOString(),
+                created_at: new Date().toISOString(),
+                expense_category_id: variables.expense_category_id,
+                envelop_id: variables.envelopId,
+                event_id: variables.eventId ?? null,
+                parent_transfer_id: null,
+                created_by_first_name: authStore.user?.name?.split(" ")[0] ?? null,
+                created_by_last_name:
+                    authStore.user?.name?.split(" ").slice(1).join(" ") || null,
+                created_by_avatar_file_id: authStore.user?.avatarFileId ?? null,
+                account_balances_after: {},
+                __pending: true,
+            };
+            optimistic.addPendingRow(row);
+            optimistic.applyDelta(delta);
+            return { tempId, delta };
+        },
         onSuccess: async () => {
             toast.success("Expense recorded");
             // Remember this source account so the next expense entry
@@ -1559,11 +1649,21 @@ function ExpenseForm({
             if (typeof window !== "undefined" && sourceAccountId) {
                 window.localStorage.setItem(lastAccountKey, sourceAccountId);
             }
-            idem.rotate();
             await invalidate(spaceId);
-            onDone();
         },
-        onError: (e) => toast.error(e.message),
+        onError: async (e, variables, ctx) => {
+            if (ctx) {
+                optimistic.removePendingRow(ctx.tempId);
+                optimistic.reverseDelta(ctx.delta);
+                // See IncomeForm's onError for why: a sibling submission's
+                // invalidate() may have already reset totals to server
+                // truth that never included this failed row.
+                await invalidate(spaceId);
+            }
+            toast.error(`Expense of ${variables.amount} didn't save — ${e.message}`, {
+                duration: Infinity,
+            });
+        },
     });
     useEffect(() => {
         onPendingChange(mutate.isPending);
@@ -1584,6 +1684,10 @@ function ExpenseForm({
                     toast.error("Pick an envelope");
                     return;
                 }
+                if (!(Number(amount) > 0)) {
+                    toast.error("Enter an amount");
+                    return;
+                }
                 mutate.mutate({
                     spaceId,
                     sourceAccountId,
@@ -1595,6 +1699,8 @@ function ExpenseForm({
                     attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
                 });
+                idem.rotate();
+                onDone();
             }}
         >
             <OrbitAmountCard value={amount} onChange={setAmount} tone="fg" autoFocus />
@@ -1776,6 +1882,8 @@ function TransferForm({
     const envelopesQuery = trpc.envelop.listBySpace.useQuery({ spaceId });
     const invalidate = useInvalidateAnalytics();
     const pinState = usePins(spaceId);
+    const optimistic = useOptimisticTransactionCache();
+    const { authStore } = useStore();
 
     const activeFeeCategories = useMemo(() => {
         const cats = categoriesQuery.data ?? [];
@@ -1860,16 +1968,62 @@ function TransferForm({
 
     const idem = useIdempotencyKey();
     const mutate = trpc.transaction.transfer.useMutation({
+        onMutate: async (variables) => {
+            await optimistic.cancelBoth();
+            const tempId = variables.idempotencyKey ?? idem.key;
+            // A transfer alone contributes nothing to in/out totals — its
+            // optional fee is a separate server-side expense-type row this
+            // optimistic layer doesn't synthesize (known, accepted gap:
+            // the totals strip may briefly undercount a fee until the
+            // real invalidate lands).
+            const delta = computeDelta("transfer", variables.amount);
+            const row: OptimisticTxRow = {
+                id: tempId,
+                space_id: variables.spaceId,
+                created_by: authStore.user?.id ?? "",
+                type: "transfer",
+                amount: String(variables.amount),
+                source_account_id: variables.sourceAccountId,
+                destination_account_id: variables.destinationAccountId,
+                description: null,
+                location: null,
+                transaction_datetime: (variables.datetime ?? new Date()).toISOString(),
+                created_at: new Date().toISOString(),
+                expense_category_id: null,
+                envelop_id: null,
+                event_id: variables.eventId ?? null,
+                parent_transfer_id: null,
+                created_by_first_name: authStore.user?.name?.split(" ")[0] ?? null,
+                created_by_last_name:
+                    authStore.user?.name?.split(" ").slice(1).join(" ") || null,
+                created_by_avatar_file_id: authStore.user?.avatarFileId ?? null,
+                account_balances_after: {},
+                __pending: true,
+            };
+            optimistic.addPendingRow(row);
+            optimistic.applyDelta(delta);
+            return { tempId, delta };
+        },
         onSuccess: async () => {
             toast.success("Transfer recorded");
             if (typeof window !== "undefined" && sourceAccountId) {
                 window.localStorage.setItem(lastSourceKey, sourceAccountId);
             }
-            idem.rotate();
             await invalidate(spaceId);
-            onDone();
         },
-        onError: (e) => toast.error(e.message),
+        onError: async (e, variables, ctx) => {
+            if (ctx) {
+                optimistic.removePendingRow(ctx.tempId);
+                optimistic.reverseDelta(ctx.delta);
+                // See IncomeForm's onError for why: a sibling submission's
+                // invalidate() may have already reset totals to server
+                // truth that never included this failed row.
+                await invalidate(spaceId);
+            }
+            toast.error(`Transfer of ${variables.amount} didn't save — ${e.message}`, {
+                duration: Infinity,
+            });
+        },
     });
     useEffect(() => {
         onPendingChange(mutate.isPending);
@@ -1892,6 +2046,10 @@ function TransferForm({
                 }
                 if (sourceAccountId === destinationAccountId) {
                     toast.error("Source and destination must differ");
+                    return;
+                }
+                if (!(Number(amount) > 0)) {
+                    toast.error("Enter an amount");
                     return;
                 }
                 if (feeEnabled) {
@@ -1925,6 +2083,8 @@ function TransferForm({
                     feeEnvelopId: feeEnabled && feeCat ? feeCat.default_envelop_id : undefined,
                     idempotencyKey: idem.key,
                 });
+                idem.rotate();
+                onDone();
             }}
         >
             <OrbitField
@@ -2172,17 +2332,25 @@ function AdjustmentForm({
     }, [pinState.pins]);
 
     const idem = useIdempotencyKey();
+    // Deliberately no onMutate/optimistic row here, unlike Income/Expense/
+    // Transfer: an adjustment's amount and which account is source vs.
+    // destination are computed server-side from a live read of
+    // account_balances (see adjust.mts) at the moment it runs. Replicating
+    // that from the client's own (possibly stale) cached balance risks
+    // showing a backwards or wrong-amount pending row. Adjustments are
+    // also rare, one-off corrections — not the "many in a row" case this
+    // feature targets — so they just get the non-blocking submit below.
     const mutate = trpc.transaction.adjust.useMutation({
         onSuccess: async () => {
             toast.success("Balance adjusted");
             if (typeof window !== "undefined" && accountId) {
                 window.localStorage.setItem(lastAccountKey, accountId);
             }
-            idem.rotate();
             await invalidate(spaceId);
-            onDone();
         },
-        onError: (e) => toast.error(e.message),
+        onError: (e) => {
+            toast.error(`Balance adjustment didn't save — ${e.message}`, { duration: Infinity });
+        },
     });
     useEffect(() => {
         onPendingChange(mutate.isPending);
@@ -2208,6 +2376,14 @@ function AdjustmentForm({
                     toast.error("Pick an account");
                     return;
                 }
+                if (delta == null) {
+                    toast.error("Enter the actual balance");
+                    return;
+                }
+                if (delta === 0) {
+                    toast.error("New balance matches the current balance");
+                    return;
+                }
                 const reasonText =
                     reason === "bank-fee"
                         ? "Bank correction"
@@ -2226,6 +2402,8 @@ function AdjustmentForm({
                     attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
                 });
+                idem.rotate();
+                onDone();
             }}
         >
             <OrbitField

@@ -30,6 +30,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { EntityAvatar } from "@/components/shared/EntityAvatar";
+import { getIcon } from "@/lib/entityIcons";
 import { cn } from "@/lib/utils";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { PeriodChip } from "@/components/shared/PeriodChip";
@@ -80,6 +81,11 @@ function rowBalanceEntries(t: {
     }
     return out;
 }
+
+/** True for a client-synthesized optimistic row (see
+ *  useOptimisticTransactionCache.ts) that hasn't been confirmed by the
+ *  server yet — never present on a real row. */
+const isPendingRow = (t: { id: string; __pending?: boolean }) => t.__pending === true;
 
 const TYPE_OPTIONS: Array<{ value: TxType | null; label: string }> = [
     { value: null, label: "All" },
@@ -768,11 +774,19 @@ export default function TransactionsPage() {
                                             const ev = t.event_id
                                                 ? eventsById.get(t.event_id)
                                                 : null;
+                                            const pending = isPendingRow(t);
                                             return (
                                         <div
                                             key={t.id}
-                                            className="tx-row tx-row-grid"
-                                            onClick={() => setSelectedTx(t)}
+                                            className={cn(
+                                                "tx-row tx-row-grid",
+                                                pending && "tx-row-pending"
+                                            )}
+                                            aria-busy={pending || undefined}
+                                            aria-disabled={pending || undefined}
+                                            onClick={() => {
+                                                if (!pending) setSelectedTx(t);
+                                            }}
                                         >
                                             <span className="tx-cell-date">
                                                 <span className="tx-date">
@@ -788,8 +802,16 @@ export default function TransactionsPage() {
                                                     )}
                                                 </span>
                                             </span>
-                                            <span>
-                                                <TxBadge type={tt} />
+                                            <span className="tx-type-slot">
+                                                {pending ? (
+                                                    <span
+                                                        className="tx-pending-spinner"
+                                                        role="status"
+                                                        aria-label="Saving"
+                                                    />
+                                                ) : (
+                                                    <TxBadge type={tt} />
+                                                )}
                                             </span>
                                             <AccountFlow
                                                 spaceId={
@@ -968,12 +990,17 @@ export default function TransactionsPage() {
                                     const cat = t.expense_category_id
                                         ? categoriesById.get(t.expense_category_id)
                                         : null;
+                                    const pendingMobile = isPendingRow(t);
                                     return (
                                         <button
                                             key={t.id}
                                             type="button"
-                                            className="tx-mrow"
-                                            onClick={() => setSelectedTx(t)}
+                                            className={cn("tx-mrow", pendingMobile && "tx-mrow-pending")}
+                                            disabled={pendingMobile}
+                                            aria-busy={pendingMobile || undefined}
+                                            onClick={() => {
+                                                if (!pendingMobile) setSelectedTx(t);
+                                            }}
                                         >
                                             <Avatar
                                                 color={cat?.color ?? UNALLOCATED_COLOR}
@@ -982,7 +1009,17 @@ export default function TransactionsPage() {
                                             />
                                             <div className="tx-mrow-text">
                                                 <div className="tx-mrow-top">
-                                                    <TxBadge type={tt} />
+                                                    <span className="tx-type-slot">
+                                                    {pendingMobile ? (
+                                                        <span
+                                                        className="tx-pending-spinner"
+                                                        role="status"
+                                                        aria-label="Saving"
+                                                    />
+                                                    ) : (
+                                                        <TxBadge type={tt} />
+                                                    )}
+                                                    </span>
                                                     <span className="tx-mrow-date">
                                                         {formatInAppTz(
                                                             t.transaction_datetime,
@@ -1212,6 +1249,7 @@ function Avatar({
     color: string;
     size?: number;
 }) {
+    const IconCmp = getIcon(icon);
     return (
         <span
             style={{
@@ -1227,57 +1265,8 @@ function Avatar({
                 flexShrink: 0,
             }}
         >
-            <AvatarIcon name={icon} size={size * 0.5} color={color} />
+            <IconCmp size={size * 0.5} color={color} strokeWidth={1.7} />
         </span>
-    );
-}
-
-const AVATAR_ICONS: Record<string, string> = {
-    home: "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
-    wallet:
-        "M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1h2v8h-2v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm14 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z",
-    cart: "M3 4h2l3 12h11l2-8H7M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm9 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
-    car: "M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13m-14 0v5h2v-2h10v2h2v-5m-14 0h14M7 16h.01M17 16h.01",
-    book: "M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3zM4 17a3 3 0 0 1 3-3h11",
-    coffee:
-        "M5 8h12v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zm12 1h2a2 2 0 1 1 0 4h-2zM7 4v2M11 4v2M15 4v2",
-    flame: "M12 22s7-4 7-10c0-3-2-5-3-6 0 2-1 3-2 3-1-3-3-5-3-7-2 1-6 5-6 10 0 6 7 10 7 10z",
-    music: "M9 18V5l11-2v13M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3zm11-2a3 3 0 1 1-3-3 3 3 0 0 1 3 3z",
-    camera: "M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
-    heart: "M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z",
-    bolt: "M13 2 3 14h7l-1 8 10-12h-7z",
-    terminal: "m4 6 6 6-6 6m8 0h8",
-    layers: "m12 3 9 5-9 5-9-5zm-9 9 9 5 9-5M3 17l9 5 9-5",
-    target: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-4a6 6 0 1 0 0-12 6 6 0 0 0 0 12zm0-4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
-    folder: "M3 6a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
-    share: "M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4m4-4v13",
-    edit: "M4 20h4l10-10-4-4L4 16zM14 6l4 4",
-    dot: "M12 12h.01",
-};
-
-function AvatarIcon({
-    name,
-    size = 11,
-    color = "currentColor",
-}: {
-    name: string;
-    size?: number;
-    color?: string;
-}) {
-    const d = AVATAR_ICONS[name] ?? AVATAR_ICONS.dot;
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke={color}
-            strokeWidth={1.7}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d={d} />
-        </svg>
     );
 }
 
@@ -1900,6 +1889,36 @@ const TX_STYLES = `
     cursor: pointer;
 }
 .tx-row:hover { background: var(--bg-elev-2); }
+/* Optimistic row awaiting server confirmation — dimmed + non-interactive,
+   settles into a normal row (or disappears on failure) within moments. */
+.tx-row-pending {
+    opacity: 0.55;
+    cursor: default;
+    pointer-events: none;
+}
+.tx-row-pending:hover { background: transparent; }
+/* Holds the type badge / pending spinner so swapping between them doesn't
+   shift the row's height or push the date sideways. */
+.tx-type-slot {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+}
+.tx-pending-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--fg-2);
+    border-right-color: transparent;
+    border-radius: 999px;
+    animation: tx-pending-spin 600ms linear infinite;
+}
+@keyframes tx-pending-spin {
+    to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tx-pending-spinner { animation: none; }
+}
 .tx-cell-date {
     display: flex;
     flex-direction: column;
@@ -2110,6 +2129,11 @@ const TX_STYLES = `
 }
 .tx-mrow:last-child { border-bottom: 0; }
 .tx-mrow:hover { background: var(--bg-elev-2); }
+.tx-mrow-pending {
+    opacity: 0.55;
+    cursor: default;
+}
+.tx-mrow-pending:hover { background: transparent; }
 .tx-mrow-text { flex: 1; min-width: 0; }
 .tx-mrow-top {
     display: flex;
