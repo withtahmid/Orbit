@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, FolderTree, Tags, Wallet, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +48,10 @@ export function AnalyticsFilterBar({
     onClearAll,
     hasAnyFilter,
     dimensions,
+    accountsFootnote = "Money leaving the selected account(s).",
+    trailingChips,
+    className,
+    personalCategories,
 }: {
     spaceId: string;
     isPersonal: boolean;
@@ -58,10 +62,28 @@ export function AnalyticsFilterBar({
     onClearAll: () => void;
     hasAnyFilter: boolean;
     dimensions?: FilterDimensions;
+    /** Footnote under the Accounts dropdown. Defaults to the analytics
+     *  outflow phrasing; the Transactions page (which matches money in
+     *  and out of the account) passes its own. */
+    accountsFootnote?: string;
+    /** Extra chips rendered inline after the built-in dropdowns (before
+     *  "Clear all"). The Transactions page uses this for its Event / Amount
+     *  / No-envelope filters so they sit in the same row. */
+    trailingChips?: ReactNode;
+    /** Extra class on the bar root — lets a host scope style overrides. */
+    className?: string;
+    /** Allow the Category filter on the personal (`/s/me`) view, sourced
+     *  from the caller's cross-space categories. Off by default because
+     *  analytics personal views classify by category via their own drill;
+     *  the Transactions page opts in to keep parity with regular spaces. */
+    personalCategories?: boolean;
 }) {
     const showEnvelopes = dimensions?.envelopes !== false;
     const showAccounts = dimensions?.accounts !== false;
-    const showCategories = dimensions?.categories !== false;
+    // Categories can appear on personal only when the host opts in.
+    const showCategories =
+        dimensions?.categories !== false &&
+        (!isPersonal || !!personalCategories);
 
     const envelopesQ = trpc.envelop.listBySpace.useQuery(
         { spaceId },
@@ -70,6 +92,10 @@ export function AnalyticsFilterBar({
     const categoriesQ = trpc.expenseCategory.listBySpace.useQuery(
         { spaceId },
         { enabled: !isPersonal && showCategories }
+    );
+    const personalCategoriesQ = trpc.personal.listCategories.useQuery(
+        undefined,
+        { enabled: isPersonal && showCategories }
     );
     const accountsSpaceQ = trpc.account.listBySpace.useQuery(
         { spaceId },
@@ -101,10 +127,16 @@ export function AnalyticsFilterBar({
         }));
     }, [isPersonal, accountsPersonalQ.data, accountsSpaceQ.data]);
 
-    const categoriesRaw = useMemo(() => categoriesQ.data ?? [], [categoriesQ.data]);
+    const categoriesRaw = useMemo(
+        () =>
+            isPersonal
+                ? personalCategoriesQ.data ?? []
+                : categoriesQ.data ?? [],
+        [isPersonal, personalCategoriesQ.data, categoriesQ.data]
+    );
 
     return (
-        <div className="-mt-1 flex flex-col gap-1.5">
+        <div className={cn("-mt-1 flex flex-col gap-1.5", className)}>
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                     Filter
@@ -129,16 +161,17 @@ export function AnalyticsFilterBar({
                         onChange={(v) => onChange("acc", v)}
                         searchPlaceholder="Search accounts…"
                         emptyLabel="No accounts."
-                        footnote="Money leaving the selected account(s)."
+                        footnote={accountsFootnote}
                     />
                 )}
-                {!isPersonal && showCategories && (
+                {showCategories && (
                     <CategoryMultiSelect
                         selected={categoryIds}
                         categories={categoriesRaw}
                         onChange={(v) => onChange("cat", v)}
                     />
                 )}
+                {trailingChips}
                 {hasAnyFilter && (
                     <Button
                         variant="ghost"
@@ -152,8 +185,9 @@ export function AnalyticsFilterBar({
             </div>
             {hasAnyFilter && (
                 <FilterSummaryLine
-                    isPersonal={isPersonal}
-                    envelopeIds={showEnvelopes ? envelopeIds : []}
+                    envelopeIds={
+                        !isPersonal && showEnvelopes ? envelopeIds : []
+                    }
                     accountIds={showAccounts ? accountIds : []}
                     categoryIds={showCategories ? categoryIds : []}
                     envelopes={envelopes}
@@ -309,6 +343,9 @@ interface CategoryRow {
     color: string;
     icon: string;
     parent_id: string | null;
+    /** Present only on the personal cross-space list — used to disambiguate
+     *  same-named categories from different spaces. */
+    space_name?: string | null;
 }
 
 interface CategoryNode extends CategoryRow {
@@ -330,6 +367,17 @@ function CategoryMultiSelect({
 }) {
     const [query, setQuery] = useState("");
     const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+    // Names that appear more than once (personal cross-space list) get a
+    // space suffix so the two rows aren't indistinguishable.
+    const dupNames = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const c of categories)
+            counts.set(c.name, (counts.get(c.name) ?? 0) + 1);
+        return new Set(
+            [...counts].filter(([, n]) => n > 1).map(([name]) => name)
+        );
+    }, [categories]);
 
     const flattened = useMemo<CategoryNode[]>(() => {
         const byParent = new Map<string | null, CategoryRow[]>();
@@ -458,7 +506,16 @@ function CategoryMultiSelect({
                                                 color={n.color}
                                                 icon={n.icon}
                                             />
-                                            <span className="truncate">{n.name}</span>
+                                            <span className="truncate">
+                                                {n.name}
+                                                {dupNames.has(n.name) &&
+                                                    n.space_name && (
+                                                        <span className="text-muted-foreground">
+                                                            {" · "}
+                                                            {n.space_name}
+                                                        </span>
+                                                    )}
+                                            </span>
                                             {n.descendantCount > 0 && (
                                                 <span
                                                     className="ml-auto rounded-full bg-muted px-1.5 py-0.5 text-[9.5px] font-medium text-muted-foreground"
@@ -488,7 +545,6 @@ function CategoryMultiSelect({
 /** One-line summary under the filter buttons — names the active picks so
  *  the user doesn't have to open the popovers to remember what they set. */
 function FilterSummaryLine({
-    isPersonal,
     envelopeIds,
     accountIds,
     categoryIds,
@@ -496,7 +552,6 @@ function FilterSummaryLine({
     accounts,
     categories,
 }: {
-    isPersonal: boolean;
     envelopeIds: string[];
     accountIds: string[];
     categoryIds: string[];
@@ -525,9 +580,11 @@ function FilterSummaryLine({
         }
         parts.push(`${ids.length} ${label}`);
     };
-    if (!isPersonal) nameOf(envelopeIds, envelopes, "envelopes");
+    // Callers pass [] for any dimension that isn't shown, so trust the
+    // arrays directly rather than re-gating on isPersonal here.
+    nameOf(envelopeIds, envelopes, "envelopes");
     nameOf(accountIds, accounts, "accounts");
-    if (!isPersonal) nameOf(categoryIds, categories, "categories");
+    nameOf(categoryIds, categories, "categories");
     if (parts.length === 0) return null;
     return (
         <p className="text-[11px] text-muted-foreground">

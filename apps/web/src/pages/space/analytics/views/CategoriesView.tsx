@@ -296,7 +296,7 @@ export default function CategoriesView() {
     const onSelect = (d: DrillableDonutSlice) => {
         if (d.id.startsWith(DIRECT_SLICE_PREFIX)) {
             const realId = d.id.slice(DIRECT_SLICE_PREFIX.length);
-            navigate(`${ROUTES.spaceTransactions(space.id)}?category=${realId}`);
+            navigate(`${ROUTES.spaceTransactions(space.id)}?cat=${realId}`);
             return;
         }
         const node = byId.get(d.id);
@@ -305,7 +305,7 @@ export default function CategoriesView() {
         if (hasChildren) {
             setFocus(node.id);
         } else {
-            navigate(`${ROUTES.spaceTransactions(space.id)}?category=${node.id}`);
+            navigate(`${ROUTES.spaceTransactions(space.id)}?cat=${node.id}`);
         }
     };
 
@@ -346,7 +346,7 @@ export default function CategoriesView() {
                         ? () => setFocus(c.id)
                         : () =>
                               navigate(
-                                  `${ROUTES.spaceTransactions(space.id)}?category=${c.id}`
+                                  `${ROUTES.spaceTransactions(space.id)}?cat=${c.id}`
                               ),
                 };
             });
@@ -362,7 +362,7 @@ export default function CategoriesView() {
                 drillable: false,
                 onClick: () =>
                     navigate(
-                        `${ROUTES.spaceTransactions(space.id)}?category=${focus.id}`
+                        `${ROUTES.spaceTransactions(space.id)}?cat=${focus.id}`
                     ),
             });
         }
@@ -409,7 +409,7 @@ export default function CategoriesView() {
                 drillable: false,
                 onClick: () =>
                     navigate(
-                        `${ROUTES.spaceTransactions(space.id)}?category=${r.id}`
+                        `${ROUTES.spaceTransactions(space.id)}?cat=${r.id}`
                     ),
             }))
             .sort((a, b) => b.value - a.value);
@@ -450,7 +450,7 @@ export default function CategoriesView() {
     const onSelectActive = flat
         ? (d: DrillableDonutSlice) => {
               if (d.id === OTHER_SLICE_ID) return; // aggregate slice — no target
-              navigate(`${ROUTES.spaceTransactions(space.id)}?category=${d.id}`);
+              navigate(`${ROUTES.spaceTransactions(space.id)}?cat=${d.id}`);
           }
         : onSelect;
 
@@ -646,7 +646,7 @@ export default function CategoriesView() {
                                 size="sm"
                                 onClick={() =>
                                     navigate(
-                                        `${ROUTES.spaceTransactions(space.id)}?category=${
+                                        `${ROUTES.spaceTransactions(space.id)}?cat=${
                                             focus!.id
                                         }`
                                     )

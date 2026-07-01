@@ -196,6 +196,7 @@ export default function AccountDetailPage() {
                                         <TableHead>Type</TableHead>
                                         <TableHead>Description</TableHead>
                                         <TableHead className="text-right">Amount</TableHead>
+                                        <TableHead className="text-right">Balance</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -224,6 +225,24 @@ export default function AccountDetailPage() {
                                                         variant={isIncoming ? "income" : "expense"}
                                                         signed
                                                     />
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    {t.account_balances_after?.[
+                                                        account.id
+                                                    ] != null ? (
+                                                        <MoneyDisplay
+                                                            amount={
+                                                                t
+                                                                    .account_balances_after[
+                                                                    account.id
+                                                                ]
+                                                            }
+                                                        />
+                                                    ) : (
+                                                        <span className="text-muted-foreground">
+                                                            —
+                                                        </span>
+                                                    )}
                                                 </TableCell>
                                             </TableRow>
                                         );

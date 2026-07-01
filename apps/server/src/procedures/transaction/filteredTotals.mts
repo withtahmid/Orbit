@@ -28,10 +28,13 @@ export const transactionFilteredTotals = authorizedProcedure
             envelopId: z
                 .union([z.string().uuid(), z.literal("__none")])
                 .nullish(),
+            envelopIds: z.array(z.string().uuid()).nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
+            expenseCategoryIds: z.array(z.string().uuid()).nullish(),
             includeDescendants: z.boolean().default(true),
             eventId: z.string().uuid().nullish(),
             accountId: z.string().uuid().nullish(),
+            accountIds: z.array(z.string().uuid()).nullish(),
             search: z.string().trim().min(1).max(255).nullish(),
             amountMin: z.number().nonnegative().nullish(),
             amountMax: z.number().nonnegative().nullish(),
@@ -49,24 +52,44 @@ export const transactionFilteredTotals = authorizedProcedure
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
+                const accountIdFilter =
+                    input.accountIds && input.accountIds.length > 0
+                        ? input.accountIds
+                        : input.accountId
+                          ? [input.accountId]
+                          : null;
+                const envelopIdFilter =
+                    input.envelopIds && input.envelopIds.length > 0
+                        ? input.envelopIds
+                        : input.envelopId && input.envelopId !== "__none"
+                          ? [input.envelopId]
+                          : null;
+                const categoryBaseIds =
+                    input.expenseCategoryIds &&
+                    input.expenseCategoryIds.length > 0
+                        ? input.expenseCategoryIds
+                        : input.expenseCategoryId
+                          ? [input.expenseCategoryId]
+                          : null;
+
                 let categoryIds: string[] | null = null;
-                if (input.expenseCategoryId) {
+                if (categoryBaseIds) {
                     if (input.includeDescendants) {
                         const res = await sql<{ id: string }>`
                             WITH RECURSIVE subtree AS (
                                 SELECT id FROM expense_categories
-                                WHERE id = ${input.expenseCategoryId}
+                                WHERE id = ANY(${categoryBaseIds})
                                 UNION ALL
                                 SELECT ec.id FROM expense_categories ec
                                 JOIN subtree s ON ec.parent_id = s.id
                             )
-                            SELECT id::text FROM subtree
+                            SELECT DISTINCT id::text FROM subtree
                         `.execute(ctx.services.qb);
                         categoryIds = res.rows.map((r) => r.id);
                         if (categoryIds.length === 0)
-                            categoryIds = [input.expenseCategoryId];
+                            categoryIds = categoryBaseIds;
                     } else {
-                        categoryIds = [input.expenseCategoryId];
+                        categoryIds = categoryBaseIds;
                     }
                 }
 
@@ -83,17 +106,15 @@ export const transactionFilteredTotals = authorizedProcedure
                             input.type as unknown as Transactions["type"]
                         )
                     )
-                    .$if(input.envelopId === "__none", (qb) =>
+                    .$if(!envelopIdFilter && input.envelopId === "__none", (qb) =>
                         qb.where("transactions.envelop_id", "is", null)
                     )
-                    .$if(
-                        !!input.envelopId && input.envelopId !== "__none",
-                        (qb) =>
-                            qb.where(
-                                "transactions.envelop_id",
-                                "=",
-                                input.envelopId as string
-                            )
+                    .$if(!!envelopIdFilter, (qb) =>
+                        qb.where(
+                            "transactions.envelop_id",
+                            "in",
+                            envelopIdFilter!
+                        )
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where(
@@ -105,18 +126,18 @@ export const transactionFilteredTotals = authorizedProcedure
                     .$if(!!input.eventId, (qb) =>
                         qb.where("transactions.event_id", "=", input.eventId!)
                     )
-                    .$if(!!input.accountId, (qb) =>
+                    .$if(!!accountIdFilter, (qb) =>
                         qb.where((eb) =>
                             eb.or([
                                 eb(
                                     "transactions.source_account_id",
-                                    "=",
-                                    input.accountId!
+                                    "in",
+                                    accountIdFilter!
                                 ),
                                 eb(
                                     "transactions.destination_account_id",
-                                    "=",
-                                    input.accountId!
+                                    "in",
+                                    accountIdFilter!
                                 ),
                             ])
                         )

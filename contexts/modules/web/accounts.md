@@ -21,7 +21,7 @@ List page (`AccountsPage.tsx`):
 
 Detail page (`AccountDetailPage.tsx`):
 - `account.listBySpace` to find `accountId` in the result (`:86`).
-- `transaction.listBySpace` with `accountId` filter, `limit: 50` (`:89-92`).
+- `transaction.listBySpace` with `accountId` filter, `limit: 50` (`:89-92`). The Transactions tab table also has a Balance column reading `account_balances_after[account.id]` off each row — parity with the running-balance column on the main Transactions page (see `web/transactions.md`); falls back to "—" when the key is absent from the map.
 - `account.listUsers` for the Members tab (`:94-97`).
 - `analytics.balanceHistory` inside a sub-component for the History tab (`:724`).
 - `account.listSpaces` + `account.shareWithSpace` + `account.unshareFromSpace` for sharing (`:485,615,487`).

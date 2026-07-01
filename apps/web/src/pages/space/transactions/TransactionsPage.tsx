@@ -4,11 +4,10 @@ import {
     Plus,
     Search,
     X,
-    Filter as FilterIcon,
+    Check,
     ChevronDown,
-    Wallet,
-    Folder,
-    Layers,
+    CalendarClock,
+    Coins,
     Calendar as CalendarIcon,
     FileText,
     ArrowDown,
@@ -16,24 +15,29 @@ import {
     ArrowRightLeft,
     Edit3,
     Loader2,
-    Check,
 } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
+import type { PeriodPresetId } from "@/lib/dates";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
 import {
-    OrbitFormStyles,
-    OrbitInput,
-    OrbitSelect,
-    OrbitFieldRow,
-} from "@/components/orbit/OrbitForm";
-import { OrbitField } from "@/components/orbit/OrbitModalShell";
-import { CategoryTreeSelect } from "@/components/shared/CategoryTreeSelect";
-import { DateRangePicker } from "@/components/shared/DateRangePicker";
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { EntityAvatar } from "@/components/shared/EntityAvatar";
+import { cn } from "@/lib/utils";
 import { PermissionGate } from "@/components/shared/PermissionGate";
+import { PeriodChip } from "@/components/shared/PeriodChip";
 import { UserAvatar } from "@/components/shared/UserAvatar";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Filter as FilterEmptyIcon, Receipt } from "lucide-react";
+import { AnalyticsFilterBar } from "../analytics/components/AnalyticsFilterBar";
+import { useAnalyticsFilters } from "../analytics/components/useAnalyticsFilters";
 import { trpc } from "@/trpc";
 import { useInvalidateAnalytics } from "@/lib/invalidate";
 import { useCurrentSpace } from "@/hooks/useCurrentSpace";
@@ -47,6 +51,35 @@ import { useStore } from "@/stores/useStore";
 import { UNALLOCATED_COLOR } from "@/lib/entityStyle";
 
 type TxType = "income" | "expense" | "transfer" | "adjustment";
+
+/** Per-row "balance after" entries — the account(s) a transaction moved,
+    in From→To order (source then destination), each with that account's
+    post-transaction balance. One entry for income/expense/adjustment, two
+    for a transfer. Empty when the row has no balance data. */
+type RowBalance = { accountId: string; balance: string; role: "source" | "dest" };
+function rowBalanceEntries(t: {
+    source_account_id: string | null;
+    destination_account_id: string | null;
+    account_balances_after?: Record<string, string> | null;
+}): RowBalance[] {
+    const map = t.account_balances_after ?? {};
+    const out: RowBalance[] = [];
+    if (t.source_account_id && map[t.source_account_id] != null) {
+        out.push({
+            accountId: t.source_account_id,
+            balance: map[t.source_account_id],
+            role: "source",
+        });
+    }
+    if (t.destination_account_id && map[t.destination_account_id] != null) {
+        out.push({
+            accountId: t.destination_account_id,
+            balance: map[t.destination_account_id],
+            role: "dest",
+        });
+    }
+    return out;
+}
 
 const TYPE_OPTIONS: Array<{ value: TxType | null; label: string }> = [
     { value: null, label: "All" },
@@ -105,7 +138,13 @@ function DayHeader({ label }: { label: string }) {
     );
 }
 
+/** Single source of truth for the page's default period — `usePeriod` and
+    `<PeriodChip>` below each read the URL independently, so they must be
+    given the same default or they'd disagree on first load. */
+const DEFAULT_PERIOD_PRESET: PeriodPresetId = "last-30-days";
+
 const PERIOD_PRESETS: Array<{ value: string; label: string }> = [
+    { value: "last-30-days", label: "Last 30 days" },
     { value: "this-month", label: "This month" },
     { value: "last-month", label: "Last month" },
     { value: "last-3-months", label: "Last 3 months" },
@@ -118,7 +157,11 @@ export default function TransactionsPage() {
     const { space } = useCurrentSpace();
     const isPersonal = space.isPersonal;
     const { authStore } = useStore();
-    const { period, preset, setPreset, setCustom } = usePeriod("this-month");
+    const { period, preset } = usePeriod(DEFAULT_PERIOD_PRESET);
+    /* Envelope / Account / Category multi-select — the same URL-backed
+       (`env`/`acc`/`cat`) filter state the analytics Spending views use,
+       via the shared AnalyticsFilterBar below. */
+    const f = useAnalyticsFilters();
 
     const [params, setParams] = useSearchParams();
     const setParam = (key: string, v: string | null) =>
@@ -133,20 +176,32 @@ export default function TransactionsPage() {
         );
 
     const type = (params.get("type") as TxType | null) ?? null;
-    const accountId = params.get("account");
-    const categoryId = params.get("category");
-    // Envelopes are space-scoped. If a user navigates from `?envelope=X` in
-    // a regular space into `/s/me` (the cross-space personal view), the URL
-    // param must NOT silently filter the personal list — the picker is
-    // hidden there and the user would have no UI to clear it. Treat the
-    // param as absent in personal mode.
-    const envelopeId = isPersonal ? null : params.get("envelope");
-    const eventId = params.get("event");
+    // Envelopes/categories are space-scoped, so the AnalyticsFilterBar
+    // hides them on the `/s/me` cross-space view; guard the query args to
+    // match (a stale `env`/`cat` from a regular space must not silently
+    // filter the personal list where there's no UI to clear it).
+    const accountIdsArg = f.accountIdsArg;
+    // Categories work on the personal cross-space view too (the bar sources
+    // them from personal.listCategories); envelopes stay space-only.
+    const categoryIdsArg = f.categoryIdsArg;
+    const envelopIdsArg = isPersonal ? undefined : f.envelopeIdsArg;
+    // Events are space-scoped and the Event chip is hidden on the personal
+    // cross-space view — treat a stale `?event=` as absent there so it can't
+    // silently filter the list with no UI to clear it (mirrors env/cat).
+    const eventId = isPersonal ? null : params.get("event");
     const userId = params.get("user");
     const searchRaw = params.get("q") ?? "";
     const amountMin = params.get("min");
     const amountMax = params.get("max");
     const search = useDebouncedValue(searchRaw, 300);
+
+    /* The Balance column always shows. With exactly one account selected it
+       reads as a clean running balance (statement mode: dots hidden, caption
+       shown); across accounts each row shows its own account's balance —
+       two lines for a transfer. */
+    const singleAccountId =
+        f.accountIds.length === 1 ? f.accountIds[0] : null;
+    const isStatementMode = !!singleAccountId;
 
     const accountsSpaceQuery = trpc.account.listBySpace.useQuery(
         { spaceId: space.id },
@@ -216,9 +271,9 @@ export default function TransactionsPage() {
         {
             spaceId: space.id,
             type,
-            accountId: accountId || null,
-            expenseCategoryId: categoryId || null,
-            envelopId: envelopeId || null,
+            accountIds: accountIdsArg,
+            expenseCategoryIds: categoryIdsArg,
+            envelopIds: envelopIdsArg,
             eventId: eventId || null,
             userId: userId || null,
             search: search || null,
@@ -236,9 +291,9 @@ export default function TransactionsPage() {
     const listPersonalQuery = trpc.personal.transactions.useInfiniteQuery(
         {
             type,
-            accountId: accountId || null,
-            expenseCategoryId: categoryId || null,
-            envelopId: envelopeId || null,
+            accountIds: accountIdsArg,
+            expenseCategoryIds: categoryIdsArg,
+            envelopIds: envelopIdsArg,
             eventId: eventId || null,
             userId: userId || null,
             search: search || null,
@@ -292,16 +347,23 @@ export default function TransactionsPage() {
         onError: (e) => toast.error(e.message),
     });
 
+    /* Count only the filters NOT owned by the AnalyticsFilterBar — the
+       bar renders its own summary + "Clear all" for env/acc/cat. This
+       badges the "Add filter" popover (type/event/amount/user). */
     const activeFilterCount = [
         type,
-        accountId,
-        categoryId,
-        envelopeId,
         eventId,
         userId,
         amountMin,
         amountMax,
     ].filter(Boolean).length;
+
+    /* Whether ANY filter is narrowing the list — includes the env/acc/cat
+       multi-selects (owned by the bar) and the search box, not just the
+       "Add filter" popover's set. Drives the page-level "Clear" button and
+       the "no match" vs "nothing yet" empty state. */
+    const hasActiveFilters =
+        activeFilterCount > 0 || f.hasAnyFilter || !!search;
 
     /* Flatten all loaded pages into a single list. Each page carries its
        own `nextCursor`; the latest page's nextCursor === null means the
@@ -336,9 +398,9 @@ export default function TransactionsPage() {
     const filteredTotalsInput = useMemo(
         () => ({
             type,
-            accountId: accountId || null,
-            expenseCategoryId: categoryId || null,
-            envelopId: envelopeId || null,
+            accountIds: accountIdsArg,
+            expenseCategoryIds: categoryIdsArg,
+            envelopIds: envelopIdsArg,
             eventId: eventId || null,
             userId: userId || null,
             search: search || null,
@@ -349,9 +411,9 @@ export default function TransactionsPage() {
         }),
         [
             type,
-            accountId,
-            categoryId,
-            envelopeId,
+            accountIdsArg,
+            categoryIdsArg,
+            envelopIdsArg,
             eventId,
             userId,
             search,
@@ -392,13 +454,6 @@ export default function TransactionsPage() {
         return `${formatInAppTz(period.start, "MMM d")} → ${formatInAppTz(period.end, "MMM d, yyyy")}`;
     }, [preset, period.start, period.end]);
 
-    const periodChipLabel = useMemo(() => {
-        const found = PERIOD_PRESETS.find((p) => p.value === preset);
-        if (found) return found.label;
-        /* Custom range — show the dates compactly. */
-        return `${formatInAppTz(period.start, "MMM d")} → ${formatInAppTz(period.end, "MMM d")}`;
-    }, [preset, period.start, period.end]);
-
     const resetFilters = () => {
         setParams(
             (p) => {
@@ -414,61 +469,6 @@ export default function TransactionsPage() {
             { replace: true }
         );
     };
-
-    /* Active filter chips (for the row beneath the filter dropdowns). */
-    const activeChips: Array<{ key: string; label: string; color?: string; icon?: string; onRemove: () => void }> = [];
-    if (type) {
-        activeChips.push({
-            key: "type",
-            label: TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type,
-            onRemove: () => setParam("type", null),
-        });
-    }
-    if (accountId) {
-        const a = accountsById.get(accountId);
-        activeChips.push({
-            key: "account",
-            label: a?.name ?? "Account",
-            color: a?.color,
-            icon: a?.icon,
-            onRemove: () => setParam("account", null),
-        });
-    }
-    if (categoryId) {
-        const c = categoriesById.get(categoryId);
-        activeChips.push({
-            key: "category",
-            label: c?.name ?? "Category",
-            color: c?.color,
-            icon: c?.icon,
-            onRemove: () => setParam("category", null),
-        });
-    }
-    if (envelopeId) {
-        const e =
-            envelopeId === "__none"
-                ? null
-                : envelopesById.get(envelopeId);
-        activeChips.push({
-            key: "envelope",
-            label:
-                envelopeId === "__none"
-                    ? "No envelope"
-                    : e?.name ?? "Envelope",
-            color: e?.color,
-            icon: e?.icon,
-            onRemove: () => setParam("envelope", null),
-        });
-    }
-    if (eventId) {
-        const ev = eventsById.get(eventId);
-        activeChips.push({
-            key: "event",
-            label: ev?.name ?? "Event",
-            color: ev?.color,
-            onRemove: () => setParam("event", null),
-        });
-    }
 
     return (
         <div className="orbit-design tx-root">
@@ -526,78 +526,56 @@ export default function TransactionsPage() {
                             />
                         </label>
                         <PeriodChip
-                            preset={preset}
-                            period={period}
-                            label={periodChipLabel}
-                            onPresetChange={setPreset}
-                            onCustomChange={setCustom}
+                            defaultPreset={DEFAULT_PERIOD_PRESET}
                             icon={<CalendarIcon className="size-3.5" />}
                         />
-                        <FilterChipPicker
-                            label={
-                                accountId
-                                    ? accountsById.get(accountId)?.name ?? "Account"
-                                    : "All accounts"
-                            }
-                            icon={<Wallet className="size-3.5" />}
-                            options={[
-                                { value: null, label: "All accounts" },
-                                ...accountsData.map((a) => ({
-                                    value: a.id,
-                                    label: a.name,
-                                })),
-                            ]}
-                            value={accountId}
-                            onChange={(v) => setParam("account", v)}
-                        />
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <button type="button" className="od-btn">
-                                    <Folder className="size-3.5" />
-                                    {categoryId
-                                        ? categoriesById.get(categoryId)?.name ??
-                                          "Category"
-                                        : "Any category"}
-                                </button>
-                            </PopoverTrigger>
-                            <PopoverContent align="end" className="orbit-design w-72 p-3">
-                                <CategoryTreeSelect
-                                    categories={categoriesData as any}
-                                    value={categoryId}
-                                    onChange={(id) => setParam("category", id)}
-                                />
-                            </PopoverContent>
-                        </Popover>
-                        {/* Envelopes are space-scoped; hidden on the personal
-                            cross-space view because there's no flat list of
-                            envelopes to pick from. */}
-                        {!isPersonal && (
-                            <FilterChipPicker
-                                label={
-                                    envelopeId === "__none"
-                                        ? "No envelope"
-                                        : envelopeId
-                                          ? envelopesById.get(envelopeId)?.name ??
-                                            "Envelope"
-                                          : "Any envelope"
-                                }
-                                icon={<Layers className="size-3.5" />}
-                                options={[
-                                    { value: null, label: "Any envelope" },
-                                    {
-                                        value: "__none",
-                                        label: "No envelope",
-                                    },
-                                    ...(envelopesQuery.data ?? []).map((e) => ({
-                                        value: e.id,
-                                        label: e.name,
-                                    })),
-                                ]}
-                                value={envelopeId}
-                                onChange={(v) => setParam("envelope", v)}
-                            />
-                        )}
                     </div>
+
+                    {/* Envelope / Account / Category multi-select — same
+                        shared bar as the analytics Spending views. Envelopes
+                        and categories auto-hide on the personal cross-space
+                        view (space-scoped). */}
+                    <AnalyticsFilterBar
+                        className="tx-analytics-filter-bar"
+                        spaceId={space.id}
+                        isPersonal={isPersonal}
+                        personalCategories
+                        envelopeIds={f.envelopeIds}
+                        accountIds={f.accountIds}
+                        categoryIds={f.categoryIds}
+                        onChange={f.setFilterIds}
+                        onClearAll={resetFilters}
+                        hasAnyFilter={hasActiveFilters}
+                        accountsFootnote="Money moving in or out of the selected account(s)."
+                        trailingChips={
+                            <>
+                                {!isPersonal && (
+                                    <TxEventChip
+                                        events={eventsQuery.data ?? []}
+                                        value={eventId}
+                                        onChange={(v) => setParam("event", v)}
+                                    />
+                                )}
+                                <TxAmountChip
+                                    min={amountMin}
+                                    max={amountMax}
+                                    onApply={(lo, hi) => {
+                                        setParams(
+                                            (p) => {
+                                                const next = new URLSearchParams(p);
+                                                if (lo) next.set("min", lo);
+                                                else next.delete("min");
+                                                if (hi) next.set("max", hi);
+                                                else next.delete("max");
+                                                return next;
+                                            },
+                                            { replace: true }
+                                        );
+                                    }}
+                                />
+                            </>
+                        }
+                    />
 
                     <div className="tx-filter-row2">
                         <div
@@ -618,61 +596,6 @@ export default function TransactionsPage() {
                             ))}
                         </div>
 
-                        {activeChips.length > 0 && (
-                            <span className="tx-filter-divider" />
-                        )}
-                        {activeChips.map((c) => (
-                            <button
-                                key={c.key}
-                                type="button"
-                                onClick={c.onRemove}
-                                className="tx-active-chip"
-                                aria-label={`Remove ${c.label} filter`}
-                                style={
-                                    c.color
-                                        ? {
-                                              background: `color-mix(in oklab, ${c.color} 12%, transparent)`,
-                                              borderColor: `color-mix(in oklab, ${c.color} 30%, transparent)`,
-                                              color: c.color,
-                                          }
-                                        : undefined
-                                }
-                            >
-                                {c.label}
-                                <X className="size-3" aria-hidden />
-                            </button>
-                        ))}
-                        <MoreFiltersSheet
-                            accountId={accountId}
-                            setAccountId={(v) => setParam("account", v)}
-                            categoryId={categoryId}
-                            setCategoryId={(v) => setParam("category", v)}
-                            envelopeId={envelopeId}
-                            setEnvelopeId={(v) => setParam("envelope", v)}
-                            eventId={eventId}
-                            setEventId={(v) => setParam("event", v)}
-                            amountMin={amountMin}
-                            setAmountMin={(v) => setParam("min", v)}
-                            amountMax={amountMax}
-                            setAmountMax={(v) => setParam("max", v)}
-                            accounts={accountsData}
-                            categories={categoriesData as any}
-                            envelopes={envelopesQuery.data ?? []}
-                            events={eventsQuery.data ?? []}
-                            activeFilterCount={activeFilterCount}
-                            hideEvents={isPersonal}
-                            hideEnvelopes={isPersonal}
-                        />
-                        {activeFilterCount > 0 && (
-                            <button
-                                type="button"
-                                className="od-btn od-btn-ghost od-btn-sm"
-                                style={{ color: "var(--fg-3)" }}
-                                onClick={resetFilters}
-                            >
-                                <X className="size-3.5" /> Clear
-                            </button>
-                        )}
                         <span className="tx-filter-count">
                             {(totalsData?.count ?? items.length).toLocaleString(
                                 "en-US"
@@ -709,41 +632,67 @@ export default function TransactionsPage() {
                 </div>
 
                 {/* Table */}
-                <div className={`od-card tx-table-card${isPersonal ? " tx-table-no-event" : ""}`}>
+                <div
+                    className={`od-card tx-table-card tx-show-balance${
+                        isPersonal ? " tx-table-no-event" : ""
+                    }`}
+                >
+                    {/* Balance is always the account's true balance across its
+                        full history — it ignores the active filters, so it
+                        won't step by the visible row amount once a non-account
+                        filter narrows which rows are shown. Call that out
+                        whenever it could otherwise read as a bug: always in
+                        statement mode (a single account, where a stepping
+                        running balance is the whole point), and in multi-
+                        account mode once another filter is actually hiding
+                        rows (the default period alone doesn't count). */}
+                    {isStatementMode ? (
+                        <div className="tx-statement-note">
+                            <Coins className="size-3.5" />
+                            Balance shown is{" "}
+                            <strong>
+                                {singleAccountId
+                                    ? accountsById.get(singleAccountId)?.name ??
+                                      "this account"
+                                    : "this account"}
+                            </strong>
+                            's true balance across all activity — filters above
+                            narrow which rows you see, not the running total.
+                        </div>
+                    ) : (
+                        (activeFilterCount > 0 || !!search) && (
+                            <div className="tx-statement-note">
+                                <Coins className="size-3.5" />
+                                Balance reflects each account's full history,
+                                not just these filtered rows.
+                            </div>
+                        )
+                    )}
                     {/* Hide column headers when there's nothing to label —
                         a row of empty headings above the EmptyState reads
                         as broken data rather than "empty state". */}
                     {!listQuery.isLoading && items.length > 0 && (
                     <div className="tx-table-head tx-row-grid">
-                        {(isPersonal
-                            ? [
-                                  "Date",
-                                  "Type",
-                                  "From / To",
-                                  "Category",
-                                  "Envelope",
-                                  "By",
-                                  "Amount",
-                                  "",
-                              ]
-                            : [
-                                  "Date",
-                                  "Type",
-                                  "From / To",
-                                  "Category",
-                                  "Envelope",
-                                  "Event",
-                                  "By",
-                                  "Amount",
-                                  "",
-                              ]
-                        ).map((h, i, arr) => (
+                        {[
+                            "Date",
+                            "Type",
+                            "From / To",
+                            "Category",
+                            "Envelope",
+                            ...(isPersonal ? [] : ["Event"]),
+                            "By",
+                            "Amount",
+                            "Balance",
+                            "",
+                        ].map((h, i) => (
                             <span
                                 key={i}
                                 className="tx-th"
                                 style={{
                                     textAlign:
-                                        i === arr.length - 2 ? "right" : "left",
+                                        h === "Amount" || h === "Balance"
+                                            ? "right"
+                                            : "left",
                                 }}
                             >
                                 {h}
@@ -758,7 +707,7 @@ export default function TransactionsPage() {
                         </div>
                     ) : items.length === 0 ? (
                         <div style={{ padding: 24 }}>
-                            {activeFilterCount > 0 ? (
+                            {hasActiveFilters ? (
                                 <EmptyState
                                     icon={FilterEmptyIcon}
                                     title="No transactions match these filters"
@@ -953,6 +902,55 @@ export default function TransactionsPage() {
                                                     </span>
                                                 )}
                                             </span>
+                                            <span className="tx-cell-balance">
+                                                {(() => {
+                                                        const entries =
+                                                            rowBalanceEntries(t);
+                                                        if (entries.length === 0)
+                                                            return (
+                                                                <span
+                                                                    style={{
+                                                                        color: "var(--fg-4)",
+                                                                    }}
+                                                                >
+                                                                    —
+                                                                </span>
+                                                            );
+                                                        return entries.map((b) => (
+                                                            <span
+                                                                key={b.accountId}
+                                                                className="tx-bal-line"
+                                                            >
+                                                                {!isStatementMode && (
+                                                                    <span
+                                                                        className="tx-bal-dot"
+                                                                        style={{
+                                                                            background:
+                                                                                accountsById.get(
+                                                                                    b.accountId
+                                                                                )
+                                                                                    ?.color ??
+                                                                                UNALLOCATED_COLOR,
+                                                                        }}
+                                                                        title={
+                                                                            accountsById.get(
+                                                                                b.accountId
+                                                                            )?.name
+                                                                        }
+                                                                    />
+                                                                )}
+                                                                <Money
+                                                                    amount={Number(
+                                                                        b.balance
+                                                                    )}
+                                                                    variant="neutral"
+                                                                    size={13}
+                                                                    weight={500}
+                                                                />
+                                                            </span>
+                                                        ));
+                                                    })()}
+                                            </span>
                                         </div>
                                     );
                                         })}
@@ -1001,25 +999,57 @@ export default function TransactionsPage() {
                                                     </div>
                                                 )}
                                             </div>
-                                            <Money
-                                                amount={
-                                                    tt === "expense"
-                                                        ? -Number(t.amount)
-                                                        : Number(t.amount)
-                                                }
-                                                variant={
-                                                    tt === "income"
-                                                        ? "income"
-                                                        : tt === "transfer"
-                                                          ? "transfer"
-                                                          : tt === "adjustment"
-                                                            ? "warn"
-                                                            : "expense"
-                                                }
-                                                signed={tt === "income"}
-                                                size={13}
-                                                weight={500}
-                                            />
+                                            <div className="tx-mrow-amt">
+                                                <Money
+                                                    amount={
+                                                        tt === "expense"
+                                                            ? -Number(t.amount)
+                                                            : Number(t.amount)
+                                                    }
+                                                    variant={
+                                                        tt === "income"
+                                                            ? "income"
+                                                            : tt === "transfer"
+                                                              ? "transfer"
+                                                              : tt === "adjustment"
+                                                                ? "warn"
+                                                                : "expense"
+                                                    }
+                                                    signed={tt === "income"}
+                                                    size={13}
+                                                    weight={500}
+                                                />
+                                                {rowBalanceEntries(t).map(
+                                                    (b) => (
+                                                            <span
+                                                                key={b.accountId}
+                                                                className="tx-mrow-balance"
+                                                            >
+                                                                {!isStatementMode && (
+                                                                    <span
+                                                                        className="tx-bal-dot"
+                                                                        style={{
+                                                                            background:
+                                                                                accountsById.get(
+                                                                                    b.accountId
+                                                                                )
+                                                                                    ?.color ??
+                                                                                UNALLOCATED_COLOR,
+                                                                        }}
+                                                                    />
+                                                                )}
+                                                                <Money
+                                                                    amount={Number(
+                                                                        b.balance
+                                                                    )}
+                                                                    variant="neutral"
+                                                                    size={11}
+                                                                    weight={500}
+                                                                />
+                                                            </span>
+                                                        )
+                                                )}
+                                            </div>
                                         </button>
                                     );
                                         })}
@@ -1321,359 +1351,190 @@ function SummaryCell({
     );
 }
 
-function PeriodChip({
-    period,
-    label,
-    onCustomChange,
-    icon,
-}: {
-    preset: string;
-    period: { start: Date; end: Date };
-    label: string;
-    onPresetChange: (preset: any) => void;
-    onCustomChange: (start: Date, end: Date) => void;
-    icon?: ReactNode;
-}) {
-    const [open, setOpen] = useState(false);
-    return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <button type="button" className="od-btn">
-                    {icon ?? <FilterIcon className="size-3.5" />}
-                    {label}
-                    <ChevronDown
-                        className="size-3"
-                        style={{ color: "var(--fg-4)" }}
-                    />
-                </button>
-            </PopoverTrigger>
-            <PopoverContent
-                align="end"
-                className="orbit-design p-0 border-0 bg-transparent shadow-none"
-                style={{ width: "min(640px, calc(100vw - 32px))" }}
-            >
-                <DateRangePicker
-                    start={period.start}
-                    end={period.end}
-                    onChange={() => {}}
-                    onApply={(s, e) => {
-                        onCustomChange(s, e);
-                        setOpen(false);
-                    }}
-                    onCancel={() => setOpen(false)}
-                />
-            </PopoverContent>
-        </Popover>
-    );
-}
+/* Chip styling shared with the AnalyticsFilterBar dropdowns so the
+   transaction-only filters (Event / Amount / No-envelope) sit in the same
+   row and read as one cohesive control set. */
+const FILTER_CHIP_CLASS = "h-9 gap-1.5 px-2.5 text-sm sm:h-7 sm:text-[12px]";
+const FILTER_CHIP_ACTIVE = "border-warning/40 bg-warning/5 text-foreground";
 
-function FilterChipPicker({
-    label,
-    icon,
-    options,
+/** Single-select Event filter, styled to match the multi-select chips. */
+function TxEventChip({
+    events,
     value,
     onChange,
 }: {
-    label: string;
-    icon?: ReactNode;
-    options: Array<{ value: string | null; label: string }>;
+    events: Array<{
+        id: string;
+        name: string;
+        color?: string | null;
+        icon?: string | null;
+    }>;
     value: string | null;
     onChange: (v: string | null) => void;
 }) {
+    const selected = value ? events.find((e) => e.id === value) : null;
+    const label = selected ? selected.name : "Event · All";
     return (
-        <Popover>
-            <PopoverTrigger asChild>
-                <button type="button" className="od-btn">
-                    {icon}
-                    {label}
-                </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="orbit-design w-56 p-1">
-                {options.map((o) => (
-                    <button
-                        key={String(o.value)}
-                        type="button"
-                        className="tx-popover-item"
-                        onClick={() => onChange(o.value)}
-                    >
-                        {o.label}
-                        {value === o.value && (
-                            <Check
-                                className="size-3.5 ml-auto"
-                                style={{ color: "var(--brand)" }}
-                            />
-                        )}
-                    </button>
-                ))}
-            </PopoverContent>
-        </Popover>
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(FILTER_CHIP_CLASS, value && FILTER_CHIP_ACTIVE)}
+                >
+                    <CalendarClock className="size-3.5" />
+                    <span className="max-w-[150px] truncate">{label}</span>
+                    <ChevronDown className="size-3 opacity-60" />
+                </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+                align="start"
+                className="w-[min(16rem,calc(100vw-1.5rem))]"
+            >
+                <DropdownMenuLabel className="text-xs">
+                    Filter by event
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                    className="text-xs"
+                    disabled={!value}
+                    onSelect={() => onChange(null)}
+                >
+                    Any event
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <div className="max-h-[260px] overflow-y-auto">
+                    {events.length === 0 ? (
+                        <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                            No events.
+                        </p>
+                    ) : (
+                        events.map((e) => (
+                            <DropdownMenuItem
+                                key={e.id}
+                                onSelect={() => onChange(e.id)}
+                                className="gap-2"
+                            >
+                                <EntityAvatar
+                                    size="sm"
+                                    color={e.color ?? "#64748b"}
+                                    icon={e.icon ?? "calendar"}
+                                />
+                                <span className="truncate">{e.name}</span>
+                                {value === e.id && (
+                                    <Check className="ml-auto size-3.5" />
+                                )}
+                            </DropdownMenuItem>
+                        ))
+                    )}
+                </div>
+            </DropdownMenuContent>
+        </DropdownMenu>
     );
 }
 
-function MoreFiltersSheet({
-    accountId,
-    setAccountId,
-    categoryId,
-    setCategoryId,
-    envelopeId,
-    setEnvelopeId,
-    eventId,
-    setEventId,
-    amountMin,
-    setAmountMin,
-    amountMax,
-    setAmountMax,
-    accounts,
-    categories,
-    envelopes,
-    events,
-    activeFilterCount,
-    hideEvents = false,
-    hideEnvelopes = false,
+/** Amount-range filter (inclusive min/max) in a small popover. */
+function TxAmountChip({
+    min,
+    max,
+    onApply,
 }: {
-    accountId: string | null;
-    setAccountId: (v: string | null) => void;
-    categoryId: string | null;
-    setCategoryId: (v: string | null) => void;
-    envelopeId: string | null;
-    setEnvelopeId: (v: string | null) => void;
-    eventId: string | null;
-    setEventId: (v: string | null) => void;
-    amountMin: string | null;
-    setAmountMin: (v: string | null) => void;
-    amountMax: string | null;
-    setAmountMax: (v: string | null) => void;
-    accounts: Array<{ id: string; name: string }>;
-    categories: Array<{
-        id: string;
-        name: string;
-        parent_id: string | null;
-        color: string;
-        icon: string;
-    }>;
-    envelopes: Array<{ id: string; name: string }>;
-    events: Array<{ id: string; name: string }>;
-    activeFilterCount: number;
-    hideEvents?: boolean;
-    hideEnvelopes?: boolean;
+    min: string | null;
+    max: string | null;
+    onApply: (min: string | null, max: string | null) => void;
 }) {
     const [open, setOpen] = useState(false);
-    const reset = () => {
-        setAccountId(null);
-        setCategoryId(null);
-        setEnvelopeId(null);
-        setEventId(null);
-        setAmountMin(null);
-        setAmountMax(null);
+    const [lo, setLo] = useState(min ?? "");
+    const [hi, setHi] = useState(max ?? "");
+    const active = !!(min || max);
+    const label = active ? `Amount · ${min || "0"}–${max || "∞"}` : "Amount";
+    const apply = () => {
+        onApply(lo.trim() || null, hi.trim() || null);
+        setOpen(false);
     };
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+            open={open}
+            onOpenChange={(o) => {
+                setOpen(o);
+                if (o) {
+                    setLo(min ?? "");
+                    setHi(max ?? "");
+                }
+            }}
+        >
             <PopoverTrigger asChild>
-                <button type="button" className="tx-add-filter">
-                    <Plus className="size-3" /> Add filter
-                    {activeFilterCount > 0 && (
-                        <span className="tx-filter-badge">{activeFilterCount}</span>
-                    )}
-                </button>
+                <Button
+                    variant="outline"
+                    size="sm"
+                    className={cn(FILTER_CHIP_CLASS, active && FILTER_CHIP_ACTIVE)}
+                >
+                    <Coins className="size-3.5" />
+                    <span className="max-w-[150px] truncate">{label}</span>
+                    <ChevronDown className="size-3 opacity-60" />
+                </Button>
             </PopoverTrigger>
             <PopoverContent
-                align="end"
-                sideOffset={6}
-                className="orbit-design tx-filter-pop"
+                align="start"
+                className="orbit-design w-64 p-3"
+                onKeyDown={(e) => {
+                    if (e.key === "Enter") apply();
+                }}
             >
-                <OrbitFormStyles />
-                <style>{TX_FILTER_POP_STYLES}</style>
-
-                <div className="tx-filter-pop-head">
-                    <span className="tx-filter-pop-eyebrow">Filter transactions</span>
-                    <button
-                        type="button"
-                        className="orbit-btn orbit-btn-ghost orbit-btn-sm"
-                        onClick={reset}
-                        disabled={activeFilterCount === 0}
-                    >
-                        Reset
-                    </button>
-                </div>
-
-                {/* Type filter lives in the always-visible pill bar
-                    above the filter strip — keep one source of truth. */}
-
-                <OrbitField label="Account">
-                    <OrbitSelect
-                        value={accountId ?? "__all"}
-                        onValueChange={(v) =>
-                            setAccountId(v === "__all" ? null : v)
-                        }
-                        items={[
-                            { value: "__all", label: "All accounts" },
-                            ...accounts.map((a) => ({
-                                value: a.id,
-                                label: a.name,
-                                leadIcon: <Wallet className="size-3.5" />,
-                                leadColor: "var(--ent-1)",
-                            })),
-                        ]}
-                        placeholder="All accounts"
-                        leadIcon={<Wallet className="size-3.5" />}
-                        leadColor="var(--ent-1)"
-                    />
-                </OrbitField>
-
-                <OrbitField label="Category">
-                    <CategoryTreeSelect
-                        categories={categories}
-                        value={categoryId}
-                        onChange={setCategoryId}
-                        placeholder="Any category"
-                    />
-                </OrbitField>
-
-                {!hideEnvelopes && (
-                    <OrbitField label="Envelope">
-                        <OrbitSelect
-                            value={envelopeId ?? "__any"}
-                            onValueChange={(v) =>
-                                setEnvelopeId(v === "__any" ? null : v)
-                            }
-                            items={[
-                                { value: "__any", label: "Any envelope" },
-                                { value: "__none", label: "No envelope" },
-                                ...envelopes.map((e) => ({
-                                    value: e.id,
-                                    label: e.name,
-                                    leadIcon: <Layers className="size-3.5" />,
-                                    leadColor: "var(--ent-2)",
-                                })),
-                            ]}
-                            placeholder="Any envelope"
-                            leadIcon={<Layers className="size-3.5" />}
-                            leadColor="var(--ent-2)"
-                        />
-                    </OrbitField>
-                )}
-
-                {!hideEvents && events.length > 0 && (
-                    <OrbitField label="Event">
-                        <OrbitSelect
-                            value={eventId ?? "__any"}
-                            onValueChange={(v) =>
-                                setEventId(v === "__any" ? null : v)
-                            }
-                            items={[
-                                { value: "__any", label: "Any event" },
-                                ...events.map((e) => ({
-                                    value: e.id,
-                                    label: e.name,
-                                    leadIcon: <CalendarIcon className="size-3.5" />,
-                                    leadColor: "var(--ent-5)",
-                                })),
-                            ]}
-                            placeholder="Any event"
-                            leadIcon={<CalendarIcon className="size-3.5" />}
-                            leadColor="var(--ent-5)"
-                        />
-                    </OrbitField>
-                )}
-
-                <OrbitField label="Amount" hint="Inclusive range">
-                    <OrbitFieldRow>
-                        <OrbitInput
+                <div className="tx-amount-pop">
+                    <span className="tx-amount-pop-label">Amount range</span>
+                    <div className="tx-amount-pop-row">
+                        <input
+                            className="od-input"
                             type="number"
+                            inputMode="decimal"
                             step="0.01"
-                            value={amountMin ?? ""}
-                            onChange={(e) => setAmountMin(e.target.value || null)}
-                            placeholder="0"
+                            min="0"
+                            placeholder="Min"
+                            aria-label="Minimum amount"
+                            value={lo}
+                            onChange={(e) => setLo(e.target.value)}
                         />
-                        <OrbitInput
+                        <span className="tx-amount-pop-dash">–</span>
+                        <input
+                            className="od-input"
                             type="number"
+                            inputMode="decimal"
                             step="0.01"
-                            value={amountMax ?? ""}
-                            onChange={(e) => setAmountMax(e.target.value || null)}
-                            placeholder="∞"
+                            min="0"
+                            placeholder="Max"
+                            aria-label="Maximum amount"
+                            value={hi}
+                            onChange={(e) => setHi(e.target.value)}
                         />
-                    </OrbitFieldRow>
-                </OrbitField>
-
-                <div className="tx-filter-pop-foot">
-                    <button
-                        type="button"
-                        className="orbit-btn"
-                        style={{ flex: 1 }}
-                        onClick={() => setOpen(false)}
-                    >
-                        Cancel
-                    </button>
-                    <button
-                        type="button"
-                        className="orbit-btn orbit-btn-primary"
-                        style={{ flex: 1 }}
-                        onClick={() => setOpen(false)}
-                    >
-                        Apply
-                        {activeFilterCount > 0 && ` · ${activeFilterCount}`}
-                    </button>
+                    </div>
+                    <div className="tx-amount-pop-foot">
+                        <button
+                            type="button"
+                            className="od-btn od-btn-ghost od-btn-sm"
+                            onClick={() => {
+                                setLo("");
+                                setHi("");
+                                onApply(null, null);
+                                setOpen(false);
+                            }}
+                            disabled={!active && !lo && !hi}
+                        >
+                            Clear
+                        </button>
+                        <button
+                            type="button"
+                            className="od-btn od-btn-primary od-btn-sm"
+                            onClick={apply}
+                        >
+                            Apply
+                        </button>
+                    </div>
                 </div>
             </PopoverContent>
         </Popover>
     );
 }
-
-const TX_FILTER_POP_STYLES = `
-.tx-filter-pop {
-    width: 360px;
-    background: var(--bg-elev-2) !important;
-    border: 1px solid var(--line-strong) !important;
-    border-radius: 14px !important;
-    box-shadow: 0 24px 60px -16px rgb(0 0 0 / 0.7), 0 1px 0 0 var(--inset-hi) inset !important;
-    padding: 16px !important;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    color: var(--fg);
-    font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
-}
-.tx-filter-pop-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-.tx-filter-pop-eyebrow {
-    font-size: 10px;
-    color: var(--fg-3);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font-weight: 500;
-}
-.tx-filter-pop-types {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-}
-.tx-filter-pop-type-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 10px;
-    border-radius: 99px;
-    background: var(--bg-elev-1);
-    border: 1px solid var(--line);
-    color: var(--fg-2);
-    font-size: 11.5px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: inherit;
-    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.tx-filter-pop-type-chip:hover { border-color: var(--line-strong); }
-
-.tx-filter-pop-foot {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
-}
-`;
 
 const TX_STYLES = `
 .tx-root {
@@ -1985,6 +1846,17 @@ const TX_STYLES = `
     padding: 0;
     overflow: hidden;
 }
+.tx-statement-note {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 18px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-elev-2);
+    font-size: 11.5px;
+    color: var(--fg-3);
+}
+.tx-statement-note strong { color: var(--fg-2); font-weight: 600; }
 .tx-row-grid {
     display: grid;
     grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) minmax(0, 0.6fr) 100px 130px 60px;
@@ -1994,6 +1866,14 @@ const TX_STYLES = `
    no scoped event picker and the column resolves to "—" for most rows. */
 .tx-table-no-event .tx-row-grid {
     grid-template-columns: 100px 120px minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 100px 130px 60px;
+}
+/* Statement mode (single account selected): a "Balance after" column is
+   appended before the actions cell. Other columns tighten slightly to fit. */
+.tx-show-balance .tx-row-grid {
+    grid-template-columns: 96px 116px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.55fr) 92px 124px 124px 56px;
+}
+.tx-show-balance.tx-table-no-event .tx-row-grid {
+    grid-template-columns: 96px 116px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) 92px 124px 124px 56px;
 }
 .tx-table-head {
     padding: 12px 18px;
@@ -2115,6 +1995,63 @@ const TX_STYLES = `
     white-space: nowrap;
     max-width: 130px;
 }
+.tx-cell-balance {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.tx-bal-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.tx-bal-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    /* Hairline ring keeps a pale account colour visible on the card. */
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--fg) 18%, transparent);
+}
+.tx-mrow-amt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin-left: auto;
+}
+.tx-mrow-balance {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    color: var(--fg-3);
+    font-variant-numeric: tabular-nums;
+}
+/* Neutralise the shared bar's -mt-1 (meant for analytics page headers) so
+   it respects the filter card's own 12px stack gap. */
+.tx-filters .tx-analytics-filter-bar { margin-top: 0; }
+/* Amount-range popover */
+.tx-amount-pop { display: flex; flex-direction: column; gap: 10px; }
+.tx-amount-pop-label {
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-4);
+    font-weight: 500;
+}
+.tx-amount-pop-row { display: flex; align-items: center; gap: 8px; }
+/* 16px on mobile stops iOS Safari from auto-zooming on focus; shrink back
+   to the compact 13px on wider screens. */
+.tx-amount-pop-row .od-input { min-width: 0; text-align: right; font-size: 16px; }
+@media (min-width: 640px) {
+    .tx-amount-pop-row .od-input { font-size: 13px; }
+}
+.tx-amount-pop-dash { color: var(--fg-4); }
+.tx-amount-pop-foot { display: flex; justify-content: flex-end; gap: 8px; }
 .tx-cell-actions {
     display: inline-flex;
     justify-content: flex-end;
@@ -2245,6 +2182,13 @@ const TX_STYLES = `
     }
     .tx-table-no-event .tx-row-grid > :nth-child(6) { display: none; }
     .tx-table-no-event .tx-row-grid > :nth-child(7) { display: revert; }
+    /* Keep the Balance column at this width; event/by still hidden by the
+       nth-child rules above (Balance sits after Amount, so its index is
+       unaffected). */
+    .tx-show-balance .tx-row-grid,
+    .tx-show-balance.tx-table-no-event .tx-row-grid {
+        grid-template-columns: 96px 116px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) 120px 120px 56px;
+    }
 }
 
 /* Phone (<640px) — tighten filters, search, summary tiles. */

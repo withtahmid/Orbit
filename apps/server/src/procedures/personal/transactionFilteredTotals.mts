@@ -21,12 +21,15 @@ export const personalTransactionFilteredTotals = authorizedProcedure
             type: z.enum(["income", "expense", "transfer", "adjustment"]).nullish(),
             spaceId: z.string().uuid().nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
+            expenseCategoryIds: z.array(z.string().uuid()).nullish(),
             includeDescendants: z.boolean().default(true),
             envelopId: z
                 .union([z.string().uuid(), z.literal("__none")])
                 .nullish(),
+            envelopIds: z.array(z.string().uuid()).nullish(),
             eventId: z.string().uuid().nullish(),
             accountId: z.string().uuid().nullish(),
+            accountIds: z.array(z.string().uuid()).nullish(),
             userId: z.string().uuid().nullish(),
             search: z.string().trim().min(1).max(255).nullish(),
             amountMin: z.number().nonnegative().nullish(),
@@ -64,26 +67,54 @@ export const personalTransactionFilteredTotals = authorizedProcedure
                 if (spaceFilter.length === 0) return empty;
 
                 const ownedSet = new Set(owned);
-                if (input.accountId && !ownedSet.has(input.accountId)) return empty;
+
+                // Effective filter lists: plural array wins over the legacy
+                // singular param. Account ids intersect with owned accounts.
+                const requestedAccountIds =
+                    input.accountIds && input.accountIds.length > 0
+                        ? input.accountIds
+                        : input.accountId
+                          ? [input.accountId]
+                          : null;
+                let accountIdFilter: string[] | null = null;
+                if (requestedAccountIds) {
+                    accountIdFilter = requestedAccountIds.filter((id) =>
+                        ownedSet.has(id)
+                    );
+                    if (accountIdFilter.length === 0) return empty;
+                }
+                const envelopIdFilter =
+                    input.envelopIds && input.envelopIds.length > 0
+                        ? input.envelopIds
+                        : input.envelopId && input.envelopId !== "__none"
+                          ? [input.envelopId]
+                          : null;
+                const categoryBaseIds =
+                    input.expenseCategoryIds &&
+                    input.expenseCategoryIds.length > 0
+                        ? input.expenseCategoryIds
+                        : input.expenseCategoryId
+                          ? [input.expenseCategoryId]
+                          : null;
 
                 let categoryIds: string[] | null = null;
-                if (input.expenseCategoryId) {
+                if (categoryBaseIds) {
                     if (input.includeDescendants) {
                         const res = await sql<{ id: string }>`
                             WITH RECURSIVE subtree AS (
                                 SELECT id FROM expense_categories
-                                WHERE id = ${input.expenseCategoryId}
+                                WHERE id = ANY(${categoryBaseIds})
                                 UNION ALL
                                 SELECT ec.id FROM expense_categories ec
                                 JOIN subtree s ON ec.parent_id = s.id
                             )
-                            SELECT id::text FROM subtree
+                            SELECT DISTINCT id::text FROM subtree
                         `.execute(ctx.services.qb);
                         categoryIds = res.rows.map((r) => r.id);
                         if (categoryIds.length === 0)
-                            categoryIds = [input.expenseCategoryId];
+                            categoryIds = categoryBaseIds;
                     } else {
-                        categoryIds = [input.expenseCategoryId];
+                        categoryIds = categoryBaseIds;
                     }
                 }
 
@@ -125,15 +156,15 @@ export const personalTransactionFilteredTotals = authorizedProcedure
                       ${input.type ? sql`AND t.type = ${input.type as unknown as Transactions["type"]}` : sql``}
                       ${input.userId ? sql`AND t.created_by = ${input.userId}` : sql``}
                       ${
-                          input.envelopId === "__none"
-                              ? sql`AND t.envelop_id IS NULL`
-                              : input.envelopId
-                                ? sql`AND t.envelop_id = ${input.envelopId}`
+                          envelopIdFilter
+                              ? sql`AND t.envelop_id = ANY(${envelopIdFilter})`
+                              : input.envelopId === "__none"
+                                ? sql`AND t.envelop_id IS NULL`
                                 : sql``
                       }
                       ${categoryIds ? sql`AND t.expense_category_id = ANY(${categoryIds})` : sql``}
                       ${input.eventId ? sql`AND t.event_id = ${input.eventId}` : sql``}
-                      ${input.accountId ? sql`AND (t.source_account_id = ${input.accountId} OR t.destination_account_id = ${input.accountId})` : sql``}
+                      ${accountIdFilter ? sql`AND (t.source_account_id = ANY(${accountIdFilter}) OR t.destination_account_id = ANY(${accountIdFilter}))` : sql``}
                       ${input.search ? sql`AND (t.description ILIKE ${`%${input.search}%`} OR t.location ILIKE ${`%${input.search}%`})` : sql``}
                       ${input.amountMin !== null && input.amountMin !== undefined ? sql`AND t.amount >= ${input.amountMin}` : sql``}
                       ${input.amountMax !== null && input.amountMax !== undefined ? sql`AND t.amount <= ${input.amountMax}` : sql``}
