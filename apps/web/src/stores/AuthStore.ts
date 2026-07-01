@@ -19,6 +19,11 @@ export class AuthStore {
     token: string | null = null;
     user: AuthUser | null = null;
     isLoading = true; // true while rehydrating from storage
+    // True for the span of a mutation that rotates the token server-side
+    // (e.g. changePassword bumps token_version). Requests already in
+    // flight on the old token will 401 during this window even though
+    // the session is fine — the global error handler should ignore them.
+    isRotatingToken = false;
 
     constructor() {
         makeAutoObservable(this);
@@ -66,6 +71,10 @@ export class AuthStore {
     setToken(token: string) {
         this.token = token;
         localStorage.setItem(TOKEN_KEY, token);
+    }
+
+    setRotatingToken(value: boolean) {
+        this.isRotatingToken = value;
     }
 
     /** Patch the current user's avatar file id in place. */

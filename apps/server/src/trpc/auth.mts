@@ -12,10 +12,11 @@ interface JWTPayload {
     exp?: number;
 }
 
-const JWT_EXPIRES_IN = "30d";
-
+// No expiresIn: sessions are meant to last forever. The only way to
+// invalidate one is bumping the user's token_version (password change,
+// password reset, account deletion) or the client discarding the token.
 export const signJWT = (payload: { userId: string; tokenVersion: number }): string => {
-    return jwt.sign(payload as object, ENV.JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    return jwt.sign(payload as object, ENV.JWT_SECRET);
 };
 
 export const authorizeJWT = async (authHeader: string | undefined): Promise<JWTPayload | null> => {
