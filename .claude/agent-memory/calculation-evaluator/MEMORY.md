@@ -20,3 +20,7 @@
 - [Budget gauge geometry](budget_gauge_geometry.md) — EnvelopeGlass: spend path correct; goal liquid jumps DOWN at target (full ratio into deficitFraction vs 1× line at 0.781); deficitFraction discontinuous at r=1.
 - [App timezone conventions](feedback-app-tz-conventions.md) — APP_TIMEZONE=Asia/Dhaka; never call native Date getters/setters on Dates returned by `@/lib/dates` helpers; they're browser-local and silently wrong for non-Dhaka users.
 - [Migration 049 period_start tz fix](migration_049_period_start_tz_fix.md) — repairs day<>1 corrupted allocation rows via date_trunc(ps+1 day); conservation proven; libpq startup options fixes pooler drift.
+- [niceTicks round bug](niceticks_round_bug.md) — BudgetDetailPage niceTicks() rounds ticks → duplicate labels when yMax<~8; latent (real budgets are hundreds+); keep the yMax<=0 log10 guard.
+- [Donut uncategorized gap](donut_uncategorized_gap.md) — RESOLVED: donut now reconciles to this-month spend via Uncategorized wedge; catTotal==periodSpend (consumed monthly / Σdaily.current rolling).
+- [Glass status boundaries](glass_status_boundaries.md) — save uses `>=` at target => "complete"; spend total<=0 => "calm", exactly-at-budget => "warning" not "over"; divide-guard removal is safe.
+- [Envelope detail pace & goal math](envelope_detail_pace_and_goal.md) — pace-line paceAt agreement (line=dot=tooltip); goal capped-endpoint interpolation preserves slope, completionDate uncapped. Verified correct.

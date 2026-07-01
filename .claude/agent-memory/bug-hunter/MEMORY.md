@@ -20,3 +20,5 @@
 - [Period boundary native getters](period_boundary_native_getters.md) — Web allocation mutations must build periodStart via `startOfMonth()` (APP-TZ), not native `Date.getMonth/getFullYear`; drift outside Asia/Dhaka.
 - [Simplify-budgeting 048](simplify_budgeting_048.md) — One-row-per-(envelope,period) model invariants + classes verified CLEAN (dangling trigger, tx-edit/alloc interplay, locking, tz casts, spaceSummary current-month-only).
 - [EnvelopeGlass overRatio](envelope_glass_overratio.md) — Glass spend gauge draws NO red deficit for no-budget-but-spent (allocated=0,consumed>0): overRatio forced 0 when total<=0, regressing old full-red ProgressBar.
+- [Month stepper addMonths overflow](month_stepper_addmonths_overflow.md) — `addMonths(now, offset)` overflows on days 29-31, skipping/repeating months; BudgetDetailPage does this. Anchor to `startOfMonth(now)` first.
+- [niceTicks small-yMax explosion](niceticks_small_ymax_explosion.md) — BudgetDetailPage `niceTicks()` loops thousands of times for sub-1 yMax (goal target < 1); in-loop Math.round masks a degenerate fractional step.

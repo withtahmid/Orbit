@@ -17,18 +17,15 @@ lineY=18.5).
 **Spend path — CORRECT.** liquid=`remainingFraction(spent,budget)=clamp((b−s)/b,0,1)`
 drains rim→floor over 0→100%.
 
-**REWRITTEN overspend model (2026-07-01) — CORRECT.** `overRatio r=(consumed−allocated)/allocated`
-(guarded total>0). `redFrac=noBudgetSpent?1:clamp(r,0,1)` → 50% over (r=0.5) fills half
-(deficitY 110); r≥1 fills full (deficitY 12, rim). `zoom = r>1` (strict). `lineY = IY1 −
-(1/r)·IH` (guarded r>0). Line fraction-from-bottom = 1/r: r=2→0.5 (lineY 110, exact middle),
-r=3→0.333 (142.67), r=4→0.25 (159, exact 1/4), r=9→0.111 (186.22). Below line = first whole
-budget over; above = remaining overspend = (r−1)/r. Readout (BudgetsPage:669)
-`round(((consumed−total)/total)·100)% over budget` = round(r·100), same num/denom as overRatio
-→ always agrees (r=2 → "200% over" + line at middle). r=1 boundary: strict `>` means no line
-at exactly r=1 (fill already full) and line fades in just below rim for r→1⁺ — continuous,
-NO jump; `>=` would draw a degenerate line on the rim, so `>` is correct. noBudgetSpent
-(total≤0 & consumed>0): over=true but overRatio=0 → no line, redFrac forced 1 → full red.
-No div-by-zero anywhere.
+**overspend model (re-verified 2026-07-01, envelop-details-update branch) — CORRECT.**
+`over = variant==="spend" && total>0 && current>total` (NOTE: the old `noBudgetSpent→over`
+path is REMOVED — unbudgeted spend total≤0 no longer triggers the red deficit; it now
+reads as a neutral empty glass). `overRatio r=over&&total>0 ? (current−total)/total : 0`.
+`redFrac=clamp(r,0,1)` (no more noBudgetSpent forcing) → 50% over (r=0.5) fills half; r≥1
+fills full. `zoom = r>1` (strict). `lineY = IY1 − (1/r)·IH` (guarded r>0). Line
+fraction-from-bottom = 1/r: r=2→0.5 (middle), r=3→0.333, r=4→0.25. r=1 boundary: strict `>`
+means no degenerate line on the rim — correct. Removal of noBudgetSpent path did NOT break
+genuine overspend (total>0 && current>total still renders deficit). No div-by-zero anywhere.
 
 **Goal/save path — NOW CORRECT (the rescale bug I flagged earlier is FIXED).**
 Line 166-169: liquid = `clamp(total>0 ? current/target : 0, 0, 1)`. Caps at rim, no

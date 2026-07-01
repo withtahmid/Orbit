@@ -23,3 +23,7 @@
 - [Budget glass-gauge review](budget_glass_gauge_review.md) — 2026-06-30: drain metaphor is right; keep. Mistakes: cue doing double-duty, calm=arbitrary hex, skeuomorphism vs editorial-dark.
 - [period_start tz read/write asymmetry](period_start_tz_read_write_asymmetry.md) — write side literal-string hardened, spaceSummary read still session-tz `::date` drift; migration 049 repairs.
 - [personal/summary window parity gap](personal_summary_window_parity_gap.md) — twin still hardcoded DATE_TRUNC(NOW()) after spaceSummary moved to honor requested periodStart.
+- [Envelope detail rolling gap](envelope_detail_rolling_gap.md) — 2026-07-01: detail page reuses monthly hero framing for cadence='none'; lifetime hero collides with this-month chart; goals need funding-history not spend-breakdown.
+- [Glass status no-budget gap](glass_status_no_budget_gap.md) — glassStatus() returns "over" for total<=0 (masked only by hasLiquid); also defines a "complete" goal state no consumer renders.
+- [Permission-aware empty states](permission_aware_empty_states.md) — budget CTAs say "Use Allocate above" but Allocate is owner/editor-only; viewers hit a dead-end; audit new empty states for role gating.
+- [Goal completion semantics tension](goal_completion_semantics_tension.md) — goal ✓/"reached" keys off lifetime funding not current state; spend against a funded goal is invisible; fund-then-spend vs maintain-balance undecided.

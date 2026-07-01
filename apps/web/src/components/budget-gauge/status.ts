@@ -18,9 +18,13 @@ export interface GlassStateInput {
 export function glassStatus(p: GlassStateInput): GlassStatus {
     const warnAt = p.warnAt ?? 0.8;
     if (p.variant === "save") {
-        return p.total > 0 && p.current > p.total ? "complete" : "saving";
+        return p.total > 0 && p.current >= p.total ? "complete" : "saving";
     }
+    // No budget set is not a failure — spending against a zero/absent budget
+    // reads as calm (neutral), never "over". Genuine overspend needs a real
+    // budget to be over. (The gauge also gates its red deficit on total > 0;
+    // this keeps the derived status honest at the source.)
+    if (p.total <= 0) return "calm";
     if (p.current > p.total) return "over";
-    const safe = p.total > 0 ? p.total : 1;
-    return p.current / safe >= warnAt ? "warning" : "calm";
+    return p.current / p.total >= warnAt ? "warning" : "calm";
 }
