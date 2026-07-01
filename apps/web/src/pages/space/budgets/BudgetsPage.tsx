@@ -648,6 +648,7 @@ function EnvelopeCard({
                     current={isGoal ? goalSaved : env.consumed}
                     total={isGoal ? env.targetAmount ?? 0 : total}
                     height={132}
+                    color={env.color}
                 />
             </div>
 

@@ -124,6 +124,10 @@ export interface EnvelopeGlassProps {
     height?: number;
     /** Fraction of budget spent where the amber warning begins (spend only). */
     warnAt?: number;
+    /** Optional liquid colour for the calm / saving state — the envelope's own
+     *  hue. Warning / over still use the semantic amber / red so the health
+     *  signal survives. Omit to use the default semantic brand / gold. */
+    color?: string;
 }
 
 export function EnvelopeGlass({
@@ -133,6 +137,7 @@ export function EnvelopeGlass({
     size = "card",
     height = 150,
     warnAt = 0.8,
+    color,
 }: EnvelopeGlassProps) {
     useGlassStyles();
     const motion = !usePrefersReducedMotion();
@@ -140,11 +145,11 @@ export function EnvelopeGlass({
     const isPot = size === "pot";
 
     const status = glassStatus({ variant, current, total, warnAt });
-    const over = variant === "spend" && current > total;
-    // Spending against a zero/absent budget: there's no ratio to compute, but
-    // it must still read as fully blown — fill the glass with the red deficit
-    // (mirrors the old full-red bar) rather than showing a misleading empty glass.
-    const noBudgetSpent = variant === "spend" && total <= 0 && current > 0;
+    // Genuine overspend needs a real budget to be "over" — spending with
+    // nothing allocated isn't a failure (you just haven't budgeted yet), so it
+    // must NOT trigger the red deficit; it reads as a neutral empty glass and
+    // the surrounding copy says "Spent X · No budget set".
+    const over = variant === "spend" && total > 0 && current > total;
 
     // Liquid level (fraction of glass, 0..1). Spend DRAINS (remaining); goals
     // FILL toward the target and simply cap at the rim once reached — the
@@ -170,7 +175,7 @@ export function EnvelopeGlass({
             ? (current - total) / total
             : 0;
     const zoom = overRatio > 1;
-    const redFrac = noBudgetSpent ? 1 : clamp(overRatio, 0, 1);
+    const redFrac = clamp(overRatio, 0, 1);
 
     // Liquid color is a semantic health signal, NOT the envelope's identity
     // hue (that lives on the avatar): calm spend = brand, warning = warn,
@@ -180,9 +185,11 @@ export function EnvelopeGlass({
             ? "var(--expense)"
             : status === "warning"
               ? "var(--warn)"
-              : variant === "save"
-                ? "var(--gold)"
-                : "var(--brand)";
+              : color
+                ? color
+                : variant === "save"
+                  ? "var(--gold)"
+                  : "var(--brand)";
     const colors = shadesFor(liquidBase);
 
     // Geometry per size.
@@ -432,6 +439,34 @@ export function EnvelopeGlass({
                         />
                     ))}
             </g>
+
+            {/* Goal reached — a gold check badge so a completed goal reads as
+                DONE at a glance, not just "full" (100% and 96% would otherwise
+                look identical). Drawn over the clip so it's fully visible. */}
+            {variant === "save" && status === "complete" && (
+                <g>
+                    <circle
+                        cx={isPot ? 24 : 60}
+                        cy={isPot ? 20 : 44}
+                        r={isPot ? 8 : 14}
+                        fill="var(--gold)"
+                        stroke="var(--bg)"
+                        strokeWidth={isPot ? 1.6 : 2.4}
+                    />
+                    <path
+                        d={
+                            isPot
+                                ? "M 20.5 20 L 22.8 22.5 L 27.5 17"
+                                : "M 54 44.5 L 58.2 49 L 66.5 39"
+                        }
+                        fill="none"
+                        stroke="var(--bg)"
+                        strokeWidth={isPot ? 1.8 : 2.6}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                </g>
+            )}
         </svg>
     );
 }

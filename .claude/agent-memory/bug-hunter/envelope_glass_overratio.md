@@ -7,12 +7,21 @@ metadata:
 
 `apps/web/src/components/budget-gauge/EnvelopeGlass.tsx`.
 
-## No-budget-but-spent (FIXED as of budget-ui-update branch)
-Prior regression (empty glass for allocated=0, consumed>0) is now FIXED:
-`noBudgetSpent = variant==="spend" && total<=0 && current>0` forces `redFrac=1`,
-and `over` is true (current>total when total=0), so the red hatched deficit fills
-the whole interior. `liquidFrac=remainingFraction(consumed,0)=0` → no liquid. Full
-red, consistent. Good.
+## No-budget-but-spent — POLICY REVERSED on envelop-details-update (2026-07-01)
+The `noBudgetSpent`/`redFrac=1` full-red path described below was REMOVED. Now
+no-budget spending (variant spend, total<=0, current>0) renders a NEUTRAL empty
+glass, NOT red. Render-gate `over` is now `variant==="spend" && total>0 &&
+current>total` (adds `total>0`). Verified no dangling `noBudgetSpent` refs.
+LATENT MISMATCH — NOW FIXED (2026-07-01, envelop-details-update 3rd pass): the
+former mismatch (glassStatus returned "over" for total=0) is resolved — status.ts
+now has `if (p.total <= 0) return "calm"` BEFORE the `current > total` check, so
+liquidBase stays neutral for the no-budget case. glassStatus has exactly ONE
+caller (EnvelopeGlass). Goal `complete` also flipped `>`→`>=` (exact-target goal
+now reads complete). New `color?` prop themes calm/save liquid to envelope hue;
+warn/over override with --warn/--expense (health wins) — this means non-complete
+goal glass is now envelope-hued, not gold (intentional per prop contract; complete
+badge stays gold). Sections below marked "noBudgetSpent" are STALE — the variable
+no longer exists (redFrac is now plain `clamp(overRatio,0,1)`).
 
 ## Vertical-bottle rewrite review (budget-ui-update, 2026-06-30)
 Verified CLEAN:
