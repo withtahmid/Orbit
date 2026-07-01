@@ -8,6 +8,10 @@ import {
     decodeTransactionCursor,
     encodeTransactionCursor,
 } from "../transaction/utils/cursor.mjs";
+import {
+    computeBalanceAfter,
+    computeRowAccountBalances,
+} from "../transaction/utils/accountRunningBalance.mjs";
 import { resolveMemberSpaceIds, resolveOwnedAccountIds } from "./shared.mjs";
 
 /**
@@ -35,12 +39,15 @@ export const personalTransactions = authorizedProcedure
             type: z.enum(["income", "expense", "transfer", "adjustment"]).nullish(),
             spaceId: z.string().uuid().nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
+            expenseCategoryIds: z.array(z.string().uuid()).nullish(),
             includeDescendants: z.boolean().default(true),
             envelopId: z
                 .union([z.string().uuid(), z.literal("__none")])
                 .nullish(),
+            envelopIds: z.array(z.string().uuid()).nullish(),
             eventId: z.string().uuid().nullish(),
             accountId: z.string().uuid().nullish(),
+            accountIds: z.array(z.string().uuid()).nullish(),
             userId: z.string().uuid().nullish(),
             search: z.string().trim().min(1).max(255).nullish(),
             amountMin: z.number().nonnegative().nullish(),
@@ -79,29 +86,58 @@ export const personalTransactions = authorizedProcedure
                     return { items: [], nextCursor: null as string | null };
                 }
 
-                if (input.accountId && !ownedSet.has(input.accountId)) {
-                    return { items: [], nextCursor: null as string | null };
+                // Effective filter lists: plural array wins over the
+                // legacy singular param. Account ids are additionally
+                // intersected with owned accounts — a non-owned account
+                // never participates in the personal feed.
+                const requestedAccountIds =
+                    input.accountIds && input.accountIds.length > 0
+                        ? input.accountIds
+                        : input.accountId
+                          ? [input.accountId]
+                          : null;
+                let accountIdFilter: string[] | null = null;
+                if (requestedAccountIds) {
+                    accountIdFilter = requestedAccountIds.filter((id) =>
+                        ownedSet.has(id)
+                    );
+                    if (accountIdFilter.length === 0) {
+                        return { items: [], nextCursor: null as string | null };
+                    }
                 }
+                const envelopIdFilter =
+                    input.envelopIds && input.envelopIds.length > 0
+                        ? input.envelopIds
+                        : input.envelopId && input.envelopId !== "__none"
+                          ? [input.envelopId]
+                          : null;
+                const categoryBaseIds =
+                    input.expenseCategoryIds &&
+                    input.expenseCategoryIds.length > 0
+                        ? input.expenseCategoryIds
+                        : input.expenseCategoryId
+                          ? [input.expenseCategoryId]
+                          : null;
 
                 let categoryIds: string[] | null = null;
-                if (input.expenseCategoryId) {
+                if (categoryBaseIds) {
                     if (input.includeDescendants) {
                         const res = await sql<{ id: string }>`
                             WITH RECURSIVE subtree AS (
                                 SELECT id FROM expense_categories
-                                WHERE id = ${input.expenseCategoryId}
+                                WHERE id = ANY(${categoryBaseIds})
                                 UNION ALL
                                 SELECT ec.id FROM expense_categories ec
                                 JOIN subtree s ON ec.parent_id = s.id
                             )
-                            SELECT id::text FROM subtree
+                            SELECT DISTINCT id::text FROM subtree
                         `.execute(ctx.services.qb);
                         categoryIds = res.rows.map((r) => r.id);
                         if (categoryIds.length === 0) {
-                            categoryIds = [input.expenseCategoryId];
+                            categoryIds = categoryBaseIds;
                         }
                     } else {
-                        categoryIds = [input.expenseCategoryId];
+                        categoryIds = categoryBaseIds;
                     }
                 }
 
@@ -116,18 +152,18 @@ export const personalTransactions = authorizedProcedure
                             eb("transactions.destination_account_id", "in", owned),
                         ])
                     )
-                    .$if(!!input.accountId, (qb) =>
+                    .$if(!!accountIdFilter, (qb) =>
                         qb.where((eb) =>
                             eb.or([
                                 eb(
                                     "transactions.source_account_id",
-                                    "=",
-                                    input.accountId!
+                                    "in",
+                                    accountIdFilter!
                                 ),
                                 eb(
                                     "transactions.destination_account_id",
-                                    "=",
-                                    input.accountId!
+                                    "in",
+                                    accountIdFilter!
                                 ),
                             ])
                         )
@@ -142,17 +178,15 @@ export const personalTransactions = authorizedProcedure
                     .$if(!!input.userId, (qb) =>
                         qb.where("transactions.created_by", "=", input.userId!)
                     )
-                    .$if(input.envelopId === "__none", (qb) =>
+                    .$if(!envelopIdFilter && input.envelopId === "__none", (qb) =>
                         qb.where("transactions.envelop_id", "is", null)
                     )
-                    .$if(
-                        !!input.envelopId && input.envelopId !== "__none",
-                        (qb) =>
-                            qb.where(
-                                "transactions.envelop_id",
-                                "=",
-                                input.envelopId as string
-                            )
+                    .$if(!!envelopIdFilter, (qb) =>
+                        qb.where(
+                            "transactions.envelop_id",
+                            "in",
+                            envelopIdFilter!
+                        )
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where("transactions.expense_category_id", "in", categoryIds!)
@@ -245,6 +279,45 @@ export const personalTransactions = authorizedProcedure
                     ? encodeTransactionCursor(page[page.length - 1])
                     : null;
 
+                // "Balance after" per owned account touched by each row.
+                // Scoped to the member spaces actually listed and to the
+                // caller's owned accounts (so a transfer's non-owned leg
+                // never leaks a balance). A single owned account collapses
+                // to a clean running-balance column.
+                const pageIds = page.map((r) => r.id);
+                let balanceByTx: Map<string, Record<string, string>>;
+                if (accountIdFilter && accountIdFilter.length === 1) {
+                    const single = await computeBalanceAfter(
+                        ctx.services.qb,
+                        accountIdFilter[0],
+                        pageIds
+                    );
+                    balanceByTx = new Map();
+                    for (const [txId, bal] of single) {
+                        balanceByTx.set(txId, { [accountIdFilter[0]]: bal });
+                    }
+                } else {
+                    // Only owned accounts get a balance (leak boundary), and
+                    // only those actually on this page (bounds the scan).
+                    const ownedPageAccounts = [
+                        ...new Set(
+                            page.flatMap((r) =>
+                                [
+                                    r.source_account_id,
+                                    r.destination_account_id,
+                                ].filter(
+                                    (a): a is string => !!a && ownedSet.has(a)
+                                )
+                            )
+                        ),
+                    ];
+                    balanceByTx = await computeRowAccountBalances(
+                        ctx.services.qb,
+                        pageIds,
+                        ownedPageAccounts
+                    );
+                }
+
                 const items = page.map((r) => {
                     const srcOwned =
                         r.source_account_id != null && ownedSet.has(r.source_account_id);
@@ -273,6 +346,7 @@ export const personalTransactions = authorizedProcedure
                             type === "transfer" && srcOwned && dstOwned,
                         source_is_owned: srcOwned,
                         destination_is_owned: dstOwned,
+                        account_balances_after: balanceByTx.get(r.id) ?? {},
                     };
                 });
 

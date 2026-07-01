@@ -35,7 +35,7 @@ All `.query`, all `authorizedProcedure`. Roughly parallel to `analytics.*` but i
 - **`personalCategoryWoW`** (`procedures/personal/categoryWoW.mts`)
 - **`personalIncomeBreakdown`** (`procedures/personal/incomeBreakdown.mts`)
 - **`personalTopMerchants`** (`procedures/personal/topMerchants.mts`)
-- **`personalListCategories`** (`procedures/personal/listCategories.mts`) — Returns every expense category across all the caller's member spaces. No input; returns `[]` when `memberSpaces.length === 0`.
+- **`personalListCategories`** (`procedures/personal/listCategories.mts`) — Returns every expense category across all the caller's member spaces, one flat list. No input; returns `[]` when `memberSpaces.length === 0`. Row shape is a superset of `expenseCategory.listBySpace` — adds `space_name` (inner-joined from `spaces`) alongside `space_id` so a consumer flattening categories from multiple spaces (e.g. the Transactions page's personal category filter) can disambiguate same-named categories from different spaces. `parent_id` relationships only make sense within one space, so tree-building consumers must group by `space_id` first.
 
 ### Envelopes
 
@@ -52,8 +52,8 @@ All `.query`, all `authorizedProcedure`. Roughly parallel to `analytics.*` but i
 
 ### Transactions
 
-- **`personalTransactions`** (`procedures/personal/transactions.mts`) — Personal twin of `transaction.listBySpace`. Input drops `spaceId` (required there) into an optional filter and adds the same set of filters: `type`, `expenseCategoryId` (+ `includeDescendants`), `envelopId`, `eventId`, `accountId`, `userId`, `search`, `amountMin`/`amountMax`, `dateFrom`/`dateTo`, plus cursor + limit. The WHERE clause restricts to `space_id = ANY(memberSpaces)` AND at least one leg in `owned`.
-- **`personalTransactionFilteredTotals`** (`procedures/personal/transactionFilteredTotals.mts`) — Twin of `transaction.filteredTotals`. Returns `{ inTotal, outTotal, net, count, avgPerDay, days }`. Same fee-folded outflow definition (transfer fees on owned-source rows count as outflow regardless of cash/operational mode).
+- **`personalTransactions`** (`procedures/personal/transactions.mts`) — Personal twin of `transaction.listBySpace`. Input drops `spaceId` (required there) into an optional filter and adds the same set of filters: `type`, `expenseCategoryId`/`expenseCategoryIds` (+ `includeDescendants`), `envelopId`/`envelopIds`, `eventId`, `accountId`/`accountIds`, `userId`, `search`, `amountMin`/`amountMax`, `dateFrom`/`dateTo`, plus cursor + limit — same plural-wins-over-singular precedence as `transaction.listBySpace` (see that module's doc). The WHERE clause restricts to `space_id = ANY(memberSpaces)` AND at least one leg in `owned`. Account filters are additionally intersected with `ownedSet`: a requested `accountId(s)` that isn't owned by the caller is dropped, and if every requested id gets dropped the query short-circuits to an empty page rather than silently ignoring the filter. Each returned item also carries `account_balances_after` (see `transaction.md`'s balance-after helper) computed via the same `computeBalanceAfter`/`computeRowAccountBalances` helpers, but scoped to owned accounts only — the leak boundary for this feed.
+- **`personalTransactionFilteredTotals`** (`procedures/personal/transactionFilteredTotals.mts`) — Twin of `transaction.filteredTotals`, same plural/singular filter set as `personalTransactions` above (no cursor/limit/balance). Returns `{ inTotal, outTotal, net, count, avgPerDay, days }`. Same fee-folded outflow definition (transfer fees on owned-source rows count as outflow regardless of cash/operational mode).
 
 ### Spaces
 
@@ -128,5 +128,5 @@ Mirrors analytics: `account_type = 'liability'` balances are sign-flipped in `to
 ## Cross-references
 
 - `analytics/*` — per-space twins of nearly every procedure here. Cash/operational and envelope period math are intentionally identical so the UI components are agnostic.
-- `transaction.listBySpace` / `filteredTotals` — `personalTransactions` / `personalTransactionFilteredTotals` accept the same filter set; the only differences are the owned-account scope and that `spaceId` is optional rather than required.
+- `transaction.listBySpace` / `filteredTotals` — `personalTransactions` / `personalTransactionFilteredTotals` accept the same filter set (including the plural `accountIds`/`envelopIds`/`expenseCategoryIds` multi-select params); the only differences are the owned-account scope and that `spaceId` is optional rather than required.
 - `shared.mts` exports `resolveOwnedAccountIds` and `resolveMemberSpaceIds`, the anchors for every personal view.

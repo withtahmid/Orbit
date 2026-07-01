@@ -9,6 +9,10 @@ import {
     decodeTransactionCursor,
     encodeTransactionCursor,
 } from "./utils/cursor.mjs";
+import {
+    computeBalanceAfter,
+    computeRowAccountBalances,
+} from "./utils/accountRunningBalance.mjs";
 
 export const listTransactionsBySpace = authorizedProcedure
     .input(
@@ -23,11 +27,21 @@ export const listTransactionsBySpace = authorizedProcedure
             envelopId: z
                 .union([z.string().uuid(), z.literal("__none")])
                 .nullish(),
+            /** Multi-select envelope filter (matches any id in the set).
+                Takes precedence over the singular `envelopId` when non-empty. */
+            envelopIds: z.array(z.string().uuid()).nullish(),
             expenseCategoryId: z.string().uuid().nullish(),
+            /** Multi-select category filter. Takes precedence over the
+                singular `expenseCategoryId` when non-empty; descendants of
+                every selected id are matched when `includeDescendants`. */
+            expenseCategoryIds: z.array(z.string().uuid()).nullish(),
             /** If true (default), a category filter matches descendants too. */
             includeDescendants: z.boolean().default(true),
             eventId: z.string().uuid().nullish(),
             accountId: z.string().uuid().nullish(),
+            /** Multi-select account filter (source OR destination in the
+                set). Takes precedence over the singular `accountId`. */
+            accountIds: z.array(z.string().uuid()).nullish(),
             search: z.string().trim().min(1).max(255).nullish(),
             amountMin: z.number().nonnegative().nullish(),
             amountMax: z.number().nonnegative().nullish(),
@@ -49,24 +63,47 @@ export const listTransactionsBySpace = authorizedProcedure
                     roles: ["owner", "editor", "viewer"] as unknown as SpaceMembers["role"][],
                 });
 
+                // Effective filter lists: plural array wins over the
+                // legacy singular param, so old single-value callers
+                // (AccountDetail, EventDetail, deep-links) keep working.
+                const accountIdFilter =
+                    input.accountIds && input.accountIds.length > 0
+                        ? input.accountIds
+                        : input.accountId
+                          ? [input.accountId]
+                          : null;
+                const envelopIdFilter =
+                    input.envelopIds && input.envelopIds.length > 0
+                        ? input.envelopIds
+                        : input.envelopId && input.envelopId !== "__none"
+                          ? [input.envelopId]
+                          : null;
+                const categoryBaseIds =
+                    input.expenseCategoryIds &&
+                    input.expenseCategoryIds.length > 0
+                        ? input.expenseCategoryIds
+                        : input.expenseCategoryId
+                          ? [input.expenseCategoryId]
+                          : null;
+
                 // Resolve descendant category IDs if needed
                 let categoryIds: string[] | null = null;
-                if (input.expenseCategoryId) {
+                if (categoryBaseIds) {
                     if (input.includeDescendants) {
                         const res = await sql<{ id: string }>`
                             WITH RECURSIVE subtree AS (
                                 SELECT id FROM expense_categories
-                                WHERE id = ${input.expenseCategoryId}
+                                WHERE id = ANY(${categoryBaseIds})
                                 UNION ALL
                                 SELECT ec.id FROM expense_categories ec
                                 JOIN subtree s ON ec.parent_id = s.id
                             )
-                            SELECT id::text FROM subtree
+                            SELECT DISTINCT id::text FROM subtree
                         `.execute(ctx.services.qb);
                         categoryIds = res.rows.map((r) => r.id);
-                        if (categoryIds.length === 0) categoryIds = [input.expenseCategoryId];
+                        if (categoryIds.length === 0) categoryIds = categoryBaseIds;
                     } else {
-                        categoryIds = [input.expenseCategoryId];
+                        categoryIds = categoryBaseIds;
                     }
                 }
 
@@ -104,17 +141,15 @@ export const listTransactionsBySpace = authorizedProcedure
                             input.type as unknown as Transactions["type"]
                         )
                     )
-                    .$if(input.envelopId === "__none", (qb) =>
+                    .$if(!envelopIdFilter && input.envelopId === "__none", (qb) =>
                         qb.where("transactions.envelop_id", "is", null)
                     )
-                    .$if(
-                        !!input.envelopId && input.envelopId !== "__none",
-                        (qb) =>
-                            qb.where(
-                                "transactions.envelop_id",
-                                "=",
-                                input.envelopId as string
-                            )
+                    .$if(!!envelopIdFilter, (qb) =>
+                        qb.where(
+                            "transactions.envelop_id",
+                            "in",
+                            envelopIdFilter!
+                        )
                     )
                     .$if(!!categoryIds, (qb) =>
                         qb.where("transactions.expense_category_id", "in", categoryIds!)
@@ -122,11 +157,11 @@ export const listTransactionsBySpace = authorizedProcedure
                     .$if(!!input.eventId, (qb) =>
                         qb.where("transactions.event_id", "=", input.eventId!)
                     )
-                    .$if(!!input.accountId, (qb) =>
+                    .$if(!!accountIdFilter, (qb) =>
                         qb.where((eb) =>
                             eb.or([
-                                eb("transactions.source_account_id", "=", input.accountId!),
-                                eb("transactions.destination_account_id", "=", input.accountId!),
+                                eb("transactions.source_account_id", "in", accountIdFilter!),
+                                eb("transactions.destination_account_id", "in", accountIdFilter!),
                             ])
                         )
                     )
@@ -180,10 +215,49 @@ export const listTransactionsBySpace = authorizedProcedure
                     .execute();
 
                 const hasMore = rows.length > input.limit;
-                const items = hasMore ? rows.slice(0, input.limit) : rows;
+                const pageRows = hasMore ? rows.slice(0, input.limit) : rows;
                 const nextCursor = hasMore
-                    ? encodeTransactionCursor(items[items.length - 1])
+                    ? encodeTransactionCursor(pageRows[pageRows.length - 1])
                     : null;
+
+                // "Balance after" per account touched by each row. A single
+                // selected account collapses to a clean running-balance
+                // column (cheaper single-account scan); otherwise every row
+                // carries the balance of the account(s) it moved — one for
+                // income/expense/adjustment, two for a transfer.
+                const pageIds = pageRows.map((r) => r.id);
+                let balanceByTx: Map<string, Record<string, string>>;
+                if (accountIdFilter && accountIdFilter.length === 1) {
+                    const single = await computeBalanceAfter(
+                        ctx.services.qb,
+                        accountIdFilter[0],
+                        pageIds
+                    );
+                    balanceByTx = new Map();
+                    for (const [txId, bal] of single) {
+                        balanceByTx.set(txId, { [accountIdFilter[0]]: bal });
+                    }
+                } else {
+                    const pageAccountIds = [
+                        ...new Set(
+                            pageRows.flatMap((r) =>
+                                [
+                                    r.source_account_id,
+                                    r.destination_account_id,
+                                ].filter((a): a is string => !!a)
+                            )
+                        ),
+                    ];
+                    balanceByTx = await computeRowAccountBalances(
+                        ctx.services.qb,
+                        pageIds,
+                        pageAccountIds
+                    );
+                }
+                const items = pageRows.map((r) => ({
+                    ...r,
+                    account_balances_after: balanceByTx.get(r.id) ?? {},
+                }));
 
                 return { items, nextCursor };
             })()

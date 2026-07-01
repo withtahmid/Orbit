@@ -12,3 +12,4 @@
 - [simplify-budgeting removal pass](project_simplify_budgeting_removal.md) — Borrow/reckoning/carry ripped out; sparse BudgetDetailPage, lopsided grids, orphaned CSS, bare-div OrbitFieldRow.
 - [Budgets glass gauge](budgets_glass_gauge.md) — EnvelopeGlass SVG gauge (card/pot sizes); color-only-signal trap on list rows, sub-pixel "1× BUDGET" text, list density.
 - [Budget detail page](budget_detail_page.md) — Full-width ED_STYLES hero/chart/donut; shadcn+orbit token mix resolves; SpendChart preserveAspectRatio=none marker distortion; sticky donut; no focus-visible ring; orphaned .ed-tx-row.
+- [Transactions filter strip + AnalyticsFilterBar](transactions_filter_strip_analytics_bar.md) — Tailwind AnalyticsFilterBar embedded in orbit .od-card; 3 chip surfaces, h-9/sm:h-7 height mismatch, duplicate summary lines.

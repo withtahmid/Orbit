@@ -24,3 +24,4 @@
 - [Donut uncategorized gap](donut_uncategorized_gap.md) — RESOLVED: donut now reconciles to this-month spend via Uncategorized wedge; catTotal==periodSpend (consumed monthly / Σdaily.current rolling).
 - [Glass status boundaries](glass_status_boundaries.md) — save uses `>=` at target => "complete"; spend total<=0 => "calm", exactly-at-budget => "warning" not "over"; divide-guard removal is safe.
 - [Envelope detail pace & goal math](envelope_detail_pace_and_goal.md) — pace-line paceAt agreement (line=dot=tooltip); goal capped-endpoint interpolation preserves slope, completionDate uncapped. Verified correct.
+- [Running balance helpers](running_balance_helpers.md) — accountRunningBalance.mts signed effects match trigger 018 (adjustment src XOR dst); ordering consistent; acctScope safe; latent space-scope divergence for cross-space accounts.

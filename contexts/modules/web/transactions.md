@@ -8,7 +8,7 @@
 - Guards: `ProtectedRoute` -> `CurrentSpaceProvider` -> `SpaceLayout`. Personal-aware: when `space.isPersonal` it switches every query and replaces the account filter source with `personal.ownedAccounts`.
 
 ## Files
-- Main page: `apps/web/src/pages/space/transactions/TransactionsPage.tsx` (~1954 lines) — single big file containing topbar, filter strip, results list, paginator, totals card, and the inline `PeriodChip` component, plus the page's `TX_STYLES` CSS. Treat it as a monolith; the detail/edit/new flows live as separate feature components mounted within it.
+- Main page: `apps/web/src/pages/space/transactions/TransactionsPage.tsx` (~2200 lines) — single big file containing topbar, filter strip, results list, paginator, totals card, plus the page's `TX_STYLES` CSS. Treat it as a monolith; the detail/edit/new flows live as separate feature components mounted within it. The Envelope/Account/Category filters were migrated onto the shared `AnalyticsFilterBar` (see below) rather than local pickers — `PeriodChip` is now the shared `components/shared/PeriodChip.tsx`, not an inline component.
 - Feature components:
   - `apps/web/src/features/transactions/NewTransactionSheet.tsx` — multi-step sheet with income / expense / transfer / adjustment forms (~2600 lines). Mutations: `transaction.income`, `transaction.expense`, `transaction.transfer`, `transaction.adjust`, plus inline envelope top-up via `allocation.transfer` (pull from another envelope; no borrow path). Hosts the lifted `isSaving` state (parent owns it; each sub-form emits `mutate.isPending` via `onPendingChange`) so the footer Save buttons show "Saving…" + spinner the moment the click lands.
   - `apps/web/src/features/transactions/EditTransactionSheet.tsx` — uses `transaction.update` (`:291`). Mirrors the same lifted-`isSaving` pattern. Deliberately does NOT integrate pins or `usePins` — pins are creation-time-only by design.
@@ -16,6 +16,9 @@
   - `apps/web/src/features/transactions/TransactionDatePicker.tsx` — custom date+time picker that replaced the native `<input type="datetime-local">`. Trigger reads as a relative label (`Now`, `Today, 3:42 PM`, `Yesterday, 8:15 PM`, `Mar 5, 3:42 PM`). Popover contains preset chips (`Now`, `Yesterday`), a single-month calendar with full keyboard navigation (arrow keys ±day/±week, Home/End row, PageUp/Down month via `addMonthsClamped`), and a segmented HH/MM/AM-PM time stepper. All date arithmetic uses APP_TZ-aware accessors (`getAppTzHours`, `makeAppTzDate`, etc.) from `lib/dates.ts` — never native `Date.setHours/getHours` on absolute Dates. `nowBaseline` state controls when the "Now" preset chip lights up: snaps to `draft` on open when within 60s, re-snaps on each `Now` click, so the chip reflects user intent rather than drift.
   - `apps/web/src/features/transactions/PinControl.tsx` — small pill button with three states (`pinned` filled brand, `pinnable` outline, `hidden`). 24×24 minimum tap target (WCAG 2.5.8). `aria-pressed` reflects state; `aria-label` carries the action ("Pin this as your default" / "Unpin this default").
   - `apps/web/src/features/transactions/usePins.ts` — React Query wrapper around `pin.listBySpace` / `pin.set` / `pin.clear`. Skips the query entirely on `/s/me` (no real space). Optimistic updates on set + clear read entity details from the corresponding `account/envelop/event.listBySpace` caches so the pin glyph flips immediately.
+- Shared components consumed (not owned by this module):
+  - `apps/web/src/pages/space/analytics/components/AnalyticsFilterBar.tsx` + `useAnalyticsFilters.ts` — the Envelope/Account/Category multi-select bar also used by the analytics Spending views (`CategoriesView`, etc.). `TransactionsPage` renders it inside its filter card (`className="tx-analytics-filter-bar"`) and passes `personalCategories` so the Category chip also shows on `/s/me` (the bar's own `envelopeIds`/`accountIds` props stay hidden there since envelopes/accounts on the cross-space view come from a different source and envelopes are space-scoped). Event (single-select) and Amount (min/max) filters are page-local chips (`TxEventChip`, `TxAmountChip`) passed into the bar's `trailingChips` slot so all filter controls sit in one visual row.
+  - `apps/web/src/components/shared/PeriodChip.tsx` — the period-range picker chip, wraps `usePeriod()` + `DateRangePicker` in a popover.
 
 ### Pin integration (inside NewTransactionSheet)
 
@@ -40,31 +43,38 @@ Pin feature:
 - `pin.set` / `pin.clear` — mutations fired by `FieldPin`. Server gating: account = any member; envelope/event = owner|editor.
 
 Real-space + personal twins (toggled with `{ enabled: !isPersonal }` / `{ enabled: isPersonal }`):
-- `account.listBySpace` + `personal.ownedAccounts` — filter-bar account dropdown (`TransactionsPage.tsx:95-114`).
-- `expenseCategory.listBySpace` + `personal.listCategories` — category dropdown (`:116-125`).
-- `event.listBySpace` — event filter, real-space only (`:127-130`).
-- `transaction.listBySpace` + `personal.transactions` — paginated list (`:136-171`).
-- `transaction.filteredTotals` + `personal.transactionFilteredTotals` — IN / OUT / NET / AVG-DAY summary across the entire filtered set, not just the current page (`:245-256`).
+- `account.listBySpace` + `personal.ownedAccounts` — accounts data for the `AnalyticsFilterBar` dropdown and for resolving account names/colors in the From/To and Balance columns.
+- `expenseCategory.listBySpace` + `personal.listCategories` — category dropdown; the personal side is opted in via the bar's `personalCategories` prop.
+- `envelop.listBySpace` — envelope dropdown, real-space only (envelopes are space-scoped; the bar hides this chip on `/s/me`).
+- `event.listBySpace` — event filter, real-space only (`TxEventChip`, hidden on `/s/me`).
+- `transaction.listBySpace` + `personal.transactions` — paginated list via `useInfiniteQuery`, sends both the plural (`accountIds`/`envelopIds`/`expenseCategoryIds`) and (where still relevant) singular filter shape; each returned row carries `account_balances_after` for the Balance column.
+- `transaction.filteredTotals` + `personal.transactionFilteredTotals` — IN / OUT / NET / AVG-DAY summary across the entire filtered set, not just the current page. Same filter input as the list query, memoized so the query key is stable across renders.
 
 Mutations:
 - `transaction.delete` -> calls `useInvalidateAnalytics(space.id)` from `@/lib/invalidate` (`:195-201`).
 - New/Edit/Details sheets fire their own mutations and invalidations (see Files above).
 
 ## State & mutations
-- Filters live in the URL via `useSearchParams` — keys: `type`, `account`, `category`, `event`, `user`, `q`, `min`, `max`, plus `period` / `from` / `to` (via `usePeriod`). Reset preserves only the period (`TransactionsPage.tsx:283-298`).
-- Search input is debounced 300ms (`useDebouncedValue`, `:93`).
-- Pagination is cursor-based, tracked in a local `pageCursors` array so "back" works (`:132-133`).
-- `selectedTx` state opens the `TransactionDetailsSheet`.
-- The "New transaction" CTA is wrapped in `PermissionGate roles={["owner","editor"]}` (`:367-378`) — same gate appears inline near each row's edit action (~`:708`).
+- Envelope/Account/Category filters live in the URL as `env`/`acc`/`cat` (repeated params, multi-value), owned by the shared `useAnalyticsFilters()` hook — the same URL shape the analytics Spending views use. Type/Event/Amount/User/search stay page-local URL keys: `type`, `event`, `user`, `q`, `min`, `max`, plus `period`/`from`/`to` (via `usePeriod`, default preset `"last-30-days"`, hoisted to the page-local `DEFAULT_PERIOD_PRESET` constant so `usePeriod()` and `<PeriodChip defaultPreset=...>` — two independent hook instances over the same URL params — can't drift apart). `resetFilters()` rebuilds the URLSearchParams from scratch keeping only `period`/`from`/`to`, so it clears every filter (env/acc/cat included) in one shot; it's wired as both the `AnalyticsFilterBar`'s "Clear all" and the page's empty-state "Clear filters" action.
+- Search input is debounced 300ms (`useDebouncedValue`).
+- Pagination is `trpc.transaction.listBySpace.useInfiniteQuery` / `personal.transactions.useInfiniteQuery` — tRPC manages the cursor itself (never pass `cursor` in the input object); changing any filter changes the query key and the list resets to page 1 automatically. `getNextPageParam` reads `nextCursor`; `null` on the latest page means end of data.
+- `selectedTx` state opens the `TransactionDetailsSheet`; `editingTx` is a separate page-owned state so the details sheet can hand off to the edit sheet without the two Radix sheets ever coexisting.
+- The "New transaction" CTA is wrapped in `PermissionGate roles={["owner","editor"]}` — same gate appears inline near each row's edit action.
+- `activeFilterCount` (type/event/user/min/max only — deliberately excludes env/acc/cat, which the `AnalyticsFilterBar` owns and summarizes itself) badges the page's own filter affordances. `hasActiveFilters` is the broader OR of that count, `f.hasAnyFilter` (env/acc/cat), and search — it drives the page-level "no transactions match these filters" empty state and Clear button, so it must stay wider than `activeFilterCount` alone.
+
+## Balance column
+- Always rendered (not gated on any mode flag). Each row's `account_balances_after: Record<accountId, string>` comes straight off the list/personal query (see the server module docs) and is read via the local `rowBalanceEntries()` helper, which returns the source leg then the destination leg (From→To order) — one entry for income/expense/adjustment, two for a transfer.
+- `isStatementMode` = exactly one account selected (`f.accountIds.length === 1`). It only changes rendering, not data: hides the per-row account color-dot (redundant when every row is the same account) and shows a `.tx-statement-note` banner. `AccountDetailPage`'s Transactions tab renders the same column for parity, reading `account_balances_after[account.id]`.
+- The balance is the account's **true balance across its full history** (all spaces, ignoring the active filters and pagination) — it will NOT step by the visible row's amount once a non-account filter (type/event/user/amount/search) narrows which rows are shown, because intervening hidden rows still moved the account. The statement-mode banner and a lighter multi-account-mode caption (shown only when `activeFilterCount > 0 || search`) both call this out so it doesn't read as a bug.
 
 ## Conventions & gotchas
-- Same filter object shape is reused for `listBySpace` and `filteredTotals`, but the totals query takes only filters (no `cursor`/`limit`); the input is memoized (`:219-244`) so react-query doesn't re-key per render.
+- Same filter object shape is reused for `listBySpace` and `filteredTotals`, but the totals query takes only filters (no `cursor`/`limit`); the input is memoized so react-query doesn't re-key per render.
 - `period.start` / `period.end` come from `usePeriod` — the period is also URL-persisted.
-- Personal-mode dispatch is everywhere: each query has a `Space` variant and a `Personal` variant, then `const x = isPersonal ? personal : space`. Don't forget to extend both sides when adding a new filter.
-- All event-filter UI silently disables in personal mode because `event.listBySpace` is `{ enabled: !isPersonal }`. The chip-row logic at `:329-337` still tries to render an event chip from the cached map if `eventId` is in the URL.
-- The page wraps inside `.orbit-design tx-root` (`:340`); CSS is in the inline `TX_STYLES` template literal at the bottom.
-- Money formatting uses `formatInAppTz` for dates and the local `UNALLOCATED_COLOR` for the unallocated chip color (`:46`).
+- Personal-mode dispatch is everywhere: each query has a `Space` variant and a `Personal` variant, then `const x = isPersonal ? personal : space`. Don't forget to extend both sides (and the plural filter precedence) when adding a new filter — see the transaction/personal server module docs for the four places (`list`/`filteredTotals` × space/personal) that must stay in sync.
+- Envelopes and (real-space) events are hidden in personal mode by forcing the URL-arg to `undefined`/`null` before it reaches the query (`envelopIdsArg`, `eventId`) — a stale `?env=`/`?event=` left over from switching from a regular space must not silently filter the personal list with no UI to clear it. Category filters are the exception: they work cross-space via `personal.listCategories`, so `categoryIdsArg` passes through unguarded.
+- The page wraps inside `.orbit-design tx-root`; CSS is in the inline `TX_STYLES` template literal at the bottom.
+- Money formatting uses `formatInAppTz` for dates and the local `UNALLOCATED_COLOR` for the unallocated chip color.
 
 ## Cross-references
-- Server: `apps/server/src/procedures/transaction/*` and the personal twins in `apps/server/src/procedures/personal/*` (e.g. `transactions.mts`, `transactionFilteredTotals.mts`).
-- Web: feeds the Overview "recent transactions" indirectly via the same `transaction.listBySpace` proc; account detail's Transactions tab in `pages/space/accounts/AccountDetailPage.tsx` uses the same proc with an `accountId` filter; new/edit sheets share the allocations helpers from `features/allocations/*`.
+- Server: `apps/server/src/procedures/transaction/*` and the personal twins in `apps/server/src/procedures/personal/*` (e.g. `transactions.mts`, `transactionFilteredTotals.mts`); `transaction/utils/accountRunningBalance.mts` powers the Balance column.
+- Web: feeds the Overview "recent transactions" indirectly via the same `transaction.listBySpace` proc; account detail's Transactions tab in `pages/space/accounts/AccountDetailPage.tsx` uses the same proc (with an `accountId` filter) and now renders the matching Balance column for parity; new/edit sheets share the allocations helpers from `features/allocations/*`; the Envelope/Account/Category filter bar (`AnalyticsFilterBar` + `useAnalyticsFilters`) is shared with the analytics Spending views — see `web/analytics.md`.
