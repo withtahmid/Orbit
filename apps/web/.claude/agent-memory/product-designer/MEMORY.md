@@ -1,3 +1,4 @@
 - [Simplify-budgeting model](project_simplify_budgeting.md) — retired carry/borrow/reckoning/strict/per-account; where those concepts can still leak in UI
 - [Analytics filter bar + Flat mode](analytics_filter_bar_and_flat_mode.md) — shared env/acc/cat bar; per-page dimension rules; flat-donut/dormant-cat/recurring-dot traps
 - [Analytics period presets](analytics_period_presets.md) — named-preset vs DateRangePicker-button mechanics divergence; rolling vs calendar-aligned; per-view defaults
+- [Unbudgeted semantics](project_unbudgeted_semantics.md) — per-viewed-month unallocated; both consumers gate on current month; stale banner comment; 90d overspend nag removed

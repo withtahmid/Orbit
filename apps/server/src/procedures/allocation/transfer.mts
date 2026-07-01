@@ -7,7 +7,7 @@ import { safeAwait } from "../../utils/safeAwait.mjs";
 import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mjs";
 import { resolveEnvelopePeriodBalance } from "../envelop/utils/resolveEnvelopePeriodBalance.mjs";
 import {
-    effectivePeriodStart,
+    appTzMonthStartString,
     type Cadence,
 } from "../envelop/utils/periodWindow.mjs";
 import { withIdempotency } from "../../utils/withIdempotency.mjs";
@@ -155,7 +155,7 @@ async function upsertAllocationDelta(
     trx: Kysely<DB>,
     envelopId: string,
     amount: number,
-    periodStart: Date | null,
+    periodStart: string | null,
     userId: string
 ): Promise<void> {
     await trx
@@ -181,7 +181,7 @@ async function resolveTargetInfo(
 ): Promise<{
     spaceId: string;
     available: number;
-    periodStart: Date | null;
+    periodStart: string | null;
 }> {
     const envelope = await trx
         .selectFrom("envelops")
@@ -193,8 +193,9 @@ async function resolveTargetInfo(
     }
     const cadence = envelope.cadence as Cadence;
     const now = new Date();
-    const periodStart =
-        cadence === "none" ? null : effectivePeriodStart(cadence, null, now);
+    // Explicit APP_TZ date string for the tz-less `period_start` column so it
+    // can't drift with the DB session timezone. See appTzMonthStartString.
+    const periodStart = cadence === "none" ? null : appTzMonthStartString(now);
 
     const bal = await resolveEnvelopePeriodBalance({
         trx,

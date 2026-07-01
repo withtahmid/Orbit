@@ -28,7 +28,6 @@ import { personalTransactions } from "../procedures/personal/transactions.mjs";
 import { personalTrendsCategoryMovers } from "../procedures/personal/trendsCategoryMovers.mjs";
 import { personalTrendsDailyComparison } from "../procedures/personal/trendsDailyComparison.mjs";
 import { personalTrendsYearOverYear } from "../procedures/personal/trendsYearOverYear.mjs";
-import { personalUnbudgetedTrend } from "../procedures/personal/unbudgetedTrend.mjs";
 import { personalYearReport } from "../procedures/personal/yearReport.mjs";
 import { router } from "../trpc/index.mjs";
 
@@ -43,7 +42,6 @@ import { router } from "../trpc/index.mjs";
 export const personalRouter = router({
     summary: personalSummary,
     cashFlow: personalCashFlow,
-    unbudgetedTrend: personalUnbudgetedTrend,
     envelopeRecentAverages: personalEnvelopeRecentAverages,
     yearReport: personalYearReport,
     topCategories: personalTopCategories,

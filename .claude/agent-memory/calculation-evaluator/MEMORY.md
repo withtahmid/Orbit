@@ -16,5 +16,7 @@
 - [Envelope target lock-step cascade](envelope_target_lockstep_cascade.md) — Cascade only fires on explicit non-null→null with partner column undefined; preserves no-op echoes.
 - [Category breakdown semantics](category_breakdown_semantics.md) — directTotal vs subtreeTotal; why summing ROOT subtreeTotals never double-counts (strict forest via single parent_id FK)
 - [spaceSummary window is always now](spacesummary_window.md) — spaceSummary held/unallocated ignore the input window (hardcoded DATE_TRUNC month NOW); pairing with envelopeUtilization off-current-month mixes periods.
+- [Unbudgeted allocation-window bug](unbudgeted_allocation_window_bug.md) — "allocating doesn't reduce Unbudgeted": spaceSummary held hardcodes current month, so future/next-month allocations never move unallocated. Fix = honor the window.
 - [Budget gauge geometry](budget_gauge_geometry.md) — EnvelopeGlass: spend path correct; goal liquid jumps DOWN at target (full ratio into deficitFraction vs 1× line at 0.781); deficitFraction discontinuous at r=1.
 - [App timezone conventions](feedback-app-tz-conventions.md) — APP_TIMEZONE=Asia/Dhaka; never call native Date getters/setters on Dates returned by `@/lib/dates` helpers; they're browser-local and silently wrong for non-Dhaka users.
+- [Migration 049 period_start tz fix](migration_049_period_start_tz_fix.md) — repairs day<>1 corrupted allocation rows via date_trunc(ps+1 day); conservation proven; libpq startup options fixes pooler drift.

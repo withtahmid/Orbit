@@ -7,6 +7,7 @@
 - [Rolling envelope overlay shape](rolling_envelope_overlay.md) — STALE as of 2026-06-24: spaceSummary now uses plain GREATEST(0, alloc−consumed) per cadence window (no MAX-overlay); verify before citing.
 - [Unallocated clamp consumers](unallocated_clamp_consumers.md) — Web predictors of unallocated-after-allocation assume linear 1:1; break under GREATEST(0,…) held clamp when an overspent envelope is in scope (BudgetMonthPage, AllocationsView).
 - [Allocation period_start NULL convention](allocation_period_start_null.md) — `cadence='none'` envelopes store `period_start=NULL`; SQL readers MUST COALESCE to `DATE_TRUNC('month', created_at)::date`.
+- [period_start write/read asymmetry](period_start_write_read_asymmetry.md) — 049 hardened period_start WRITES (explicit 'YYYY-MM-01' string) but READS still bind Date instants + cast ::date in session tz; whole fix hinges on `-c timezone` startup opt surviving the pooler.
 - [Migration down idempotence](migration_down_idempotence.md) — `045` is round-trip safe TODAY because nothing writes `kind` yet; becomes destructive once procedures write non-`allocate` values without legacy signals.
 - [Envelope target lock-step asymmetry](envelope_target_clearing.md) — create.mts throws on half-set pair; update.mts silently nulls both. Partial PATCH `{targetAmount}` against null-date stored row silently drops the amount.
 - [Envelope name leak class](envelope_name_leak_class.md) — createAllocation.mts and borrowFromNextMonth.mts still echo name/cadence BEFORE membership check — same anti-pattern transfer.mts already fixed.
