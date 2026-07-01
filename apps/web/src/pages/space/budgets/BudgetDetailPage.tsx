@@ -32,6 +32,7 @@ import { Donut } from "@/components/shared/charts/Donut";
 import { trpc } from "@/trpc";
 import { useCanEdit, useCurrentSpace } from "@/hooks/useCurrentSpace";
 import { ROUTES } from "@/router/routes";
+import { getIcon } from "@/lib/entityIcons";
 import { CreateOrEditEnvelopeDialog } from "./BudgetsPage";
 
 const DAY = 86_400_000;
@@ -1154,6 +1155,7 @@ function UnarchiveButton({ envelopId, spaceId }: { envelopId: string; spaceId: s
 }
 
 function Avatar({ icon, color, size = 32 }: { icon: string; color: string; size?: number }) {
+    const IconCmp = getIcon(icon);
     return (
         <span
             style={{
@@ -1169,45 +1171,8 @@ function Avatar({ icon, color, size = 32 }: { icon: string; color: string; size?
                 flexShrink: 0,
             }}
         >
-            <DesignIcon name={icon} size={size * 0.5} color={color} />
+            <IconCmp size={size * 0.5} color={color} strokeWidth={1.7} />
         </span>
-    );
-}
-
-const ICON_PATHS: Record<string, string> = {
-    home: "M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z",
-    cart: "M3 4h2l3 12h11l2-8H7M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm9 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
-    wallet:
-        "M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v1h2v8h-2v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zm14 5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z",
-    coffee:
-        "M5 8h12v6a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zm12 1h2a2 2 0 1 1 0 4h-2zM7 4v2M11 4v2M15 4v2",
-    car: "M5 13l1.5-4.5A2 2 0 0 1 8.4 7h7.2a2 2 0 0 1 1.9 1.5L19 13m-14 0v5h2v-2h10v2h2v-5m-14 0h14",
-    book: "M4 4h11a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3zM4 17a3 3 0 0 1 3-3h11",
-    flame: "M12 22s7-4 7-10c0-3-2-5-3-6 0 2-1 3-2 3-1-3-3-5-3-7-2 1-6 5-6 10 0 6 7 10 7 10z",
-    bolt: "M13 2 3 14h7l-1 8 10-12h-7z",
-    music: "M9 18V5l11-2v13M9 18a3 3 0 1 1-3-3 3 3 0 0 1 3 3zm11-2a3 3 0 1 1-3-3 3 3 0 0 1 3 3z",
-    camera: "M3 8h4l2-3h6l2 3h4v11H3zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
-    heart: "M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z",
-    dumbbell: "M6 7v10M3 9v6M18 7v10M21 9v6M6 12h12",
-    mail: "M4 6h16v12H4z M4 6l8 6 8-6",
-    dot: "M12 12h.01",
-};
-
-function DesignIcon({ name, size, color }: { name: string; size: number; color: string }) {
-    const d = ICON_PATHS[name] ?? ICON_PATHS.mail;
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke={color}
-            strokeWidth={1.7}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d={d} />
-        </svg>
     );
 }
 
