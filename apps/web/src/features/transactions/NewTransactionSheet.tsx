@@ -25,7 +25,6 @@ import {
     OrbitAmountCard,
     OrbitFieldRow,
     OrbitFormStyles,
-    OrbitInfoPill,
     OrbitInput,
     OrbitRadioRow,
     OrbitSelect,
@@ -1195,19 +1194,29 @@ function IncomeForm({
     const lastAccountKey = `orbit:last-account:${spaceId}:income`;
     const [amount, setAmount] = useState("");
     const [description, setDescription] = useState("");
-    const [location, setLocation] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
     const [accountId, setAccountId] = useState<string>(() => {
+        if (pinState.pins?.account) return pinState.pins.account.id;
         if (typeof window === "undefined") return "";
         return window.localStorage.getItem(lastAccountKey) ?? "";
     });
-    const [eventId, setEventId] = useState("");
+    const [eventId, setEventId] = useState<string>(() => pinState.pins?.event?.id ?? "");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
     /* Hydrate from pins once after they load. Pin supersedes the
        lastAccountKey fallback; if there is no pin, the previously-loaded
        localStorage value stays. Guarded by a ref so user-initiated
-       pin/unpin clicks inside the form don't trigger re-hydration. */
+       pin/unpin clicks inside the form don't trigger re-hydration.
+       The initializers above already seed both fields synchronously when
+       pinState.pins is warm in cache (the common case on every remount
+       after the sheet's first open) — this effect is only the fallback
+       for a cold cache, where the pins query is still in flight when
+       these fields first mount. Seeding synchronously instead of via a
+       post-mount effect matters for eventId specifically: a controlled
+       Radix Select whose value changes right after mount (before the
+       user has ever opened it) can fire a spurious onValueChange(""),
+       which silently wiped the event pin's hydration on every "Save &
+       add another" cycle. */
     const hydratedRef = useRef(false);
     useEffect(() => {
         if (hydratedRef.current) return;
@@ -1239,8 +1248,7 @@ function IncomeForm({
         if (typeof window === "undefined") return;
         window.localStorage.setItem(showMoreKey, showMore ? "1" : "0");
     }, [showMore, showMoreKey]);
-    const optionalFieldsHaveContent =
-        location.trim().length > 0 || eventId.length > 0 || attachmentFileIds.length > 0;
+    const optionalFieldsHaveContent = eventId.length > 0 || attachmentFileIds.length > 0;
     useEffect(() => {
         if (optionalFieldsHaveContent && !showMore) setShowMore(true);
     }, [optionalFieldsHaveContent, showMore]);
@@ -1279,7 +1287,6 @@ function IncomeForm({
                     amount: Number(amount),
                     datetime: fromInputDateTime(datetime),
                     description: description || undefined,
-                    location: location || undefined,
                     eventId: eventId || undefined,
                     attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
@@ -1332,22 +1339,12 @@ function IncomeForm({
                 onClick={() => setShowMore((v) => !v)}
                 className="of-disclosure-toggle"
             >
-                <span>
-                    {showMore ? "Hide location, event, receipt" : "Add location, event, or receipt"}
-                </span>
+                <span>{showMore ? "Hide event or receipt" : "Add event or receipt"}</span>
                 {showMore ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
             </button>
 
             {showMore && (
                 <>
-                    <OrbitField label="Location" hint="Optional">
-                        <OrbitInput
-                            value={location}
-                            onChange={(e) => setLocation(e.target.value)}
-                            placeholder="Where did this happen?"
-                        />
-                    </OrbitField>
-
                     <EventSelect
                         spaceId={spaceId}
                         value={eventId}
@@ -1375,11 +1372,6 @@ function IncomeForm({
                     </OrbitField>
                 </>
             )}
-
-            <OrbitInfoPill tone="brand">
-                Income lands in the chosen account immediately and appears in the ledger and
-                analytics.
-            </OrbitInfoPill>
         </form>
     );
 }
@@ -1408,23 +1400,22 @@ function ExpenseForm({
     // stale IDs (deleted/archived) silently fall back to empty.
     const lastAccountKey = `orbit:last-account:${spaceId}:expense`;
     const [amount, setAmount] = useState("");
-    const [description, setDescription] = useState("");
-    const [location, setLocation] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
     const [sourceAccountId, setSource] = useState<string>(() => {
+        if (pinState.pins?.account) return pinState.pins.account.id;
         if (typeof window === "undefined") return "";
         return window.localStorage.getItem(lastAccountKey) ?? "";
     });
     const [categoryId, setCategoryId] = useState<string | null>(null);
-    const [envelopeId, setEnvelopeId] = useState<string>("");
+    const [envelopeId, setEnvelopeId] = useState<string>(() => pinState.pins?.envelop?.id ?? "");
     const [envelopePickerOpen, setEnvelopePickerOpen] = useState(false);
-    const [eventId, setEventId] = useState("");
+    const [eventId, setEventId] = useState<string>(() => pinState.pins?.event?.id ?? "");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
 
-    // Optional fields (location/event/receipts) collapse behind one
-    // disclosure so the default form weight matches the user's real
-    // decisions. Persist open/closed per space so a user who always
-    // attaches receipts doesn't pay the expand-cost each time.
+    // Optional fields (event/receipts) collapse behind one disclosure so
+    // the default form weight matches the user's real decisions. Persist
+    // open/closed per space so a user who always attaches receipts
+    // doesn't pay the expand-cost each time.
     const showMoreKey = `orbit:nt-expense-show-more:${spaceId}`;
     const [showMore, setShowMore] = useState<boolean>(() => {
         if (typeof window === "undefined") return false;
@@ -1436,8 +1427,7 @@ function ExpenseForm({
     }, [showMore, showMoreKey]);
     // Auto-open if any optional field has content so users never lose
     // visibility into data they've entered.
-    const optionalFieldsHaveContent =
-        location.trim().length > 0 || eventId.length > 0 || attachmentFileIds.length > 0;
+    const optionalFieldsHaveContent = eventId.length > 0 || attachmentFileIds.length > 0;
     useEffect(() => {
         if (optionalFieldsHaveContent && !showMore) setShowMore(true);
     }, [optionalFieldsHaveContent, showMore]);
@@ -1520,12 +1510,23 @@ function ExpenseForm({
         setEnvelopePickerOpen(false);
     }, [categoryId, activeCategories, envelopePinnedAndActive, archivedEnvIds]);
 
-    /* Hydrate pinned values once, after the first pins payload arrives.
-       Order matters slightly: setEnvelopeId before setCategoryId would
-       be wiped by the category-default effect above; we set envelope
-       AFTER the category effect's invariant (envelopePinnedAndActive)
-       is true, which happens naturally because we set envelopeId here
-       and the next render computes envelopePinnedAndActive correctly. */
+    /* Hydrate pinned values once. The initializers above already seed
+       account/envelope/event synchronously from pinState.pins when the
+       pins query is warm in cache (e.g. every remount after the sheet's
+       first open) — that's the common case, and it avoids ever mounting
+       EventSelect's Radix Select with an empty value that gets corrected
+       a moment later: a controlled Radix Select whose value changes
+       right after mount (before the user has ever opened it) can fire a
+       spurious onValueChange("") itself, which silently wiped the event
+       pin's hydration on every "Save & add another" cycle. This effect
+       is now only the fallback for a cold cache (the very first open
+       after a page load), where the pins query is still in flight when
+       these fields first mount. Order matters slightly: setEnvelopeId
+       before setCategoryId would be wiped by the category-default effect
+       above; we set envelope AFTER the category effect's invariant
+       (envelopePinnedAndActive) is true, which happens naturally because
+       we set envelopeId here and the next render computes
+       envelopePinnedAndActive correctly. */
     const hydratedRef = useRef(false);
     useEffect(() => {
         if (hydratedRef.current) return;
@@ -1590,8 +1591,6 @@ function ExpenseForm({
                     envelopId: envelopeId,
                     amount: Number(amount),
                     datetime: fromInputDateTime(datetime),
-                    description: description || undefined,
-                    location: location || undefined,
                     eventId: eventId || undefined,
                     attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     idempotencyKey: idem.key,
@@ -1718,35 +1717,17 @@ function ExpenseForm({
                 additionalDebit={Number(amount) || 0}
             />
 
-            <OrbitField label="Payee" hint="Optional · helps recognize this entry later">
-                <OrbitInput
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Tartine Bakery"
-                />
-            </OrbitField>
-
             <button
                 type="button"
                 onClick={() => setShowMore((v) => !v)}
                 className="of-disclosure-toggle"
             >
-                <span>
-                    {showMore ? "Hide location, event, receipt" : "Add location, event, or receipt"}
-                </span>
+                <span>{showMore ? "Hide event or receipt" : "Add event or receipt"}</span>
                 {showMore ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
             </button>
 
             {showMore && (
                 <>
-                    <OrbitField label="Location" hint="Optional">
-                        <OrbitInput
-                            value={location}
-                            onChange={(e) => setLocation(e.target.value)}
-                            placeholder="Where did this happen?"
-                        />
-                    </OrbitField>
-
                     <EventSelect
                         spaceId={spaceId}
                         value={eventId}
@@ -1806,14 +1787,14 @@ function TransferForm({
 
     const lastSourceKey = `orbit:last-account:${spaceId}:transfer-source`;
     const [amount, setAmount] = useState("");
-    const [description, setDescription] = useState("");
     const [datetime, setDatetime] = useState(defaultDateTime());
     const [sourceAccountId, setSource] = useState<string>(() => {
+        if (pinState.pins?.account) return pinState.pins.account.id;
         if (typeof window === "undefined") return "";
         return window.localStorage.getItem(lastSourceKey) ?? "";
     });
     const [destinationAccountId, setDest] = useState("");
-    const [eventId, setEventId] = useState("");
+    const [eventId, setEventId] = useState<string>(() => pinState.pins?.event?.id ?? "");
     const [attachmentFileIds, setAttachmentFileIds] = useState<string[]>([]);
     // Optional fee that banks / ATMs / FX providers skim off the top.
     // When enabled, the source is debited `amount + fee` while the
@@ -1848,7 +1829,12 @@ function TransferForm({
     /* Pin the SOURCE account for transfers — the destination is
        intentionally not pin-hydrated. Pinning a destination would be
        weird (the user is usually transferring TO different accounts),
-       and pinning both could conflict (source==dest is invalid). */
+       and pinning both could conflict (source==dest is invalid).
+       The initializers above already seed source/event synchronously
+       when pinState.pins is warm in cache (the common case on every
+       remount after the sheet's first open); this effect is only the
+       fallback for a cold cache. See the eventId initializer's comment
+       in IncomeForm for why synchronous seeding matters here. */
     const hydratedRef = useRef(false);
     useEffect(() => {
         if (hydratedRef.current) return;
@@ -1932,7 +1918,6 @@ function TransferForm({
                     destinationAccountId,
                     amount: Number(amount),
                     datetime: fromInputDateTime(datetime),
-                    description: description || undefined,
                     eventId: eventId || undefined,
                     attachmentFileIds: attachmentFileIds.length > 0 ? attachmentFileIds : undefined,
                     feeAmount: feeEnabled ? feeNum : undefined,
@@ -2032,20 +2017,12 @@ function TransferForm({
                 <FeeBreakdown totalOut={totalOut} delivered={amountNum} fee={feeNum} />
             )}
 
-            <OrbitField label="Memo" hint="Optional">
-                <OrbitInput
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Monthly emergency-fund top-up"
-                />
-            </OrbitField>
-
             <button
                 type="button"
                 onClick={() => setShowMore((v) => !v)}
                 className="of-disclosure-toggle"
             >
-                <span>{showMore ? "Hide event, receipt" : "Add event or receipt"}</span>
+                <span>{showMore ? "Hide event or receipt" : "Add event or receipt"}</span>
                 {showMore ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
             </button>
 
@@ -2078,11 +2055,6 @@ function TransferForm({
                     </OrbitField>
                 </>
             )}
-
-            <OrbitInfoPill tone="transfer">
-                Transfers don't show up in income/expense totals. They're recorded as a paired (out,
-                in) ledger entry.
-            </OrbitInfoPill>
         </form>
     );
 }
@@ -2168,6 +2140,7 @@ function AdjustmentForm({
 
     const lastAccountKey = `orbit:last-account:${spaceId}:adjustment`;
     const [accountId, setAccountId] = useState<string>(() => {
+        if (pinState.pins?.account) return pinState.pins.account.id;
         if (typeof window === "undefined") return "";
         return window.localStorage.getItem(lastAccountKey) ?? "";
     });
@@ -2438,11 +2411,6 @@ function AdjustmentForm({
                     label=""
                 />
             </OrbitField>
-
-            <OrbitInfoPill tone="gold">
-                Adjustments don't appear in income or expense totals — they correct your account
-                balance only. They show as <b>adj</b> entries in the ledger.
-            </OrbitInfoPill>
         </form>
     );
 }
