@@ -51,6 +51,12 @@ function PasswordCard() {
     const [confirm, setConfirm] = useState("");
 
     const change = trpc.user.changePassword.useMutation({
+        // The server bumps token_version as soon as the mutation lands,
+        // which can 401 any request still in flight on the old token
+        // before setToken() below applies the new one. Suppress the
+        // global auto-logout for that window so a successful password
+        // change never gets mistaken for a dead session.
+        onMutate: () => authStore.setRotatingToken(true),
         onSuccess: ({ token }) => {
             // Server bumps token_version on password change, which kills
             // every other session. Refresh the local token so this tab
@@ -62,6 +68,7 @@ function PasswordCard() {
             setConfirm("");
         },
         onError: (e) => toast.error(e.message),
+        onSettled: () => authStore.setRotatingToken(false),
     });
 
     const valid =

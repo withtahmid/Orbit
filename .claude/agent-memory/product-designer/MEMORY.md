@@ -28,3 +28,4 @@
 - [Permission-aware empty states](permission_aware_empty_states.md) — budget CTAs say "Use Allocate above" but Allocate is owner/editor-only; viewers hit a dead-end; audit new empty states for role gating.
 - [Goal completion semantics tension](goal_completion_semantics_tension.md) — goal ✓/"reached" keys off lifetime funding not current state; spend against a funded goal is invisible; fund-then-spend vs maintain-balance undecided.
 - [Transactions filter bar shared](transactions_filter_bar_shared.md) — 2026-07-01: Txn page adopts analytics multi-select bar; drops "No envelope" UI + category-on-personal; two clear-scopes + duplicated period default.
+- [Auth session security posture](auth_session_security_posture.md) — non-expiring JWTs revoked only via token_version; posture is defensible; gap is silent hard-redirect on sign-out (needs "you were signed out" toast).
