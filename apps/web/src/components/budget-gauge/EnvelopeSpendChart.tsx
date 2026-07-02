@@ -389,9 +389,23 @@ export function EnvelopeSpendChart({
                 {showToday ? (
                     <>
                         {isOverPace ? (
+                            // Two nested elements on purpose: `animate-ping`
+                            // animates `transform: scale(...)` via keyframes,
+                            // which — being a running CSS animation — wins
+                            // over an inline `transform` on the SAME element
+                            // for as long as it's running. Centering this
+                            // span on the dot needs `translate(-50%, -50%)`,
+                            // so putting both on one element made the ping
+                            // lose its centering mid-pulse and grow from the
+                            // box's un-translated corner instead — reading as
+                            // drifting right/down instead of growing evenly.
+                            // The outer span holds the (stable, never
+                            // animated) centering transform; the inner span
+                            // just fills it and is the only element that
+                            // animates, so its `scale()` has nothing to
+                            // fight over.
                             <span
                                 aria-hidden="true"
-                                className="animate-ping motion-reduce:animate-none"
                                 style={{
                                     position: "absolute",
                                     left: `${xPct(todayX)}%`,
@@ -399,12 +413,20 @@ export function EnvelopeSpendChart({
                                     width: 18,
                                     height: 18,
                                     transform: "translate(-50%, -50%)",
-                                    borderRadius: "9999px",
-                                    background: alertColor,
-                                    opacity: 0.45,
                                     pointerEvents: "none",
                                 }}
-                            />
+                            >
+                                <span
+                                    className="animate-ping motion-reduce:animate-none"
+                                    style={{
+                                        position: "absolute",
+                                        inset: 0,
+                                        borderRadius: "9999px",
+                                        background: alertColor,
+                                        opacity: 0.45,
+                                    }}
+                                />
+                            </span>
                         ) : null}
                         <span
                             style={dotStyle(
