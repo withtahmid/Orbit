@@ -25,3 +25,5 @@
 - [Glass status boundaries](glass_status_boundaries.md) — save uses `>=` at target => "complete"; spend total<=0 => "calm", exactly-at-budget => "warning" not "over"; divide-guard removal is safe.
 - [Envelope detail pace & goal math](envelope_detail_pace_and_goal.md) — pace-line paceAt agreement (line=dot=tooltip); goal capped-endpoint interpolation preserves slope, completionDate uncapped. Verified correct.
 - [Running balance helpers](running_balance_helpers.md) — accountRunningBalance.mts signed effects match trigger 018 (adjustment src XOR dst); ordering consistent; acctScope safe; latent space-scope divergence for cross-space accounts.
+- [envelopeRecentAverages month offset](envelope_recent_averages_month_offset.md) — CONFIRMED BUG: native getUTCMonth() on APP_TZ instant shifts "Last month" KPI 1 full month early, every load. Also no cadence filter → rolling last_month_planned garbage.
+- [Budget footnote YTD vs full-year](budget_footnote_ytd_vs_fullyear.md) — CONFIRMED BUG: "Monthly spend" footnote divides YTD spent by full-12-month allocated → inverts/misstates over/under for the current in-progress year.

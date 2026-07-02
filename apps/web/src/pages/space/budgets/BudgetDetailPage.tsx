@@ -1,9 +1,12 @@
 import {
+    Fragment,
     useMemo,
+    useRef,
     useState,
     type ComponentProps,
     type CSSProperties,
     type ReactNode,
+    type TouchEvent as ReactTouchEvent,
 } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -13,9 +16,11 @@ import {
     ChevronRight,
     Coins,
     Pencil,
+    TrendingDown,
+    TrendingUp,
 } from "lucide-react";
 import { formatInAppTz } from "@/lib/formatDate";
-import { startOfMonth, endOfMonth, addMonths } from "@/lib/dates";
+import { startOfMonth, endOfMonth, addMonths, getAppTzYear } from "@/lib/dates";
 import { compactMoney } from "@/lib/chartBucket";
 import { toast } from "sonner";
 import { PermissionGate } from "@/components/shared/PermissionGate";
@@ -131,6 +136,92 @@ export default function BudgetDetailPage() {
     );
     const averages = averagesQuery.data?.find((a) => a.envelopId === envelopeId);
 
+    // Velocity — "how fast money is leaving," envelope-scoped. Same math as
+    // the space-level Velocity card on the Spending Trends page
+    // (TrendsView.tsx), just derived from this envelope's own dailyQuery
+    // series instead of the space-wide one. granularity is always "month"
+    // here, so bucketDays is always 1 (one bucket = one day).
+    const velocity = useMemo(() => {
+        const daily = dailyQuery.data;
+        if (!daily) return null;
+        const cur = daily.current;
+        const prv = daily.previous;
+        const avg = daily.average;
+        const bucketDays = daily.bucketDays;
+        const today = daily.today;
+        const len = Math.max(daily.periodLength, prv.length);
+        let curAcc = 0;
+        let prvAcc = 0;
+        let avgAcc = 0;
+        let curAtToday = 0;
+        let prvAtToday = 0;
+        for (let i = 0; i < len; i++) {
+            curAcc += cur[i] ?? 0;
+            prvAcc += prv[i] ?? 0;
+            if (avg) avgAcc += avg[i] ?? 0;
+            if (i === today - 1) {
+                curAtToday = curAcc;
+                prvAtToday = prvAcc;
+            }
+        }
+        const perDayThisMonth = today > 0 ? curAtToday / today / bucketDays : 0;
+        const perDayLastMonth = today > 0 ? prvAtToday / today / bucketDays : 0;
+        const perDayTypical =
+            avg && daily.periodLength > 0 ? avgAcc / (daily.periodLength * bucketDays) : null;
+        const acceleration = prvAtToday > 0 ? (curAtToday / prvAtToday - 1) * 100 : null;
+        return { perDayThisMonth, perDayLastMonth, perDayTypical, acceleration, today };
+    }, [dailyQuery.data]);
+
+    // Monthly spend — trailing 12 months (this year vs last), envelope-
+    // scoped via the same trends.yearOverYear procedure the Spending
+    // Trends page uses for its YoY chart. Anchored to the viewed month's
+    // year (not always "now") so stepping the month nav into a different
+    // calendar year keeps this section in sync with the rest of the page.
+    const yoyQuery = trpc.analytics.trends.yearOverYear.useQuery(
+        {
+            spaceId: space.id,
+            envelopeIds: envelopeId ? [envelopeId] : [],
+            year: getAppTzYear(viewingDate),
+        },
+        { enabled: !!envelope && !isGoal }
+    );
+    const monthly = useMemo(() => {
+        const data = yoyQuery.data;
+        if (!data) return null;
+        const thisYear = data.thisYear.map((v) => v ?? 0);
+        const lastYear = data.lastYear.map((v) => v ?? 0);
+        // Compare the same window-of-year on both sides (only months that
+        // have actually happened in `thisYear`) so the headline delta
+        // isn't asymmetric YTD-vs-full-year — mid-year flat spend should
+        // read ~0%, not deeply negative just because the rest of `lastYear`
+        // has more months of data.
+        const futureStartIdx = data.thisYear.findIndex((v) => v == null);
+        const windowMonths = futureStartIdx === -1 ? 12 : futureStartIdx;
+        const thisTotal = thisYear.slice(0, windowMonths).reduce((s, v) => s + v, 0);
+        const lastTotal = lastYear.slice(0, windowMonths).reduce((s, v) => s + v, 0);
+        const totalDelta = lastTotal > 0 ? (thisTotal / lastTotal - 1) * 100 : null;
+        const hasData = thisYear.some((v) => v > 0) || lastYear.some((v) => v > 0);
+        return {
+            year: data.year,
+            months: data.months,
+            thisYear,
+            lastYear,
+            totalDelta,
+            hasData,
+            ytdSpent: thisTotal,
+            windowMonths,
+        };
+    }, [yoyQuery.data]);
+
+    // Monthly ALLOCATED, for monthly-cadence envelopes only — rolling/goal
+    // envelopes have a single lifetime pool, not a per-month figure. Paired
+    // with `monthly.thisYear` (spend) so the chart can show a bullet-style
+    // spent-bar + allocated-marker per month instead of a bare spend bar.
+    const allocQuery = trpc.analytics.envelopeMonthlyAllocations.useQuery(
+        { spaceId: space.id, envelopeId: envelopeId ?? "", year: monthly?.year },
+        { enabled: !!envelope && !isGoal && envelope.cadence === "monthly" && !!envelopeId }
+    );
+
     // "Where it went" — this envelope's spend split across its categories for
     // the period. Reuses the analytics categoryBreakdown query (envelope-scoped)
     // + the shared Donut chart.
@@ -201,7 +292,8 @@ export default function BudgetDetailPage() {
         [catData]
     );
     // Donut is unreadable past ~8 slices, so cap it to the top few + an
-    // "Other" wedge. The full list still lives in the legend beside it.
+    // "Other" wedge. The full per-category breakdown is still readable via
+    // the donut's own aria-label and its hover-driven center-label swap.
     const donutSlices = useMemo(() => {
         const TOP = 8;
         if (catData.length <= TOP + 1) return catData;
@@ -449,7 +541,6 @@ export default function BudgetDetailPage() {
 
         const isMonthly = envelope.cadence === "monthly";
         const budget = isMonthly && total > 0 ? total : null;
-        const projOver = budget != null && projected > budget;
 
         let foot: ReactNode;
         if (budget != null) {
@@ -472,8 +563,8 @@ export default function BudgetDetailPage() {
                     </b>{" "}
                     the pace line today — at this rate you'll finish at{" "}
                     <b className="tabular">{money0(projected)}</b>,{" "}
-                    <b style={{ color: projOver ? expenseC : "var(--income)" }}>
-                        {money0(Math.abs(projected - budget))} {projOver ? "over" : "under"}
+                    <b style={{ color: projected > budget ? expenseC : "var(--income)" }}>
+                        {money0(Math.abs(projected - budget))} {projected > budget ? "over" : "under"}
                     </b>
                     .
                 </span>
@@ -542,9 +633,16 @@ export default function BudgetDetailPage() {
                 budget,
                 color: envelope.color,
                 showToday: monthOffset === 0,
+                archived,
                 ariaLabel: `Spent ${money0(spentToDate)} so far${
                     budget != null ? ` of a ${money0(budget)} budget` : ""
-                }, projected ${money0(projected)} by month end.`,
+                }, projected ${money0(projected)} by month end.${
+                    budget != null && spentToDate > budget
+                        ? " Currently over budget."
+                        : budget != null && spentToDate > budget * (today / pl)
+                          ? " Currently over the on-budget pace line."
+                          : ""
+                }`,
                 emptyLabel:
                     isMonthly && total <= 0
                         ? canEdit
@@ -620,17 +718,44 @@ export default function BudgetDetailPage() {
         );
         const isPast = monthOffset < 0;
         const pctBudget = total > 0 ? Math.round((spent / total) * 100) : 0;
+        // Same on-budget-pace math as the Spending pace chart's footnote
+        // (budget * elapsed/total-days vs. spent-to-date) — surfaced here as
+        // its own tile instead of a sentence below the chart, for the
+        // current month only (a completed past period has no "today" to
+        // pace against).
+        const budget = envelope.cadence === "monthly" && total > 0 ? total : null;
+        const paceNow = daily && budget != null ? (budget * today) / pl : null;
+        const paceDiff = !isPast && paceNow != null ? spent - paceNow : null;
+        const paceUnder = paceDiff != null && paceDiff <= 0;
         return [
             { label: "Last month", val: averages ? money0(averages.lastMonthSpend) : "—", sub: averages && averages.lastMonthPlanned > 0 ? `${Math.round((averages.lastMonthSpend / averages.lastMonthPlanned) * 100)}% of plan` : "spent", tone: "fg" as const },
             { label: "3-month avg", val: averages ? money0(averages.avg3MonthSpend) : "—", sub: "per month", tone: "fg" as const },
+            { label: "Daily burn", val: velocity ? money0(velocity.perDayThisMonth) : "—", sub: "avg per day this month", tone: "fg" as const },
             isPast
                 ? { label: "% of budget", val: total > 0 ? `${pctBudget}%` : "—", sub: total > 0 ? "of the plan spent" : "no budget set", tone: total > 0 && spent > total ? "expense" as const : "fg" as const }
                 : { label: "Projected end", val: daily ? money0(projEnd) : "—", sub: "at current pace", tone: daily && total > 0 && projEnd > total ? "expense" as const : "income" as const },
             isPast
                 ? { label: spent > total ? "Over by" : "Left over", val: total > 0 ? money0(Math.abs(total - spent)) : "—", sub: "vs the budget", tone: total > 0 && spent > total ? "expense" as const : "income" as const }
                 : { label: "Days left", val: String(daysLeft), sub: "this month", tone: "fg" as const },
+            // Same two-tier severity as the chart's own over-pace escalation:
+            // warn (amber) while merely ahead of pace but still within the
+            // month's budget, expense (red) reserved for actually over the
+            // whole budget — so this tile never screams louder than the
+            // more serious "Over by" tile above it.
+            paceDiff != null
+                ? {
+                      label: "Pace today",
+                      val: money0(Math.abs(paceDiff)),
+                      sub: paceUnder ? "under pace" : "over pace",
+                      tone: paceUnder
+                          ? ("income" as const)
+                          : total > 0 && spent > total
+                            ? ("expense" as const)
+                            : ("warn" as const),
+                  }
+                : { label: "Pace today", val: "—", sub: isPast ? "month completed" : "no budget set", tone: "fg" as const },
         ];
-    }, [envelope, isGoal, dailyQuery.data, averages, total, goalSaved, goalTarget, periodEnd, monthOffset, now]);
+    }, [envelope, isGoal, dailyQuery.data, averages, velocity, total, goalSaved, goalTarget, periodEnd, monthOffset, now]);
 
     // status pill for the hero
     const status = useMemo((): { label: string; tone: Tone | "income" | "fg" } | null => {
@@ -866,21 +991,21 @@ export default function BudgetDetailPage() {
                                     </>
                                 ) : noBudget ? (
                                     <>
-                                        <HeroNum label="Spent" value={envelope.consumed} tone="fg" />
-                                        <span className="ed-hero-div" />
                                         <HeroNum label="Allocated" value={0} tone="fg" />
+                                        <span className="ed-hero-div" />
+                                        <HeroNum label="Spent" value={envelope.consumed} tone="fg" />
                                     </>
                                 ) : (
                                     <>
+                                        <HeroNum label="Allocated" value={total} tone="fg" />
+                                        <span className="ed-hero-div" />
+                                        <HeroNum label="Spent" value={envelope.consumed} tone="brand" />
+                                        <span className="ed-hero-div" />
                                         <HeroNum
                                             label={over ? "Over by" : "Remaining"}
                                             value={Math.abs(remaining)}
                                             tone={muteTone(over ? "expense" : "gold")}
                                         />
-                                        <span className="ed-hero-div" />
-                                        <HeroNum label="Spent" value={envelope.consumed} tone="brand" />
-                                        <span className="ed-hero-div" />
-                                        <HeroNum label="Allocated" value={total} tone="fg" />
                                     </>
                                 )}
                             </div>
@@ -986,10 +1111,14 @@ export default function BudgetDetailPage() {
                                 <div className="ed-chart-wrap">
                                     <EnvelopeSpendChart {...chart.race} />
                                 </div>
-                                <div className="ed-chart-foot">{chart.foot}</div>
+                                {chart.foot && <div className="ed-chart-foot">{chart.foot}</div>}
                             </>
                         ) : dailyQuery.isLoading && !isGoal ? (
-                            <Skeleton height={240} />
+                            // Matches the loaded chart-wrap + foot-text block's
+                            // measured height (~460 + ~40px) so the loading→
+                            // loaded transition doesn't snap the card taller
+                            // once data arrives.
+                            <Skeleton height={500} />
                         ) : (
                             <div className="ed-empty">
                                 {total > 0
@@ -1002,66 +1131,189 @@ export default function BudgetDetailPage() {
                     </section>
                 )}
 
-                {/* Where it went — this envelope's spend split across its
-                    categories for the period (reuses the analytics Donut). */}
-                {envelope && (
-                    <section className="od-card ed-section">
-                        <div className="ed-sect-head">
-                            <div className="ed-sect-text">
-                                <h2 className="display ed-sect-title">Where it went</h2>
-                                <span className="ed-sect-sub">
-                                    {envelope.cadence === "monthly"
-                                        ? `Spend by category · ${monthLabel}`
-                                        : "Spend by category this month"}
-                                </span>
-                            </div>
-                        </div>
-                        {catQuery.isLoading ? (
-                            <Skeleton height={280} />
-                        ) : catData.length === 0 ? (
-                            <div className="ed-empty">
-                                {monthOffset < 0
-                                    ? `No spending in this envelope in ${monthLabel}.`
-                                    : "No spending logged yet — it'll break down by category here as you use this envelope."}
-                            </div>
-                        ) : (
-                            <div className="ed-cat-wrap">
-                                <div className="ed-cat-chart">
+                {/* Monthly spend, Where it went, and Velocity — one
+                    analytics row, three columns. "Daily burn" (per day
+                    this month) already lives in the hero KPI strip above;
+                    this row covers the rest: the trailing-12-month bar
+                    chart, the spend-by-category donut, and a visual
+                    this/last/typical comparison + acceleration. Monthly
+                    spend and Velocity are monthly/rolling-only — goals
+                    fund via allocations rather than categorized spend, so
+                    a goal envelope renders the donut alone. */}
+                {envelope &&
+                    (() => {
+                        const columns: ReactNode[] = [];
+                        if (!isGoal) {
+                            columns.push(
+                                <div className="ed-row3-col" key="monthly">
+                                    <div className="ed-row3-head">
+                                        <h2 className="display ed-row3-title">Monthly spend</h2>
+                                        <span className="ed-row3-sub">
+                                            {envelope.cadence === "monthly"
+                                                ? `Spent vs allocated · ${monthly?.year ?? "this year"}`
+                                                : monthly
+                                                  ? `${monthly.year} vs ${monthly.year - 1}`
+                                                  : "This year vs last"}
+                                        </span>
+                                    </div>
+                                    {(() => {
+                                        const isMonthlyCadence = envelope.cadence === "monthly";
+                                        const allocatedArr = isMonthlyCadence
+                                            ? (allocQuery.data?.allocated ?? null)
+                                            : null;
+                                        const hasAllocData =
+                                            allocatedArr?.some((v) => v > 0) ?? false;
+                                        const hasData = (monthly?.hasData ?? false) || hasAllocData;
+                                        // Window the allocated sum to the same
+                                        // year-to-date range as `ytdSpent` — summing
+                                        // all 12 months (including ones that haven't
+                                        // happened yet) against a YTD spend figure
+                                        // would flip the over/under verdict for any
+                                        // envelope mid-way through the current year.
+                                        const ytdAllocated = allocatedArr
+                                            ? allocatedArr
+                                                  .slice(0, monthly?.windowMonths ?? 12)
+                                                  .reduce((s, v) => s + v, 0)
+                                            : 0;
+                                        const overAlloc =
+                                            ytdAllocated > 0 &&
+                                            (monthly?.ytdSpent ?? 0) > ytdAllocated;
+                                        return yoyQuery.isLoading ||
+                                            (isMonthlyCadence && allocQuery.isLoading) ? (
+                                            <Skeleton height={200} />
+                                        ) : !monthly || !hasData ? (
+                                            <div className="ed-empty">No monthly spend history yet.</div>
+                                        ) : (
+                                            <>
+                                                <div className="ed-chart-wrap">
+                                                    <EnvelopeMonthlyBars
+                                                        labels={monthly.months}
+                                                        thisYear={monthly.thisYear}
+                                                        lastYear={monthly.lastYear}
+                                                        allocated={allocatedArr}
+                                                        yearThis={monthly.year}
+                                                        yearLast={monthly.year - 1}
+                                                        color={envelope.color}
+                                                    />
+                                                </div>
+                                                {isMonthlyCadence
+                                                    ? ytdAllocated > 0 && (
+                                                          <div className="ed-chart-foot">
+                                                              Spent{" "}
+                                                              <b className="tabular">
+                                                                  {money0(monthly.ytdSpent)}
+                                                              </b>{" "}
+                                                              of{" "}
+                                                              <b className="tabular">
+                                                                  {money0(ytdAllocated)}
+                                                              </b>{" "}
+                                                              allocated so far this year —{" "}
+                                                              <b
+                                                                  style={{
+                                                                      color: overAlloc
+                                                                          ? "var(--expense)"
+                                                                          : "var(--income)",
+                                                                  }}
+                                                              >
+                                                                  {money0(
+                                                                      Math.abs(
+                                                                          monthly.ytdSpent - ytdAllocated
+                                                                      )
+                                                                  )}{" "}
+                                                                  {overAlloc ? "over" : "under"}
+                                                              </b>
+                                                              .
+                                                          </div>
+                                                      )
+                                                    : monthly.totalDelta != null && (
+                                                          <div className="ed-chart-foot">
+                                                              <b
+                                                                  style={{
+                                                                      color:
+                                                                          monthly.totalDelta > 0
+                                                                              ? "var(--expense)"
+                                                                              : "var(--income)",
+                                                                  }}
+                                                              >
+                                                                  {monthly.totalDelta >= 0 ? "+" : ""}
+                                                                  {monthly.totalDelta.toFixed(0)}%
+                                                              </b>{" "}
+                                                              · this year vs last year (so far)
+                                                          </div>
+                                                      )}
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            );
+                        }
+
+                        columns.push(
+                            <div className="ed-row3-col ed-row3-col-donut" key="donut">
+                                <div className="ed-row3-head">
+                                    <h2 className="display ed-row3-title">Where it went</h2>
+                                    <span className="ed-row3-sub">
+                                        {envelope.cadence === "monthly"
+                                            ? `By category · ${monthLabel}`
+                                            : "By category this month"}
+                                    </span>
+                                </div>
+                                {catQuery.isLoading ? (
+                                    <Skeleton height={220} />
+                                ) : catData.length === 0 ? (
+                                    <div className="ed-empty">
+                                        {monthOffset < 0
+                                            ? `No spending in this envelope in ${monthLabel}.`
+                                            : "No spending logged yet."}
+                                    </div>
+                                ) : (
                                     <Donut
                                         data={donutSlices}
                                         centerLabel="Spent"
                                         centerValue={catTotal}
-                                        height={260}
+                                        height={220}
                                         hideLegend
+                                        hideTooltip
                                     />
-                                </div>
-                                <div className="ed-cat-legend">
-                                    {catData.map((d) => {
-                                        const pct =
-                                            catTotal > 0
-                                                ? Math.round((d.value / catTotal) * 100)
-                                                : 0;
-                                        return (
-                                            <div key={d.id} className="ed-cat-row">
-                                                <span
-                                                    className="ed-cat-dot"
-                                                    style={{ background: d.color }}
-                                                />
-                                                <span className="ed-cat-name" title={d.name}>
-                                                    {d.name}
-                                                </span>
-                                                <span className="ed-cat-val tabular">
-                                                    {money0(d.value)}
-                                                    <span className="ed-cat-pct">{pct}%</span>
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
+                                )}
                             </div>
-                        )}
-                    </section>
-                )}
+                        );
+
+                        if (!isGoal) {
+                            columns.push(
+                                <div className="ed-row3-col" key="velocity">
+                                    <div className="ed-row3-head">
+                                        <h2 className="display ed-row3-title">Velocity</h2>
+                                        <span className="ed-row3-sub">
+                                            Per day, how fast money is leaving.
+                                        </span>
+                                    </div>
+                                    {velocity ? (
+                                        <VelocityViz
+                                            thisMonth={velocity.perDayThisMonth}
+                                            lastMonth={velocity.perDayLastMonth}
+                                            typical={velocity.perDayTypical}
+                                            acceleration={velocity.acceleration}
+                                            color={envelope.color}
+                                        />
+                                    ) : (
+                                        <Skeleton height={180} />
+                                    )}
+                                </div>
+                            );
+                        }
+
+                        return (
+                            <section className="od-card ed-row3">
+                                {columns.map((col, i) => (
+                                    <Fragment key={i}>
+                                        {i > 0 && <div className="ed-row3-divider" />}
+                                        {col}
+                                    </Fragment>
+                                ))}
+                            </section>
+                        );
+                    })()}
             </div>
         </div>
     );
@@ -1096,7 +1348,447 @@ function factColor(tone: string): string {
             ? "var(--expense)"
             : tone === "income"
               ? "var(--income)"
-              : "var(--fg)";
+              : tone === "warn"
+                ? "var(--warn)"
+                : "var(--fg)";
+}
+
+/** Velocity as a visual — a mini bullet-style bar comparison (this month /
+ * last month / typical, all scaled to their shared max, value labeled
+ * directly so the comparison never depends on hover) plus an acceleration
+ * stat that pairs an icon with the signed percentage — direction is never
+ * color-only. */
+function VelocityViz({
+    thisMonth,
+    lastMonth,
+    typical,
+    acceleration,
+    color,
+}: {
+    thisMonth: number;
+    lastMonth: number;
+    typical: number | null;
+    acceleration: number | null;
+    /** Envelope's own color. These three bars are the same metric at
+     *  different time windows, so they're a single-hue value scale (full
+     *  strength → muted → light outline) rather than unrelated hues per
+     *  row — that reads as "comparable values," ties this panel to the
+     *  same identity as the pace chart and Monthly spend bars above it,
+     *  and avoids reusing tokens (--transfer, --ent-4) that already mean
+     *  something specific elsewhere in the app (transfer transactions,
+     *  another envelope's own color). */
+    color: string;
+}) {
+    const bars = [
+        {
+            label: "This month",
+            value: thisMonth,
+            kind: "solid" as const,
+            color,
+            track: `color-mix(in oklab, ${color} 14%, transparent)`,
+        },
+        {
+            label: "Last month",
+            value: lastMonth,
+            kind: "solid" as const,
+            // Fade toward transparent (alpha), not toward a fixed opaque
+            // color like --fg-3 — mixing a dark envelope color *up* toward
+            // a light gray would make "Last month" visually louder than
+            // "This month" instead of receding, inverting the hierarchy.
+            // Alpha-fading never inverts that way, though a very dark base
+            // color will still look faint here — acceptable since the
+            // exact value is always labeled in text right next to the bar.
+            color: `color-mix(in oklab, ${color} 62%, transparent)`,
+            track: `color-mix(in oklab, ${color} 8%, transparent)`,
+        },
+        ...(typical != null
+            ? [
+                  {
+                      label: "Typical",
+                      value: typical,
+                      kind: "outline" as const,
+                      color: `color-mix(in oklab, ${color} 70%, transparent)`,
+                      track: `color-mix(in oklab, ${color} 8%, transparent)`,
+                  },
+              ]
+            : []),
+    ];
+    const max = Math.max(1, ...bars.map((b) => b.value));
+    const accelerating = acceleration != null && acceleration >= 0;
+    return (
+        <div className="ed-velocity-viz">
+            <div className="ed-vbar-rows">
+                {bars.map((b) => (
+                    <div key={b.label} className="ed-vbar-row">
+                        <span className="ed-vbar-label">{b.label}</span>
+                        <div className="ed-vbar-track" style={{ background: b.track }}>
+                            <div
+                                className={
+                                    b.kind === "outline" ? "ed-vbar-fill ed-vbar-fill-outline" : "ed-vbar-fill"
+                                }
+                                style={{
+                                    width: `${Math.max(3, (b.value / max) * 100)}%`,
+                                    ...(b.kind === "outline"
+                                        ? { borderColor: b.color }
+                                        : { background: b.color }),
+                                }}
+                            />
+                        </div>
+                        <span className="ed-vbar-val tabular">{money0(b.value)}</span>
+                    </div>
+                ))}
+            </div>
+            <div
+                className="ed-vaccel"
+                style={{
+                    background:
+                        acceleration != null
+                            ? accelerating
+                                ? "var(--expense-soft)"
+                                : "var(--income-soft)"
+                            : "var(--bg-elev-1)",
+                }}
+            >
+                {acceleration != null ? (
+                    <>
+                        {accelerating ? (
+                            <TrendingUp size={15} style={{ color: "var(--expense)" }} />
+                        ) : (
+                            <TrendingDown size={15} style={{ color: "var(--income)" }} />
+                        )}
+                        <span
+                            className="ed-vaccel-val tabular"
+                            style={{ color: accelerating ? "var(--expense)" : "var(--income)" }}
+                        >
+                            {acceleration >= 0 ? "+" : ""}
+                            {acceleration.toFixed(1)}%
+                        </span>
+                        <span className="ed-vaccel-sub">vs last month's pace</span>
+                    </>
+                ) : (
+                    <span className="ed-vaccel-sub">No spend last month to compare</span>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/** Trailing-12-month bar chart, this year (solid) vs last year (faded),
+ *  scoped to a single envelope. Same shape as the Spending Trends page's
+ *  YoY chart, adapted to this page's own hover-tooltip convention (the
+ *  Tailwind/shadcn tokens already used by EnvelopeSpendChart's tooltip
+ *  right above this section on the page). */
+function EnvelopeMonthlyBars({
+    labels,
+    thisYear,
+    lastYear,
+    allocated,
+    yearThis,
+    yearLast,
+    color,
+}: {
+    labels: string[];
+    thisYear: number[];
+    lastYear: number[];
+    /** Monthly-cadence envelopes only — when present, renders a bullet-style
+     *  spent-bar + allocated-marker per month instead of the this/last-year
+     *  comparison (rolling/goal envelopes have no per-month allocation). */
+    allocated?: number[] | null;
+    yearThis: number;
+    yearLast: number;
+    /** Envelope's own color — themes the "spent"/"this year" series, same
+     *  as EnvelopeSpendChart's pace line right above this section, so the
+     *  page's charts read as one consistent identity per envelope instead
+     *  of an unrelated fixed palette. */
+    color: string;
+}) {
+    const bulletMode = !!allocated;
+    const w = 600;
+    const h = 220;
+    const p = 28;
+    const rawMax = Math.max(0, ...thisYear, ...(bulletMode ? allocated : lastYear));
+    // A little headroom above the tallest bar/marker so a month that's
+    // exactly at (or over) its allocation doesn't clip its marker line
+    // against the chart's top edge.
+    const max = rawMax > 0 ? rawMax * 1.08 : 1;
+    const cw = labels.length > 0 ? (w - p * 2) / labels.length : 0;
+    const bw = bulletMode ? cw - 10 : (cw - 6) / 2;
+    const sy = (v: number) => h - p - (v / max) * (h - p * 2);
+    const xPct = (svgX: number) => (svgX / w) * 100;
+
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+    const setIdxFromClientX = (clientX: number) => {
+        const rect = containerRef.current?.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || labels.length === 0) return;
+        const svgX = ((clientX - rect.left) / rect.width) * w;
+        const idx = Math.max(0, Math.min(labels.length - 1, Math.floor((svgX - p) / cw)));
+        setHoverIdx(idx);
+    };
+    const handleMove: React.MouseEventHandler<HTMLDivElement> = (e) =>
+        setIdxFromClientX(e.clientX);
+    const handleTouch = (e: ReactTouchEvent<HTMLDivElement>) => {
+        const t = e.touches[0];
+        if (t) setIdxFromClientX(t.clientX);
+    };
+
+    return (
+        <div className="ed-monthly-bars">
+            <div className="ed-legend">
+                {bulletMode ? (
+                    <>
+                        <span>
+                            <i className="ed-sw" style={{ background: color }} />
+                            Spent
+                        </span>
+                        <span>
+                            <i className="ed-sw ed-sw-marker" />
+                            Allocated
+                        </span>
+                        <span>
+                            <i className="ed-sw" style={{ background: "var(--expense)" }} />
+                            Over
+                        </span>
+                    </>
+                ) : (
+                    <>
+                        <span>
+                            <i className="ed-sw" style={{ background: color }} />
+                            {yearThis}
+                        </span>
+                        <span>
+                            <i className="ed-sw" style={{ background: "var(--fg-3)" }} />
+                            {yearLast}
+                        </span>
+                    </>
+                )}
+            </div>
+            <div
+                ref={containerRef}
+                className="relative w-full"
+                style={{ height: h, touchAction: "pan-y" }}
+                onMouseMove={handleMove}
+                onMouseLeave={() => setHoverIdx(null)}
+                onTouchStart={handleTouch}
+                onTouchMove={handleTouch}
+                onTouchEnd={() => setHoverIdx(null)}
+            >
+                <svg
+                    viewBox={`0 0 ${w} ${h}`}
+                    width="100%"
+                    height="100%"
+                    preserveAspectRatio="none"
+                    role="img"
+                    aria-label={
+                        bulletMode
+                            ? "Monthly spend vs allocated"
+                            : "Monthly spend, this year vs last year"
+                    }
+                >
+                    {[0, 1, 2, 3].map((i) => (
+                        <line
+                            key={i}
+                            x1={p}
+                            x2={w - p}
+                            y1={p + (i * (h - p * 2)) / 3}
+                            y2={p + (i * (h - p * 2)) / 3}
+                            stroke="var(--line-soft)"
+                        />
+                    ))}
+                    {labels.map((l, i) => {
+                        const isHover = hoverIdx === i;
+                        if (bulletMode) {
+                            const cx = p + i * cw + 5;
+                            const alloc = allocated[i] ?? 0;
+                            const spent = thisYear[i] ?? 0;
+                            const isOver = alloc > 0 && spent > alloc;
+                            const ySpent = sy(spent);
+                            const yAlloc = sy(alloc);
+                            return (
+                                <g key={l}>
+                                    {isOver ? (
+                                        <>
+                                            <rect
+                                                x={cx}
+                                                y={yAlloc}
+                                                width={bw}
+                                                height={h - p - yAlloc}
+                                                fill={color}
+                                                opacity={isHover ? 1 : 0.85}
+                                                rx={2}
+                                            />
+                                            {/* Over-allocation cap — the part of
+                                                the bar past the white marker
+                                                colors red, so overspending a
+                                                month is visible at a glance,
+                                                not just via the marker line. */}
+                                            <rect
+                                                x={cx}
+                                                y={ySpent}
+                                                width={bw}
+                                                height={yAlloc - ySpent}
+                                                fill="var(--expense)"
+                                                opacity={isHover ? 1 : 0.9}
+                                                rx={2}
+                                            />
+                                        </>
+                                    ) : (
+                                        <rect
+                                            x={cx}
+                                            y={ySpent}
+                                            width={bw}
+                                            height={h - p - ySpent}
+                                            fill={color}
+                                            opacity={isHover ? 1 : 0.85}
+                                            rx={2}
+                                        />
+                                    )}
+                                    {alloc > 0 && (
+                                        <line
+                                            x1={cx - 3}
+                                            x2={cx + bw + 3}
+                                            y1={yAlloc}
+                                            y2={yAlloc}
+                                            stroke="var(--fg)"
+                                            strokeWidth={2.5}
+                                        />
+                                    )}
+                                </g>
+                            );
+                        }
+                        const cx = p + i * cw + 3;
+                        const yt = sy(thisYear[i] ?? 0);
+                        const yl = sy(lastYear[i] ?? 0);
+                        return (
+                            <g key={l}>
+                                <rect
+                                    x={cx}
+                                    y={yl}
+                                    width={bw}
+                                    height={h - p - yl}
+                                    fill="var(--fg-3)"
+                                    opacity={isHover ? 0.55 : 0.35}
+                                    rx={2}
+                                />
+                                <rect
+                                    x={cx + bw + 2}
+                                    y={yt}
+                                    width={bw}
+                                    height={h - p - yt}
+                                    fill={color}
+                                    opacity={isHover ? 1 : 0.9}
+                                    rx={2}
+                                />
+                            </g>
+                        );
+                    })}
+                </svg>
+
+                {[0, 1, 2, 3].map((i) => {
+                    const yPx = p + (i * (h - p * 2)) / 3;
+                    const value = ((3 - i) * max) / 3;
+                    return (
+                        <span
+                            key={`yt-${i}`}
+                            className="absolute text-[10px] tabular-nums text-muted-foreground"
+                            style={{
+                                left: `${xPct(p - 4)}%`,
+                                top: yPx,
+                                transform: "translate(-100%, -50%)",
+                                whiteSpace: "nowrap",
+                            }}
+                        >
+                            {compactMoney(value)}
+                        </span>
+                    );
+                })}
+
+                {labels.map((l, i) => {
+                    const cx = bulletMode ? p + i * cw + 5 + bw / 2 : p + i * cw + 3 + bw + 1;
+                    return (
+                        <span
+                            key={l}
+                            className="absolute text-[10.5px] text-muted-foreground"
+                            style={{
+                                left: `${xPct(cx)}%`,
+                                top: h - p + 4,
+                                transform: "translateX(-50%)",
+                                whiteSpace: "nowrap",
+                            }}
+                        >
+                            {l}
+                        </span>
+                    );
+                })}
+
+                {hoverIdx !== null ? (
+                    <div
+                        className="pointer-events-none absolute z-10 min-w-[150px] rounded-md border border-border bg-card px-3 py-2 text-[11px] shadow-lg"
+                        style={{
+                            left: `${xPct(p + hoverIdx * cw + cw / 2)}%`,
+                            top: 8,
+                            maxWidth: "min(200px, calc(100% - 16px))",
+                            transform:
+                                hoverIdx >= labels.length / 2
+                                    ? "translateX(calc(-100% - 12px))"
+                                    : "translateX(12px)",
+                        }}
+                    >
+                        <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                            {labels[hoverIdx]}
+                        </div>
+                        {bulletMode ? (
+                            <>
+                                <MonthlyTooltipRow
+                                    label="Spent"
+                                    value={thisYear[hoverIdx] ?? 0}
+                                    color={color}
+                                />
+                                <MonthlyTooltipRow
+                                    label="Allocated"
+                                    value={allocated[hoverIdx] ?? 0}
+                                    color="var(--fg)"
+                                />
+                            </>
+                        ) : (
+                            <>
+                                <MonthlyTooltipRow
+                                    label={String(yearThis)}
+                                    value={thisYear[hoverIdx] ?? 0}
+                                    color={color}
+                                />
+                                <MonthlyTooltipRow
+                                    label={String(yearLast)}
+                                    value={lastYear[hoverIdx] ?? 0}
+                                    color="var(--fg-3)"
+                                />
+                            </>
+                        )}
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    );
+}
+
+function MonthlyTooltipRow({
+    label,
+    value,
+    color,
+}: {
+    label: string;
+    value: number;
+    color: string;
+}) {
+    return (
+        <div className="flex items-center justify-between gap-3">
+            <span className="inline-flex items-center gap-1.5 text-foreground/85">
+                <span className="size-1.5 rounded-full" style={{ backgroundColor: color }} />
+                {label}
+            </span>
+            <span className="tabular-nums font-medium">{money0(value)}</span>
+        </div>
+    );
 }
 
 function HeroNum({
@@ -1300,8 +1992,8 @@ const ED_STYLES = `
 .ed-hero-facts {
     flex: 1 1 300px;
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px 32px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 24px;
     align-self: stretch;
     align-content: center;
     padding-left: 28px;
@@ -1313,6 +2005,9 @@ const ED_STYLES = `
 .ed-fact-sub { font-size: 10.5px; color: var(--fg-3); }
 @media (max-width: 900px) {
     .ed-hero-facts { padding-left: 0; border-left: none; flex-basis: 100%; }
+}
+@media (max-width: 640px) {
+    .ed-hero-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* Chart */
@@ -1328,10 +2023,12 @@ const ED_STYLES = `
 .ed-sw { width: 14px; height: 3px; border-radius: 2px; }
 .ed-sw-dash { height: 0; border-top: 2px dashed var(--c); }
 .ed-sw-dot { height: 0; border-top: 2px dotted var(--c); }
+.ed-sw-marker { height: 0; border-top: 2.5px solid var(--fg); }
+
+.ed-monthly-bars { display: flex; flex-direction: column; gap: 10px; }
 
 
 /* Sections */
-.ed-section { padding: 20px 22px; }
 .ed-sect-head {
     display: flex; align-items: flex-start; justify-content: space-between;
     gap: 16px; margin-bottom: 14px; flex-wrap: wrap;
@@ -1342,46 +2039,50 @@ const ED_STYLES = `
 
 .ed-empty { padding: 30px 0; text-align: center; color: var(--fg-3); font-size: 13px; }
 
-/* Where it went — donut left, a two-column legend filling the width right. */
-.ed-cat-wrap { display: flex; align-items: flex-start; gap: 36px; flex-wrap: wrap; }
-.ed-cat-chart { flex: 0 0 260px; max-width: 100%; position: sticky; top: 16px; }
-.ed-cat-legend {
-    flex: 1 1 360px;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px 36px;
-    align-content: center;
+/* Monthly spend + Where it went + Velocity — one analytics row, three
+   columns divided by a soft rule. Monthly/Velocity are monthly/rolling-only
+   (goal envelopes render the donut column alone). Collapses to stacked
+   full-width columns with horizontal rules below 960px. */
+/* flex-wrap is intentionally "nowrap": at 3 columns + 2 dividers, the row
+   needs ~930px of inner width to lay out un-wrapped (the sidebar + card
+   padding push that past the raw viewport width at common laptop sizes
+   like 1024/1152/1200px). Wrapping there would strand a divider between
+   an orphaned pair of columns; shrinking (flex-shrink:1, the default)
+   instead keeps all 3 columns on one row, just narrower, until the
+   max-width query below stacks them properly. */
+.ed-row3 { display: flex; align-items: stretch; gap: 24px; padding: 20px 22px; flex-wrap: nowrap; }
+.ed-row3-col { display: flex; flex-direction: column; min-width: 0; flex: 1 1 320px; }
+.ed-row3-col-donut { flex: 0 1 240px; }
+.ed-row3-divider { width: 1px; align-self: stretch; background: var(--line-soft); flex: 0 0 auto; }
+.ed-row3-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px; }
+.ed-row3-title { font-size: 14px; font-weight: 500; letter-spacing: -0.01em; color: var(--fg); margin: 0; }
+.ed-row3-sub { font-size: 11.5px; color: var(--fg-3); }
+@media (max-width: 1280px) {
+    .ed-row3 { flex-direction: column; }
+    .ed-row3-divider { width: auto; height: 1px; }
+    .ed-row3-col-donut { flex-basis: auto; }
 }
-@media (max-width: 640px) {
-    .ed-cat-legend { grid-template-columns: 1fr; }
-    .ed-cat-chart { position: static; }
+
+/* Velocity visual — mini bullet-style bar comparison (this/last/typical,
+   value always labeled) + an acceleration stat pairing an icon with the
+   signed percentage, so direction is never color-only. */
+.ed-velocity-viz { display: flex; flex-direction: column; gap: 14px; justify-content: center; flex: 1; }
+.ed-vbar-rows { display: flex; flex-direction: column; gap: 10px; }
+.ed-vbar-row { display: grid; grid-template-columns: 72px 1fr auto; align-items: center; gap: 8px; }
+.ed-vbar-label {
+    font-size: 11px; color: var(--fg-3); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
 }
-.ed-cat-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-    padding: 5px 0;
-    border-bottom: 1px solid var(--line-soft);
+.ed-vbar-track { height: 8px; border-radius: 4px; background: var(--bg-elev-1); overflow: hidden; }
+.ed-vbar-fill { height: 100%; border-radius: 4px; }
+.ed-vbar-fill-outline { box-sizing: border-box; background: transparent; border: 1.5px dashed; }
+.ed-vbar-val { font-size: 12px; font-weight: 500; color: var(--fg); white-space: nowrap; }
+.ed-vaccel {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 12px; border-radius: 10px;
 }
-.ed-cat-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-.ed-cat-name {
-    flex: 1 1 auto;
-    min-width: 0;
-    font-size: 13px;
-    color: var(--fg-2);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.ed-cat-val {
-    flex: 0 0 auto;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--fg);
-    white-space: nowrap;
-}
-.ed-cat-pct { color: var(--fg-3); margin-left: 8px; font-size: 11.5px; font-weight: 400; }
+.ed-vaccel-val { font-size: 17px; font-weight: 600; }
+.ed-vaccel-sub { font-size: 11px; color: var(--fg-3); }
 
 @media (max-width: 640px) {
     .ed-topbar { padding: 14px 14px 10px; }
@@ -1390,7 +2091,6 @@ const ED_STYLES = `
     .orbit-design .od-card.ed-hero { padding: 16px; gap: 18px; }
     .ed-hero-num-val { font-size: 26px; }
     .orbit-design .od-card.ed-chart { padding: 16px; }
-    .ed-section { padding: 14px; }
     .ed-sect-head { margin-bottom: 10px; }
     /* This is the densest button cluster on the page — give the wrapped
        action buttons a full 44px touch target on mobile. */

@@ -11,6 +11,7 @@ import { cashFlow } from "../procedures/analytics/cashFlow.mjs";
 import { categoryBreakdown } from "../procedures/analytics/categoryBreakdown.mjs";
 import { categoryWoW } from "../procedures/analytics/categoryWoW.mjs";
 import { cumulativeSpend } from "../procedures/analytics/cumulativeSpend.mjs";
+import { envelopeMonthlyAllocations } from "../procedures/analytics/envelopeMonthlyAllocations.mjs";
 import { envelopeRecentAverages } from "../procedures/analytics/envelopeRecentAverages.mjs";
 import { envelopeUtilization } from "../procedures/analytics/envelopeUtilization.mjs";
 import { eventCategoryBreakdown } from "../procedures/analytics/eventCategoryBreakdown.mjs";
@@ -38,6 +39,7 @@ export const analyticsRouter = router({
     cashFlow,
     categoryBreakdown,
     envelopeUtilization,
+    envelopeMonthlyAllocations,
     eventTotals,
     eventCategoryBreakdown,
     priorityBreakdown,

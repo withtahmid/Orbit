@@ -37,32 +37,14 @@ export const personalEnvelopeRecentAverages = authorizedProcedure
                         ? ["00000000-0000-0000-0000-000000000000"]
                         : owned;
 
-                const ref =
-                    input.referenceDate ??
-                    new Date(
-                        Date.UTC(
-                            new Date().getUTCFullYear(),
-                            new Date().getUTCMonth(),
-                            1
-                        )
-                    );
-                const refUtc = new Date(
-                    Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1)
-                );
-                const lastMonthStart = new Date(
-                    Date.UTC(
-                        refUtc.getUTCFullYear(),
-                        refUtc.getUTCMonth() - 1,
-                        1
-                    )
-                );
-                const threeMonthsAgo = new Date(
-                    Date.UTC(
-                        refUtc.getUTCFullYear(),
-                        refUtc.getUTCMonth() - 3,
-                        1
-                    )
-                );
+                // Month bucketing happens in SQL below via date_trunc on
+                // the Asia/Dhaka DB session. Cast through `::timestamptz`
+                // (not straight to `::date`) — casting an untyped bound
+                // parameter directly to `date` parses only the literal
+                // calendar-date substring and ignores the session
+                // TimeZone entirely. See [[envelope-recent-averages-tz]]
+                // in apps/server/src/procedures/analytics/envelopeRecentAverages.mts.
+                const ref = input.referenceDate ?? new Date();
 
                 const rows = await sql<{
                     envelop_id: string;
@@ -70,6 +52,12 @@ export const personalEnvelopeRecentAverages = authorizedProcedure
                     last_month_planned: string;
                     three_month_total_spend: string;
                 }>`
+                    WITH bounds AS (
+                        SELECT
+                            date_trunc('month', ${ref}::timestamptz)::date AS ref_month,
+                            (date_trunc('month', ${ref}::timestamptz) - interval '1 month')::date AS last_month_start,
+                            (date_trunc('month', ${ref}::timestamptz) - interval '3 month')::date AS three_months_ago
+                    )
                     SELECT
                         e.id::text AS envelop_id,
                         COALESCE((
@@ -78,8 +66,8 @@ export const personalEnvelopeRecentAverages = authorizedProcedure
                             WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
                               AND t.source_account_id = ANY(${ownedParam}::uuid[])
-                              AND t.transaction_datetime >= ${lastMonthStart}
-                              AND t.transaction_datetime < ${refUtc}
+                              AND t.transaction_datetime >= b.last_month_start
+                              AND t.transaction_datetime < b.ref_month
                         ), 0)::text AS last_month_spend,
                         -- Planned matches the personal allocation
                         -- scoping: NULL allocations (new space-wide flow)
@@ -87,15 +75,17 @@ export const personalEnvelopeRecentAverages = authorizedProcedure
                         -- only when pinned to an owned account. Keeps
                         -- "you spent X / planned Y" comparing apples to
                         -- apples — both numbers are personal-slice.
+                        -- period_start compares directly against
+                        -- last_month_start (never a COALESCE(created_at)
+                        -- fallback) so rolling/goal envelopes, whose
+                        -- single allocation row has period_start IS NULL,
+                        -- naturally fall out of this monthly-only match.
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
                               AND (a.account_id IS NULL OR a.account_id = ANY(${ownedParam}::uuid[]))
-                              AND COALESCE(
-                                    a.period_start,
-                                    DATE_TRUNC('month', a.created_at)::date
-                                  ) = ${lastMonthStart}::date
+                              AND a.period_start = b.last_month_start
                         ), 0)::text AS last_month_planned,
                         COALESCE((
                             SELECT SUM(t.amount)
@@ -103,10 +93,11 @@ export const personalEnvelopeRecentAverages = authorizedProcedure
                             WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
                               AND t.source_account_id = ANY(${ownedParam}::uuid[])
-                              AND t.transaction_datetime >= ${threeMonthsAgo}
-                              AND t.transaction_datetime < ${refUtc}
+                              AND t.transaction_datetime >= b.three_months_ago
+                              AND t.transaction_datetime < b.ref_month
                         ), 0)::text AS three_month_total_spend
                     FROM envelops e
+                    CROSS JOIN bounds b
                     WHERE e.space_id = ANY(${memberSpaces}::uuid[])
                 `
                     .execute(trx)
