@@ -1,2 +1,3 @@
 - [Budgeting model (simplified)](budgeting_model.md) — envelop_allocations one row per (envelope,period); monthly resets no-carry, rolling=lifetime NULL-period pool; held=GREATEST(0,alloc-consumed).
 - [Timezone / period windows](timezone_period_windows.md) — PG session is Asia/Dhaka; date_trunc/::date run in APP_TZ; date↔timestamptz comparisons cast at APP_TZ midnight. periodWindow.mts mirrors this in JS.
+- [period_start ::date cast footgun](period_start_date_cast_footgun.md) — ${jsDate}::date takes UTC calendar substring (ignores session TZ); split-brain drifted legacy period_start data means read-cast fixes can break live numbers without a backfill.

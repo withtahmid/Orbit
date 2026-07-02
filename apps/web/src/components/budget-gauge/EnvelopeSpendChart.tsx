@@ -45,6 +45,7 @@ export function EnvelopeSpendChart({
     color,
     budget,
     showToday = true,
+    archived = false,
     ariaLabel,
     emptyLabel = "No spend recorded in this period yet.",
 }: {
@@ -64,6 +65,10 @@ export function EnvelopeSpendChart({
     /** Suppress the "Today" marker/label (e.g. viewing a completed past
      *  month, where labeling month-end "Today" would mislead). */
     showToday?: boolean;
+    /** Archived (frozen) envelopes never paint an alarm color anywhere on
+     *  this page — the over-pace escalation mutes to neutral gray here too,
+     *  matching the chart-foot's existing expenseC/warnC muting. */
+    archived?: boolean;
     /** Spoken summary for the chart's role="img". */
     ariaLabel?: string;
     /** Message shown when there's nothing to plot (no spend, budget, or
@@ -120,6 +125,22 @@ export function EnvelopeSpendChart({
     const curArea = `${curPath} L ${todayX} ${h - p} L ${p} ${h - p} Z`;
     const paceAt = (i: number) =>
         hasBudget ? (budget * (i + 1)) / daysInMonth : 0;
+    // Today's actual spend sitting above the on-budget pace line — the
+    // chart escalates this at a glance (bracket + larger pulsing dot),
+    // not just the small footnote below it. Severity is two-tiered so the
+    // color doesn't collide with the separate, more serious "already over
+    // the WHOLE month's budget" state: --warn (amber) for merely ahead of
+    // pace but still within budget, --expense (red) once spend has passed
+    // the budget itself. Archived (frozen) envelopes mute to neutral gray,
+    // matching every other alarm color on this page.
+    const isOverPace = hasBudget && showToday && (cur[today - 1] ?? 0) > paceAt(today - 1);
+    const isOverBudget = hasBudget && (cur[today - 1] ?? 0) > budget;
+    const alertColor = archived
+        ? "var(--fg-3)"
+        : isOverBudget
+          ? "var(--expense)"
+          : "var(--warn)";
+    const paceNowY = sy(paceAt(today - 1));
 
     const dayTicks =
         daysInMonth <= 7
@@ -263,7 +284,7 @@ export function EnvelopeSpendChart({
                                 x2={w - p}
                                 y1={sy(budget)}
                                 y2={sy(budget)}
-                                stroke="var(--expense, #ef4444)"
+                                stroke={archived ? "var(--fg-3)" : "var(--expense, #ef4444)"}
                                 strokeOpacity={0.5}
                                 strokeDasharray="1 4"
                                 vectorEffect="non-scaling-stroke"
@@ -329,6 +350,24 @@ export function EnvelopeSpendChart({
                         vectorEffect="non-scaling-stroke"
                     />
 
+                    {/* Over-pace alert bracket — a measured gap between
+                        today's actual point and the pace line at the same
+                        x, so overspending reads as a shape, not just a
+                        colored dot. */}
+                    {isOverPace ? (
+                        <line
+                            x1={todayX}
+                            x2={todayX}
+                            y1={todayY}
+                            y2={paceNowY}
+                            stroke={alertColor}
+                            strokeWidth={2}
+                            strokeDasharray="3 3"
+                            vectorEffect="non-scaling-stroke"
+                            pointerEvents="none"
+                        />
+                    ) : null}
+
                     {/* Hover guide line (dots are HTML overlays below) */}
                     {hoverIdx !== null ? (
                         <line
@@ -348,7 +387,35 @@ export function EnvelopeSpendChart({
                 {/* Endpoint + hover dots as HTML overlays (SVG circles distort
                     to ellipses under preserveAspectRatio="none"). */}
                 {showToday ? (
-                    <span style={dotStyle(todayX, todayY, 8, color, false)} />
+                    <>
+                        {isOverPace ? (
+                            <span
+                                aria-hidden="true"
+                                className="animate-ping motion-reduce:animate-none"
+                                style={{
+                                    position: "absolute",
+                                    left: `${xPct(todayX)}%`,
+                                    top: todayY,
+                                    width: 18,
+                                    height: 18,
+                                    transform: "translate(-50%, -50%)",
+                                    borderRadius: "9999px",
+                                    background: alertColor,
+                                    opacity: 0.45,
+                                    pointerEvents: "none",
+                                }}
+                            />
+                        ) : null}
+                        <span
+                            style={dotStyle(
+                                todayX,
+                                todayY,
+                                isOverPace ? 10 : 8,
+                                isOverPace ? alertColor : color,
+                                false
+                            )}
+                        />
+                    </>
                 ) : null}
                 <span style={dotStyle(sx(daysInMonth - 1), projY, 6, color, false, 0.5)} />
                 <span
@@ -429,11 +496,15 @@ export function EnvelopeSpendChart({
                         style={{
                             left: `${xPct(todayX + 6)}%`,
                             top: p + 4,
-                            color,
+                            color: isOverPace ? alertColor : color,
                             whiteSpace: "nowrap",
                         }}
                     >
-                        Today
+                        {isOverPace
+                            ? isOverBudget
+                                ? "Today · over budget"
+                                : "Today · over pace"
+                            : "Today"}
                     </span>
                 ) : null}
 

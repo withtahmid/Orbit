@@ -33,6 +33,10 @@ interface Props {
     ringRatio?: number;
     /** Hide the side legend (e.g., on very small cards). */
     hideLegend?: boolean;
+    /** Hide the floating hover tooltip — use when the center label already
+     *  swaps to the hovered slice's name/value/percent, making a second
+     *  floating tooltip with the same info redundant. */
+    hideTooltip?: boolean;
     /** Format a numeric value for display. */
     format?: (n: number) => string;
     className?: string;
@@ -58,6 +62,7 @@ export function Donut({
     height = 280,
     ringRatio = 0.62,
     hideLegend = false,
+    hideTooltip = false,
     format = formatMoney,
     className,
     onSelect,
@@ -79,6 +84,16 @@ export function Donut({
             normalized.reduce((acc, d) => acc + d.value, 0),
         [normalized, centerValue]
     );
+    // Text summary for screen readers / touch users — the chart is
+    // otherwise silent when both the legend and the hover tooltip are
+    // hidden (the wedge identity would only ever be visible to a mouse
+    // user hovering, since it just swaps the center label).
+    const summaryLabel = useMemo(() => {
+        const parts = normalized
+            .map((d) => `${d.name} ${format(d.value)}`)
+            .join(", ");
+        return `${centerLabel ?? "Total"} ${format(total)}${parts ? `. Breakdown: ${parts}` : ""}`;
+    }, [normalized, format, centerLabel, total]);
 
     const [activeIndex, setActiveIndex] = useState<number | null>(null);
     const activeDatum = activeIndex !== null ? normalized[activeIndex] : null;
@@ -125,6 +140,8 @@ export function Donut({
                 className="relative mx-auto w-full min-w-0 max-w-[18rem] @md:mx-0"
                 style={{ height }}
                 onMouseLeave={() => setActiveIndex(null)}
+                role="img"
+                aria-label={summaryLabel}
             >
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -148,36 +165,38 @@ export function Donut({
                                 <Cell key={d.id} fill={d.color} stroke="none" />
                             ))}
                         </Pie>
-                        <RTooltip
-                            cursor={false}
-                            content={({ active, payload }) => {
-                                if (!active || !payload?.length) return null;
-                                const item = payload[0].payload as DonutDatum;
-                                const pct = total > 0 ? (item.value / total) * 100 : 0;
-                                return (
-                                    <div className="rounded-md border border-border bg-popover p-2 text-xs shadow-lg">
-                                        <div className="flex items-center gap-2 font-medium">
-                                            <span
-                                                className="inline-block size-2.5 rounded-sm"
-                                                style={{ backgroundColor: item.color }}
-                                            />
-                                            {item.name}
-                                        </div>
-                                        <div className="mt-1 tabular-nums">
-                                            {format(item.value)}
-                                            <span className="ml-2 text-muted-foreground">
-                                                {pct.toFixed(1)}%
-                                            </span>
-                                        </div>
-                                        {item.hint && (
-                                            <div className="mt-0.5 text-[10px] text-muted-foreground">
-                                                {item.hint}
+                        {!hideTooltip && (
+                            <RTooltip
+                                cursor={false}
+                                content={({ active, payload }) => {
+                                    if (!active || !payload?.length) return null;
+                                    const item = payload[0].payload as DonutDatum;
+                                    const pct = total > 0 ? (item.value / total) * 100 : 0;
+                                    return (
+                                        <div className="rounded-md border border-border bg-popover p-2 text-xs shadow-lg">
+                                            <div className="flex items-center gap-2 font-medium">
+                                                <span
+                                                    className="inline-block size-2.5 rounded-sm"
+                                                    style={{ backgroundColor: item.color }}
+                                                />
+                                                {item.name}
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            }}
-                        />
+                                            <div className="mt-1 tabular-nums">
+                                                {format(item.value)}
+                                                <span className="ml-2 text-muted-foreground">
+                                                    {pct.toFixed(1)}%
+                                                </span>
+                                            </div>
+                                            {item.hint && (
+                                                <div className="mt-0.5 text-[10px] text-muted-foreground">
+                                                    {item.hint}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                }}
+                            />
+                        )}
                     </PieChart>
                 </ResponsiveContainer>
                 <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">

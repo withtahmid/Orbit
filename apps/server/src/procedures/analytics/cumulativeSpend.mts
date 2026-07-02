@@ -84,7 +84,12 @@ export const cumulativeSpend = authorizedProcedure
                     SELECT
                         d::timestamptz AS bucket,
                         COALESCE(s.expense, 0)::text AS expense,
-                        (d >= ${input.periodStart}::date) AS is_current
+                        -- Cast through ::timestamptz before ::date: casting a
+                        -- bound Date param straight to ::date parses only its
+                        -- literal calendar-date substring and ignores the
+                        -- Asia/Dhaka session TimeZone, misclassifying the
+                        -- prior period's last day as "current".
+                        (d >= ${input.periodStart}::timestamptz::date) AS is_current
                     FROM days
                     LEFT JOIN spend s ON s.d = days.d
                     ORDER BY d ASC

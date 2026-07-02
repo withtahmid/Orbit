@@ -73,7 +73,10 @@ export const personalCumulativeSpend = authorizedProcedure
                     SELECT
                         d::timestamptz AS bucket,
                         COALESCE(s.expense, 0)::text AS expense,
-                        (d >= ${input.periodStart}::date) AS is_current
+                        -- Cast through ::timestamptz before ::date — see
+                        -- analytics/cumulativeSpend.mts for why casting a
+                        -- bound Date param straight to ::date is wrong here.
+                        (d >= ${input.periodStart}::timestamptz::date) AS is_current
                     FROM days
                     LEFT JOIN spend s ON s.d = days.d
                     ORDER BY d ASC

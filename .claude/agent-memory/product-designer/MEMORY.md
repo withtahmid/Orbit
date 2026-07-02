@@ -29,3 +29,6 @@
 - [Goal completion semantics tension](goal_completion_semantics_tension.md) — goal ✓/"reached" keys off lifetime funding not current state; spend against a funded goal is invisible; fund-then-spend vs maintain-balance undecided.
 - [Transactions filter bar shared](transactions_filter_bar_shared.md) — 2026-07-01: Txn page adopts analytics multi-select bar; drops "No envelope" UI + category-on-personal; two clear-scopes + duplicated period default.
 - [Auth session security posture](auth_session_security_posture.md) — non-expiring JWTs revoked only via token_version; posture is defensible; gap is silent hard-redirect on sign-out (needs "you were signed out" toast).
+- [Semantic color tokens are load-bearing](semantic_color_tokens_are_load_bearing.md) — --transfer=transfer, --income/expense/warn/gold carry meaning; envelope colors can equal them; theme new charts to entity color, don't borrow semantic tokens.
+- [Single-hue value scale palette edge](single_hue_value_scale_palette_edge.md) — single-hue faded/outline ramps off envelope.color invert or vanish at palette dark/light extremes; mix toward bg not --fg-3.
+- [Budget-detail severity + donut legend](budget_detail_severity_and_donut_legend.md) — 2026-07-02: green/amber/red pace traffic-light is canonical (don't reopen); donut lost sighted-user legend, aria-label only covers AT.

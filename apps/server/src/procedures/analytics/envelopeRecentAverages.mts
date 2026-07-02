@@ -14,8 +14,9 @@ import { resolveSpaceMembership } from "../space/utils/resolveSpaceMembership.mj
  *     calendar months. Drives the "you're underplanning" hint when the
  *     proposed plan is meaningfully below historical reality.
  *
- * Calendar-month bucketing is hardcoded — the only consumer is the
- * monthly plan UI, so per-bucket flexibility isn't worth the surface.
+ * Calendar-month bucketing is hardcoded — consumers are the monthly plan
+ * UI and the envelope detail page's "Last month" / "3-month avg" KPIs,
+ * so per-bucket flexibility isn't worth the surface.
  */
 export const envelopeRecentAverages = authorizedProcedure
     .input(
@@ -40,34 +41,22 @@ export const envelopeRecentAverages = authorizedProcedure
 
                 // Reference is the START of the period being planned. We
                 // look at the THREE completed months immediately before
-                // it: [ref - 3 months, ref).
-                const ref =
-                    input.referenceDate ??
-                    new Date(
-                        Date.UTC(
-                            new Date().getUTCFullYear(),
-                            new Date().getUTCMonth(),
-                            1
-                        )
-                    );
-
-                const refUtc = new Date(
-                    Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1)
-                );
-                const lastMonthStart = new Date(
-                    Date.UTC(
-                        refUtc.getUTCFullYear(),
-                        refUtc.getUTCMonth() - 1,
-                        1
-                    )
-                );
-                const threeMonthsAgo = new Date(
-                    Date.UTC(
-                        refUtc.getUTCFullYear(),
-                        refUtc.getUTCMonth() - 3,
-                        1
-                    )
-                );
+                // it: [ref - 3 months, ref). Month bucketing happens in
+                // SQL below via date_trunc on the Asia/Dhaka DB session —
+                // deriving calendar fields from `ref` with native UTC
+                // getters would silently shift the bucket back a month
+                // (Dhaka is UTC+6, so APP_TZ midnight on the 1st is
+                // 18:00 UTC the day before).
+                //
+                // Cast the bound parameter to `::timestamptz` (not
+                // straight to `::date`) before truncating — casting an
+                // untyped bound parameter directly to `date` parses only
+                // the literal calendar-date substring and ignores the
+                // session TimeZone entirely, silently reintroducing the
+                // exact same one-month-early drift this comment warns
+                // about. Going through `timestamptz` first makes
+                // `date_trunc` apply the Asia/Dhaka session zone.
+                const ref = input.referenceDate ?? new Date();
 
                 const rows = await sql<{
                     envelop_id: string;
@@ -75,6 +64,12 @@ export const envelopeRecentAverages = authorizedProcedure
                     last_month_planned: string;
                     three_month_total_spend: string;
                 }>`
+                    WITH bounds AS (
+                        SELECT
+                            date_trunc('month', ${ref}::timestamptz)::date AS ref_month,
+                            (date_trunc('month', ${ref}::timestamptz) - interval '1 month')::date AS last_month_start,
+                            (date_trunc('month', ${ref}::timestamptz) - interval '3 month')::date AS three_months_ago
+                    )
                     SELECT
                         e.id::text AS envelop_id,
                         COALESCE((
@@ -82,27 +77,25 @@ export const envelopeRecentAverages = authorizedProcedure
                             FROM transactions t
                             WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
-                              AND t.transaction_datetime >= ${lastMonthStart}
-                              AND t.transaction_datetime < ${refUtc}
+                              AND t.transaction_datetime >= b.last_month_start
+                              AND t.transaction_datetime < b.ref_month
                         ), 0)::text AS last_month_spend,
                         COALESCE((
                             SELECT SUM(a.amount)
                             FROM envelop_allocations a
                             WHERE a.envelop_id = e.id
-                              AND COALESCE(
-                                    a.period_start,
-                                    DATE_TRUNC('month', a.created_at)::date
-                                  ) = ${lastMonthStart}::date
+                              AND a.period_start = b.last_month_start
                         ), 0)::text AS last_month_planned,
                         COALESCE((
                             SELECT SUM(t.amount)
                             FROM transactions t
                             WHERE t.envelop_id = e.id
                               AND t.type = 'expense'
-                              AND t.transaction_datetime >= ${threeMonthsAgo}
-                              AND t.transaction_datetime < ${refUtc}
+                              AND t.transaction_datetime >= b.three_months_ago
+                              AND t.transaction_datetime < b.ref_month
                         ), 0)::text AS three_month_total_spend
                     FROM envelops e
+                    CROSS JOIN bounds b
                     WHERE e.space_id = ${input.spaceId}
                 `
                     .execute(trx)
