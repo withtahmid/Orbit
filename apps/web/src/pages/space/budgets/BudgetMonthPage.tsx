@@ -14,6 +14,7 @@ import {
     getAppTzMonth,
 } from "@/lib/dates";
 import { formatInAppTz } from "@/lib/formatDate";
+import { compactMoney } from "@/lib/chartBucket";
 import type { RouterOutput } from "@/trpc";
 
 type EnvRow = RouterOutput["analytics"]["envelopeUtilization"][number];
@@ -99,8 +100,7 @@ export default function BudgetMonthPage() {
     // Comparable month ordinal so we can decide past / current / future
     // cleanly across year boundaries (string compare on "YYYY-M" doesn't
     // sort right when months go single → double digit).
-    const monthOrdinal =
-        getAppTzYear(monthDate) * 12 + getAppTzMonth(monthDate);
+    const monthOrdinal = getAppTzYear(monthDate) * 12 + getAppTzMonth(monthDate);
     const nowOrdinal = (() => {
         const d = new Date();
         return getAppTzYear(d) * 12 + getAppTzMonth(d);
@@ -128,9 +128,7 @@ export default function BudgetMonthPage() {
     const envelopes: EnvRow[] = useMemo(
         () =>
             (currentQuery.data ?? []).filter(
-                (e) =>
-                    e.cadence === "monthly" &&
-                    (isPast || !e.archived)
+                (e) => e.cadence === "monthly" && (isPast || !e.archived)
             ),
         [currentQuery.data, isPast]
     );
@@ -169,10 +167,7 @@ export default function BudgetMonthPage() {
     }, [envelopes, hydrated]);
 
     const totalPlanned = useMemo(() => {
-        return envelopes.reduce(
-            (s, e) => s + (Number(drafts[e.envelopId]) || 0),
-            0
-        );
+        return envelopes.reduce((s, e) => s + (Number(drafts[e.envelopId]) || 0), 0);
     }, [envelopes, drafts]);
 
     const totalCurrentlyAllocated = useMemo(
@@ -230,9 +225,7 @@ export default function BudgetMonthPage() {
                 });
                 successes.push(e.name);
             } catch (err) {
-                errors.push(
-                    `${e.name}: ${(err as Error).message ?? "unknown error"}`
-                );
+                errors.push(`${e.name}: ${(err as Error).message ?? "unknown error"}`);
             }
         }
         await Promise.all([
@@ -268,10 +261,7 @@ export default function BudgetMonthPage() {
 
             <header className="plan-topbar">
                 <div className="plan-topbar-text">
-                    <Link
-                        to={ROUTES.spaceBudgets(space.id)}
-                        className="plan-back"
-                    >
+                    <Link to={ROUTES.spaceBudgets(space.id)} className="plan-back">
                         <ArrowLeft className="size-3.5" /> Budgets
                     </Link>
                     <h1 className="display plan-title">
@@ -285,31 +275,25 @@ export default function BudgetMonthPage() {
                         {isLocked
                             ? "Past month — view only. Each month's budget is independent, so editing it won't affect any other month."
                             : isPast
-                              ? "Reconciliation mode. Saving overwrites this month's budget. Months are independent — later months are unaffected."
+                              ? // The reconcile strip below owns the full
+                                // overwrite/independence warning — don't
+                                // repeat it here in slightly different words.
+                                "Reconciliation mode. Adjust what you actually budgeted for this month — see the note below before saving."
                               : "Set what you intend to spend on each envelope. The whole month in one screen."}
                     </p>
                 </div>
                 <div className="plan-topbar-actions">
                     <Link
-                        to={ROUTES.spaceBudgetMonth(
-                            space.id,
-                            monthSlug(addMonths(monthDate, -1))
-                        )}
+                        to={ROUTES.spaceBudgetMonth(space.id, monthSlug(addMonths(monthDate, -1)))}
                         className="od-btn"
-                        title={`Go to ${formatInAppTz(
-                            addMonths(monthDate, -1),
-                            "MMMM yyyy"
-                        )}`}
+                        title={`Go to ${formatInAppTz(addMonths(monthDate, -1), "MMMM yyyy")}`}
                     >
                         <ChevronLeft className="size-3.5" />{" "}
                         {formatInAppTz(addMonths(monthDate, -1), "MMM")}
                     </Link>
                     {!isCurrentMonth && (
                         <Link
-                            to={ROUTES.spaceBudgetMonth(
-                                space.id,
-                                monthSlug(new Date())
-                            )}
+                            to={ROUTES.spaceBudgetMonth(space.id, monthSlug(new Date()))}
                             className="od-btn"
                             title="Jump to the current month"
                         >
@@ -317,15 +301,9 @@ export default function BudgetMonthPage() {
                         </Link>
                     )}
                     <Link
-                        to={ROUTES.spaceBudgetMonth(
-                            space.id,
-                            monthSlug(addMonths(monthDate, 1))
-                        )}
+                        to={ROUTES.spaceBudgetMonth(space.id, monthSlug(addMonths(monthDate, 1)))}
                         className="od-btn"
-                        title={`Go to ${formatInAppTz(
-                            addMonths(monthDate, 1),
-                            "MMMM yyyy"
-                        )}`}
+                        title={`Go to ${formatInAppTz(addMonths(monthDate, 1), "MMMM yyyy")}`}
                     >
                         {formatInAppTz(addMonths(monthDate, 1), "MMM")}{" "}
                         <ChevronRight className="size-3.5" />
@@ -372,9 +350,8 @@ export default function BudgetMonthPage() {
                     >
                         <AlertTriangle className="size-3.5" aria-hidden />
                         <span>
-                            <strong>Reconciliation mode.</strong> Saving
-                            overwrites this month's budget. Each month is
-                            independent — no other month is affected.
+                            <strong>Reconciliation mode.</strong> Saving overwrites this month's
+                            budget. Each month is independent — no other month is affected.
                         </span>
                         <button
                             type="button"
@@ -394,119 +371,286 @@ export default function BudgetMonthPage() {
                         </button>
                     </div>
                 )}
-                {/* Summary */}
-                <div className="od-card plan-summary">
-                    <SummaryStat
-                        label={isLocked ? "Was budgeted" : "Total budgeted"}
-                        value={
-                            isLocked
-                                ? envelopes.reduce(
-                                      (s, e) => s + e.allocated,
-                                      0
-                                  )
-                                : totalPlanned
-                        }
-                        sub={`across ${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
-                    />
-                    {isCurrentMonth && (
-                        <>
-                            <SummaryStat
-                                label="Currently funded"
-                                value={Math.max(0, summaryQuery.data?.spendableBalance ?? 0)}
-                                sub="liquid cash in your accounts"
-                            />
-                            <SummaryStat
-                                label={overplanning ? "Over-budgeted by" : "Free after save"}
-                                value={Math.abs(unallocatedAfterSave)}
-                                tone={overplanning ? "expense" : "income"}
-                                sub={
-                                    overplanning
-                                        ? "you'll need that much more income"
-                                        : "still unbudgeted"
-                                }
-                            />
-                        </>
-                    )}
-                    {isPast &&
-                        (() => {
-                            const totalSpent = envelopes.reduce(
-                                (s, e) => s + e.consumed,
-                                0
-                            );
-                            const totalRem = envelopes.reduce(
-                                (s, e) => s + e.remaining,
-                                0
-                            );
-                            return (
+                {/* Hero — the page's one tension made visual: what you're
+                    planning vs what you actually have, live as you type.
+                    The distribution bar shows every envelope's plan as a
+                    colored segment; segments crossing the "cash you have"
+                    marker = over-budgeting, readable as a shape. */}
+                <div className="od-card plan-hero">
+                    <div className="plan-hero-top">
+                        {isCurrentMonth && !isLocked ? (
+                            <div className="plan-hero-primary">
+                                {/* Until the summary loads AND drafts hydrate,
+                                    the verdict would be computed against a zero
+                                    balance / empty drafts (heldDelta releases
+                                    every envelope's held cash → an inflated
+                                    "Free after save") — show a neutral
+                                    placeholder, not a wrong number. Zero
+                                    envelopes never hydrate, so don't wait on
+                                    it then. */}
+                                {(() => {
+                                    const heroReady =
+                                        summaryQuery.data != null &&
+                                        (hydrated || envelopes.length === 0);
+                                    return (
+                                        <>
+                                            <span className="eyebrow">
+                                                {!heroReady
+                                                    ? "Free after save"
+                                                    : overplanning
+                                                      ? "Over-budgeted by"
+                                                      : "Free after save"}
+                                            </span>
+                                            <span
+                                                className="tabular plan-hero-amt"
+                                                style={{
+                                                    color: !heroReady
+                                                        ? "var(--fg-3)"
+                                                        : overplanning
+                                                          ? "var(--expense)"
+                                                          : "var(--income)",
+                                                }}
+                                            >
+                                                {!heroReady
+                                                    ? "—"
+                                                    : Math.abs(unallocatedAfterSave).toLocaleString(
+                                                          "en-US",
+                                                          {
+                                                              minimumFractionDigits: 2,
+                                                              maximumFractionDigits: 2,
+                                                          }
+                                                      )}
+                                            </span>
+                                            <span className="plan-hero-note">
+                                                {!heroReady
+                                                    ? "checking your balance…"
+                                                    : overplanning
+                                                      ? "your envelopes would hold more than your accounts have"
+                                                      : "still unbudgeted after this plan"}
+                                            </span>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+                        ) : (
+                            <div className="plan-hero-primary">
+                                <span className="eyebrow">
+                                    {isLocked ? "Was budgeted" : "Total budgeted"}
+                                </span>
+                                <span className="tabular plan-hero-amt">
+                                    {(isLocked
+                                        ? envelopes.reduce((s, e) => s + e.allocated, 0)
+                                        : totalPlanned
+                                    ).toLocaleString("en-US", {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2,
+                                    })}
+                                </span>
+                                <span className="plan-hero-note">
+                                    {`across ${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
+                                </span>
+                            </div>
+                        )}
+                        <div className="plan-hero-side">
+                            {isCurrentMonth && !isLocked && (
                                 <>
                                     <SummaryStat
-                                        label="Spent"
-                                        value={totalSpent}
-                                        sub="actual transactions in this period"
+                                        label="Total budgeted"
+                                        value={totalPlanned}
+                                        sub={`across ${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
+                                        // Zero envelopes never hydrate — show
+                                        // the honest 0.00, not a stuck "—".
+                                        loading={!hydrated && envelopes.length > 0}
                                     />
-                                    {isLocked ? (
+                                    <SummaryStat
+                                        label="Cash you have"
+                                        value={Math.max(
+                                            0,
+                                            summaryQuery.data?.spendableBalance ?? 0
+                                        )}
+                                        sub="liquid cash in your accounts"
+                                        loading={summaryQuery.data == null}
+                                    />
+                                </>
+                            )}
+                            {isPast &&
+                                (() => {
+                                    const totalSpent = envelopes.reduce(
+                                        (s, e) => s + e.consumed,
+                                        0
+                                    );
+                                    const totalRem = envelopes.reduce((s, e) => s + e.remaining, 0);
+                                    return (
+                                        <>
+                                            <SummaryStat
+                                                label="Spent"
+                                                value={totalSpent}
+                                                sub="actual transactions in this period"
+                                            />
+                                            {isLocked ? (
+                                                <SummaryStat
+                                                    label={
+                                                        totalRem < 0
+                                                            ? "Over budget"
+                                                            : "Under budget"
+                                                    }
+                                                    value={Math.abs(totalRem)}
+                                                    tone={totalRem < 0 ? "expense" : "income"}
+                                                    sub={
+                                                        totalRem < 0
+                                                            ? "spent more than budgeted"
+                                                            : "spent less than budgeted"
+                                                    }
+                                                />
+                                            ) : (
+                                                <SummaryStat
+                                                    label="Net change"
+                                                    value={Math.abs(netChange)}
+                                                    tone={netChange > 0 ? "expense" : "income"}
+                                                    sub={
+                                                        netChange > 0
+                                                            ? "more planned than before"
+                                                            : netChange < 0
+                                                              ? "less planned than before"
+                                                              : "no change yet"
+                                                    }
+                                                />
+                                            )}
+                                        </>
+                                    );
+                                })()}
+                            {!isPast && !isCurrentMonth && (
+                                <>
+                                    {/* Only when the previous month has begun —
+                                        2+ months ahead it's entirely future and
+                                        "0.00 for reference" references nothing. */}
+                                    {monthOrdinal <= nowOrdinal + 1 && (
                                         <SummaryStat
-                                            label={
-                                                totalRem < 0
-                                                    ? "Over budget"
-                                                    : "Under budget"
-                                            }
-                                            value={Math.abs(totalRem)}
-                                            tone={
-                                                totalRem < 0
-                                                    ? "expense"
-                                                    : "income"
-                                            }
-                                            sub={
-                                                totalRem < 0
-                                                    ? "spent more than budgeted"
-                                                    : "spent less than budgeted"
-                                            }
-                                        />
-                                    ) : (
-                                        <SummaryStat
-                                            label="Net change"
-                                            value={Math.abs(netChange)}
-                                            tone={
-                                                netChange > 0
-                                                    ? "expense"
-                                                    : "income"
-                                            }
-                                            sub={
-                                                netChange > 0
-                                                    ? "more planned than before"
-                                                    : netChange < 0
-                                                      ? "less planned than before"
-                                                      : "no change yet"
-                                            }
+                                            label="Last month spent"
+                                            value={Array.from(prevById.values())
+                                                .filter((e) => e.cadence === "monthly")
+                                                .reduce((s, e) => s + e.consumed, 0)}
+                                            // The gate above means "last month"
+                                            // is always the in-progress current
+                                            // month here — say so.
+                                            sub="so far, for reference"
                                         />
                                     )}
+                                    <SummaryStat
+                                        label="Net change"
+                                        value={Math.abs(netChange)}
+                                        tone={netChange > 0 ? "expense" : "income"}
+                                        sub={
+                                            netChange > 0
+                                                ? "more planned than before"
+                                                : netChange < 0
+                                                  ? "less planned than before"
+                                                  : "no change yet"
+                                        }
+                                    />
                                 </>
+                            )}
+                        </div>
+                    </div>
+                    {isCurrentMonth &&
+                        !isLocked &&
+                        envelopes.length > 0 &&
+                        (() => {
+                            const funded = Math.max(0, summaryQuery.data?.spendableBalance ?? 0);
+                            // Scale on the same clamped values the segments
+                            // use — a typed negative draft would otherwise
+                            // shrink the scale and let a segment overflow
+                            // the track.
+                            const clampedTotal = envelopes.reduce(
+                                (s, e) => s + Math.max(0, Number(drafts[e.envelopId]) || 0),
+                                0
+                            );
+                            const scale = Math.max(funded, clampedTotal, 1);
+                            let acc = 0;
+                            const segs = envelopes
+                                .map((e) => {
+                                    const v = Math.max(0, Number(drafts[e.envelopId]) || 0);
+                                    const seg = {
+                                        id: e.envelopId,
+                                        left: (acc / scale) * 100,
+                                        width: (v / scale) * 100,
+                                        color: e.color,
+                                        name: e.name,
+                                        value: v,
+                                    };
+                                    acc += v;
+                                    return seg;
+                                })
+                                .filter((s) => s.width > 0);
+                            return (
+                                <div className="plan-dist">
+                                    <div className="plan-dist-bar" aria-hidden>
+                                        {segs.map((s, i) => (
+                                            <span
+                                                key={s.id}
+                                                className="plan-dist-seg"
+                                                style={{
+                                                    left: `${s.left}%`,
+                                                    width: `${s.width}%`,
+                                                    background: s.color,
+                                                    // Inline, not :last-child —
+                                                    // the overlay/tick spans
+                                                    // render after the segments
+                                                    // in this parent.
+                                                    ...(i === segs.length - 1 && {
+                                                        borderTopRightRadius: 7,
+                                                        borderBottomRightRadius: 7,
+                                                        borderRight: "none",
+                                                    }),
+                                                }}
+                                                title={`${s.name}: ${s.value.toLocaleString(
+                                                    "en-US",
+                                                    {
+                                                        minimumFractionDigits: 2,
+                                                        maximumFractionDigits: 2,
+                                                    }
+                                                )}`}
+                                            />
+                                        ))}
+                                        {/* Overlay in the bar's OWN terms
+                                            (planned vs cash) — the held-based
+                                            `overplanning` verdict can stay
+                                            green mid-month while segments
+                                            visibly cross the tick, and the
+                                            caption promises "crossing = over-
+                                            budgeting". The hero owns the
+                                            save verdict; the bar just shows
+                                            plan vs cash. */}
+                                        {funded > 0 && clampedTotal > funded && (
+                                            <span
+                                                className="plan-dist-over"
+                                                style={{
+                                                    left: `${(funded / scale) * 100}%`,
+                                                    width: `${((clampedTotal - funded) / scale) * 100}%`,
+                                                }}
+                                            />
+                                        )}
+                                        {funded > 0 && (
+                                            <span
+                                                className="plan-dist-tick"
+                                                style={{
+                                                    left: `${(funded / scale) * 100}%`,
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                    <div className="plan-dist-caption">
+                                        <span>Each segment is one envelope&rsquo;s plan</span>
+                                        {funded > 0 && (
+                                            <span className="plan-dist-caption-tick">
+                                                <i aria-hidden /> cash you have (
+                                                {compactMoney(funded)})
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
                             );
                         })()}
-                    {!isPast && !isCurrentMonth && (
-                        <>
-                            <SummaryStat
-                                label="Last month spent"
-                                value={Array.from(prevById.values())
-                                    .filter((e) => e.cadence === "monthly")
-                                    .reduce((s, e) => s + e.consumed, 0)}
-                                sub="for reference"
-                            />
-                            <SummaryStat
-                                label="Net change"
-                                value={Math.abs(netChange)}
-                                tone={netChange > 0 ? "expense" : "income"}
-                                sub={
-                                    netChange > 0
-                                        ? "more planned than before"
-                                        : netChange < 0
-                                          ? "less planned than before"
-                                          : "no change yet"
-                                }
-                            />
-                        </>
-                    )}
                 </div>
 
                 {/* Envelope list */}
@@ -514,20 +658,10 @@ export default function BudgetMonthPage() {
                     <div className="od-card plan-loading">Loading…</div>
                 ) : envelopes.length === 0 ? (
                     <div className="od-card plan-empty">
-                        No monthly envelopes yet. Create one on the
-                        envelopes page first.
+                        No monthly envelopes yet. Create one on the envelopes page first.
                     </div>
                 ) : (
-                    <div className="od-card plan-list">
-                        <div className="plan-list-head">
-                            <span>Envelope</span>
-                            <span>
-                                {isPast && unlocked
-                                    ? `${monthLabel.split(" ")[0]} actual`
-                                    : `${prevMonthLabel} actual`}
-                            </span>
-                            <span>{monthLabel.split(" ")[0]} budget</span>
-                        </div>
+                    <div className="plan-grid">
                         {envelopes.map((e) => {
                             const prev = prevById.get(e.envelopId);
                             const recent = recentByEnvelopeId.get(e.envelopId);
@@ -537,9 +671,7 @@ export default function BudgetMonthPage() {
                                     env={e}
                                     prevAllocated={prev?.allocated ?? 0}
                                     prevConsumed={prev?.consumed ?? 0}
-                                    avg3MonthSpend={
-                                        recent?.avg3MonthSpend ?? 0
-                                    }
+                                    avg3MonthSpend={recent?.avg3MonthSpend ?? 0}
                                     value={drafts[e.envelopId] ?? ""}
                                     readOnly={isLocked}
                                     reconcileMode={isPast && unlocked}
@@ -569,29 +701,30 @@ function SummaryStat({
     value,
     sub,
     tone,
+    loading,
 }: {
     label: string;
     value: number;
     sub?: string;
     tone?: "expense" | "income";
+    /** Render an em-dash instead of a confident 0.00 while data loads. */
+    loading?: boolean;
 }) {
     const color =
-        tone === "expense"
-            ? "var(--expense)"
-            : tone === "income"
-              ? "var(--income)"
-              : "var(--fg)";
+        tone === "expense" ? "var(--expense)" : tone === "income" ? "var(--income)" : "var(--fg)";
     return (
         <div className="plan-summary-stat">
             <span className="eyebrow">{label}</span>
             <span
                 className="tabular plan-summary-amt"
-                style={{ color }}
+                style={{ color: loading ? "var(--fg-3)" : color }}
             >
-                {value.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                })}
+                {loading
+                    ? "—"
+                    : value.toLocaleString("en-US", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                      })}
             </span>
             {sub && <span className="plan-summary-sub">{sub}</span>}
         </div>
@@ -631,68 +764,39 @@ function PlanRow({
     // Coaching hint: if the proposed plan is meaningfully (>10%) below
     // the user's 3-month average actual spend, surface that. Threshold
     // avoids nagging on small differences. Only when not read-only.
+    // Not in reconcile mode — "will likely fall short" is a forecast, and a
+    // completed month has nothing left to forecast.
     const showHint =
         !readOnly &&
+        !reconcileMode &&
         avg3MonthSpend > 0 &&
         target > 0 &&
         target < avg3MonthSpend * 0.9;
+    const money0 = (n: number) =>
+        n.toLocaleString("en-US", {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0,
+        });
     return (
-        <div className="plan-row">
-            <div className="plan-row-name">
-                <span
-                    className="plan-row-dot"
-                    style={{ background: env.color }}
-                />
-                <div>
-                    <div className="plan-row-title">{env.name}</div>
-                    <div className="plan-row-meta">
-                        {`Spent this period: ${env.consumed.toLocaleString(
-                            "en-US",
-                            {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                            }
-                        )}`}
-                    </div>
-                    {showHint && (
-                        <div className="plan-row-coach">
-                            You've averaged{" "}
-                            {avg3MonthSpend.toFixed(0)}/mo over the last 3
-                            months — {target.toFixed(0)} will likely fall short.
-                        </div>
-                    )}
-                </div>
+        <div className="od-card plan-card">
+            <div className="plan-card-head">
+                <span className="plan-row-dot" style={{ background: env.color }} />
+                <span className="plan-card-name" title={env.name}>
+                    {env.name}
+                </span>
+                {!reconcileMode && env.consumed > 0 && (
+                    <span className="plan-card-spent tabular">spent {money0(env.consumed)}</span>
+                )}
             </div>
-            <div className="plan-row-prev">
-                <span
-                    className="plan-row-prev-mobile-label"
-                    aria-hidden
-                >
-                    {midLabel} actual
-                </span>
-                <span className="plan-row-prev-amt">
-                    {midConsumed.toLocaleString("en-US", {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 0,
-                    })}
-                </span>
-                <span className="plan-row-prev-sub">
-                    of{" "}
-                    {midAllocated.toLocaleString("en-US", {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: 0,
-                    })}{" "}
-                    {midSubSuffix}
-                    {avg3MonthSpend > 0 && !reconcileMode && (
-                        <>
-                            {" · "}
-                            <span style={{ color: "var(--fg-3)" }}>
-                                avg{" "}
-                                {avg3MonthSpend.toFixed(0)}/mo
-                            </span>
-                        </>
-                    )}
-                </span>
+            <div className="plan-card-ref tabular">
+                {reconcileMode
+                    ? `Spent ${money0(midConsumed)} of ${money0(midAllocated)} ${midSubSuffix}`
+                    : `${midLabel}: spent ${money0(midConsumed)} of ${money0(midAllocated)} ${midSubSuffix}`}
+                {avg3MonthSpend > 0 && !reconcileMode && (
+                    <span className="plan-card-ref-avg">
+                        {" · "}avg {avg3MonthSpend.toFixed(0)}/mo
+                    </span>
+                )}
             </div>
             {readOnly ? (
                 <div className="plan-row-readonly">
@@ -709,10 +813,7 @@ function PlanRow({
                             <span
                                 className="plan-row-readonly-net tabular"
                                 style={{
-                                    color:
-                                        settled < 0
-                                            ? "var(--expense)"
-                                            : "var(--fg-3)",
+                                    color: settled < 0 ? "var(--expense)" : "var(--fg-3)",
                                 }}
                             >
                                 {settled < 0
@@ -723,33 +824,115 @@ function PlanRow({
                     })()}
                 </div>
             ) : (
-                <div className="plan-row-input-wrap">
-                    <input
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.01"
-                        value={value}
-                        onChange={(e) => onChange(e.target.value)}
-                        className="plan-row-input"
-                    />
-                    {delta !== 0 && (
-                        <span
-                            className="plan-row-delta"
+                <div className="plan-row-editor">
+                    <div className="plan-row-input-wrap">
+                        <input
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={value}
+                            onChange={(e) => onChange(e.target.value)}
+                            className="plan-row-input"
+                            aria-label={`${env.name} budget`}
+                        />
+                        {delta !== 0 && (
+                            <span
+                                className="plan-row-delta"
+                                style={{
+                                    color: delta > 0 ? "var(--income)" : "var(--expense)",
+                                }}
+                            >
+                                {delta > 0 ? "+" : "−"}
+                                {Math.abs(delta).toLocaleString("en-US", {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                })}
+                            </span>
+                        )}
+                    </div>
+                    {/* Quick-set anchors — the three reference numbers a
+                        person actually budgets from, one tap instead of
+                        retyping. Chip highlights when the input matches it. */}
+                    {(() => {
+                        const chips = [
+                            { label: midLabel, value: midConsumed },
+                            {
+                                label: reconcileMode ? "Current" : "Plan",
+                                value: midAllocated,
+                            },
+                            // A forward-looking average is no anchor for
+                            // recording what a finished month's budget WAS.
+                            ...(reconcileMode ? [] : [{ label: "Avg", value: avg3MonthSpend }]),
+                        ].filter((c) => c.value > 0);
+                        if (chips.length === 0) return null;
+                        return (
+                            <div className="plan-row-quick">
+                                {chips.map((c) => {
+                                    const active = Math.abs(target - c.value) < 0.005;
+                                    return (
+                                        <button
+                                            key={c.label}
+                                            type="button"
+                                            className={`plan-chip${active ? " plan-chip-active" : ""}`}
+                                            onClick={() => onChange(c.value.toFixed(2))}
+                                            title={`Set to ${c.label.toLowerCase() === "avg" ? "3-month average" : c.label}: ${c.value.toLocaleString(
+                                                "en-US",
+                                                {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                }
+                                            )}`}
+                                        >
+                                            {c.label} <b>{compactMoney(c.value)}</b>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })()}
+                    {/* Plan-vs-reality bar: fill = what you're typing, tick =
+                        last period's actual spend. Fill short of the tick =
+                        planning below what actually happened. Decorative —
+                        every number is already text above. */}
+                    {(midConsumed > 0 || target > 0) && (
+                        <div
+                            className="plan-row-bar"
                             style={{
-                                color:
-                                    delta > 0
-                                        ? "var(--income)"
-                                        : "var(--expense)",
+                                background: `color-mix(in oklab, ${env.color} 14%, transparent)`,
                             }}
+                            aria-hidden
                         >
-                            {delta > 0 ? "+" : "−"}
-                            {Math.abs(delta).toLocaleString("en-US", {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                            })}
-                        </span>
+                            {(() => {
+                                const scale = Math.max(target, midConsumed, avg3MonthSpend, 1);
+                                return (
+                                    <>
+                                        <span
+                                            className="plan-row-bar-fill"
+                                            style={{
+                                                width: `${(target / scale) * 100}%`,
+                                                background: env.color,
+                                            }}
+                                        />
+                                        {midConsumed > 0 && (
+                                            <span
+                                                className="plan-row-bar-tick"
+                                                style={{
+                                                    left: `${(midConsumed / scale) * 100}%`,
+                                                }}
+                                            />
+                                        )}
+                                    </>
+                                );
+                            })()}
+                        </div>
                     )}
+                </div>
+            )}
+            {showHint && (
+                <div className="plan-row-coach">
+                    You've averaged {avg3MonthSpend.toFixed(0)}/mo over the last 3 months —{" "}
+                    {target.toFixed(0)} will likely fall short.
                 </div>
             )}
         </div>
@@ -827,17 +1010,47 @@ const PLAN_STYLES = `
     .plan-scroll { padding: 16px 18px 28px; }
 }
 
-.orbit-design .od-card.plan-summary {
-    padding: 22px;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 24px;
+/* Hero — big live verdict left, two reference stats right, distribution
+   bar across the bottom. */
+.orbit-design .od-card.plan-hero {
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
 }
-@media (max-width: 720px) {
-    .orbit-design .od-card.plan-summary {
-        grid-template-columns: 1fr;
-        gap: 14px;
-    }
+.plan-hero-top {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-between;
+    gap: 28px;
+    flex-wrap: wrap;
+}
+.plan-hero-primary {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.plan-hero-amt {
+    font-size: 34px;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    line-height: 1.1;
+    color: var(--fg);
+}
+.plan-hero-note { font-size: 11.5px; color: var(--fg-3); }
+/* Reserve two lines on narrow widths so the note swapping from the
+   one-line "checking your balance…" placeholder to the settled copy
+   doesn't push the bar and grid down. */
+@media (max-width: 520px) {
+    .plan-hero-note { min-height: 3.1em; }
+}
+.plan-hero-side {
+    display: flex;
+    gap: 32px;
+    align-items: center;
+    padding-left: 28px;
+    border-left: 1px solid var(--line-soft);
 }
 .plan-summary-stat {
     display: flex;
@@ -845,66 +1058,125 @@ const PLAN_STYLES = `
     gap: 4px;
 }
 .plan-summary-amt {
-    font-size: 26px;
+    font-size: 20px;
     font-weight: 500;
-    letter-spacing: -0.04em;
+    letter-spacing: -0.03em;
     margin-top: 2px;
 }
 .plan-summary-sub {
-    font-size: 11.5px;
-    color: var(--fg-4);
+    font-size: 11px;
+    color: var(--fg-3); /* fg-4 fails AA at this size */
+}
+@media (max-width: 860px) {
+    .plan-hero-side { padding-left: 0; border-left: none; flex-basis: 100%; gap: 24px; }
 }
 
-.orbit-design .od-card.plan-list {
-    padding: 0;
-    overflow: hidden;
-}
-.plan-list-head {
-    display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(180px, 1.2fr);
-    gap: 16px;
-    padding: 12px 18px;
+/* Distribution bar — every envelope's plan as a colored segment; the
+   tick marks the cash actually available. Segments crossing the tick =
+   over-budgeting, readable as a shape. Not overflow-clipped so the tick
+   survives sitting at 100%. */
+.plan-dist { display: flex; flex-direction: column; gap: 8px; }
+.plan-dist-bar {
+    position: relative;
+    height: 14px;
+    border-radius: 7px;
     background: var(--bg-elev-2);
-    border-bottom: 1px solid var(--line-soft);
+}
+.plan-dist-seg {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-right: 1px solid var(--bg-elev-1);
+}
+.plan-dist-seg:first-child { border-top-left-radius: 7px; border-bottom-left-radius: 7px; }
+/* Right-end rounding is applied inline on the last segment — :last-child
+   can't match it (the overlay/tick spans are later siblings). */
+.plan-dist-over {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    /* Diagonal hatching — a flat tint disappears on top of the bright
+       segment colors; stripes read as "this part exceeds your cash". */
+    background: repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--expense) 65%, transparent) 0 3px,
+        transparent 3px 6px
+    );
+    border: 1px solid color-mix(in oklab, var(--expense) 80%, transparent);
+    border-radius: 4px;
+    pointer-events: none;
+}
+.plan-dist-tick {
+    position: absolute;
+    top: -4px;
+    bottom: -4px;
+    width: 2.5px;
+    transform: translateX(-50%);
+    background: var(--fg);
+    border-radius: 2px;
+}
+.plan-dist-caption {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
     font-size: 11px;
-    color: var(--fg-4);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    color: var(--fg-3); /* fg-4 fails AA at this size */
 }
-.plan-row {
+.plan-dist-caption-tick { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-3); }
+.plan-dist-caption-tick i {
+    width: 2.5px;
+    height: 12px;
+    background: var(--fg);
+    border-radius: 2px;
+}
+
+/* Planning cards — one self-contained decision per envelope. */
+.plan-grid {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(180px, 1.2fr);
-    gap: 16px;
-    align-items: center;
-    padding: 14px 18px;
-    border-bottom: 1px solid var(--line-soft);
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
 }
-.plan-row:last-child { border-bottom: none; }
-.plan-row-name {
+.orbit-design .od-card.plan-card {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.plan-card-head {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 9px;
     min-width: 0;
 }
 .plan-row-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
     flex-shrink: 0;
 }
-.plan-row-title {
-    font-size: 13.5px;
-    color: var(--fg);
+.plan-card-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 14px;
     font-weight: 500;
-    line-height: 1.2;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
-.plan-row-meta {
+.plan-card-spent {
+    flex-shrink: 0;
     font-size: 11px;
-    color: var(--fg-4);
-    margin-top: 2px;
+    color: var(--fg-3);
+    white-space: nowrap;
 }
+.plan-card-ref {
+    font-size: 11.5px;
+    color: var(--fg-3);
+}
+.plan-card-ref-avg { color: var(--fg-3); } /* fg-4 fails AA at this size */
 .plan-row-coach {
-    margin-top: 4px;
     padding: 6px 10px;
     border-radius: 8px;
     background: color-mix(in oklab, var(--gold) 10%, transparent);
@@ -912,25 +1184,6 @@ const PLAN_STYLES = `
     color: var(--fg-2);
     font-size: 11px;
     line-height: 1.4;
-}
-.plan-row-prev {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.2;
-    color: var(--fg-3);
-}
-.plan-row-prev-amt {
-    font-size: 13px;
-    color: var(--fg);
-    font-variant-numeric: tabular-nums;
-    font-weight: 500;
-}
-.plan-row-prev-sub {
-    font-size: 11px;
-    color: var(--fg-4);
-}
-.plan-row-prev-mobile-label {
-    display: none;
 }
 .plan-row-input-wrap {
     display: inline-flex;
@@ -940,13 +1193,14 @@ const PLAN_STYLES = `
 }
 .plan-row-input {
     flex: 1;
-    height: 34px;
-    padding: 0 10px;
-    border-radius: 8px;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 9px;
     border: 1px solid var(--line);
-    background: var(--bg-elev-1);
+    background: var(--bg-elev-2);
     color: var(--fg);
-    font-size: 13.5px;
+    font-size: 16px;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     font-family: inherit;
     transition: border-color 140ms ease, background 140ms ease;
@@ -963,27 +1217,37 @@ const PLAN_STYLES = `
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
+/* Editor cell — input on top, quick-set chips, plan-vs-reality bar. */
+.plan-row-editor { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.plan-row-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.plan-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; color: var(--fg-3); font-family: inherit;
+    padding: 3px 9px; border-radius: 999px;
+    background: var(--bg-elev-2); border: 1px solid var(--line-soft);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.plan-chip b { color: var(--fg-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.plan-chip:hover { background: var(--bg-elev-3); color: var(--fg-2); }
+.plan-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.plan-chip-active { border-color: var(--brand); background: var(--brand-soft); color: var(--fg); }
+.plan-chip-active b { color: var(--fg); }
+/* No overflow:hidden — the tick often sits at exactly 100% (last month's
+   actual IS the scale max whenever the plan is below it), and clipping
+   would hide it in precisely the case it matters most. */
+.plan-row-bar { position: relative; height: 6px; border-radius: 3px; }
+.plan-row-bar-fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; max-width: 100%; }
+.plan-row-bar-tick {
+    position: absolute; top: -2px; bottom: -2px; width: 2px;
+    transform: translateX(-50%);
+    background: var(--fg); opacity: 0.8; border-radius: 1px;
+}
 @media (max-width: 720px) {
-    .plan-list-head { display: none; }
-    .plan-row {
-        grid-template-columns: 1fr;
-        gap: 8px;
-        padding: 14px 16px;
-    }
-    .plan-row-prev {
-        flex-direction: row;
-        flex-wrap: wrap;
-        gap: 6px;
-        align-items: baseline;
-    }
-    .plan-row-prev-mobile-label {
-        display: inline-block;
-        flex-basis: 100%;
-        font-size: 10.5px;
-        color: var(--fg-4);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-    }
+    .plan-hero-amt { font-size: 28px; }
+    .plan-hero-side { gap: 20px; flex-wrap: wrap; }
+    /* Comfortable tap targets on touch widths. */
+    .plan-chip { padding: 9px 12px; }
 }
 
 .orbit-design .od-card.plan-empty,
@@ -1077,13 +1341,13 @@ const PLAN_STYLES = `
 .plan-row-readonly {
     display: inline-flex;
     align-items: baseline;
-    gap: 8px;
-    justify-content: flex-end;
-    padding: 0 4px;
+    gap: 10px;
+    padding: 2px 0;
 }
 .plan-row-readonly-amt {
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
     color: var(--fg);
 }
 .plan-row-readonly-net {

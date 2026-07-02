@@ -28,10 +28,7 @@ import { EnvelopeAllocateDialog } from "@/features/allocations/EnvelopeAllocateD
 import { EnvelopeMoveDialog } from "@/features/allocations/EnvelopeMoveDialog";
 import { EnvelopeTopUpDialog } from "@/features/allocations/EnvelopeTopUpDialog";
 import { EnvelopeGlass } from "@/components/budget-gauge/EnvelopeGlass";
-import {
-    EnvelopePaceChart,
-    type ChartPoint,
-} from "@/components/budget-gauge/EnvelopePaceChart";
+import { EnvelopePaceChart, type ChartPoint } from "@/components/budget-gauge/EnvelopePaceChart";
 import { EnvelopeSpendChart } from "@/components/budget-gauge/EnvelopeSpendChart";
 import { Donut } from "@/components/shared/charts/Donut";
 import { trpc } from "@/trpc";
@@ -45,8 +42,7 @@ const daysBetween = (a: Date, b: Date) =>
     Math.max(0, Math.round((b.getTime() - a.getTime()) / DAY));
 const money2 = (n: number) =>
     n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const money0 = (n: number) =>
-    Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+const money0 = (n: number) => Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 
 type Tone = "brand" | "warn" | "expense" | "gold";
 const toneVar: Record<Tone, string> = {
@@ -109,8 +105,7 @@ export default function BudgetDetailPage() {
     });
 
     const envelope = utilizationQuery.data?.find((e) => e.envelopId === envelopeId);
-    const isGoal =
-        !!envelope && envelope.targetAmount != null && envelope.targetAmount > 0;
+    const isGoal = !!envelope && envelope.targetAmount != null && envelope.targetAmount > 0;
 
     // Daily spend series for the pace chart (monthly + rolling only; goals
     // have no per-deposit funding history to plot, so they use envelope
@@ -271,9 +266,7 @@ export default function BudgetDetailPage() {
             // non-space account (not a normal case for an envelope) would land
             // here as "Uncategorized". Guarded to non-negative below.
             const uncat =
-                periodSpend != null
-                    ? Math.round((periodSpend - categorized) * 100) / 100
-                    : 0;
+                periodSpend != null ? Math.round((periodSpend - categorized) * 100) / 100 : 0;
             if (uncat > 0.005) {
                 roots.push({
                     id: "__uncat",
@@ -287,10 +280,7 @@ export default function BudgetDetailPage() {
         }
         return roots;
     }, [catQuery.data, envelope, isGoal, dailyQuery.data]);
-    const catTotal = useMemo(
-        () => catData.reduce((s, d) => s + d.value, 0),
-        [catData]
-    );
+    const catTotal = useMemo(() => catData.reduce((s, d) => s + d.value, 0), [catData]);
     // Donut is unreadable past ~8 slices, so cap it to the top few + an
     // "Other" wedge. The full per-category breakdown is still readable via
     // the donut's own aria-label and its hover-driven center-label swap.
@@ -298,9 +288,7 @@ export default function BudgetDetailPage() {
         const TOP = 8;
         if (catData.length <= TOP + 1) return catData;
         const top = catData.slice(0, TOP);
-        const restTotal = catData
-            .slice(TOP)
-            .reduce((s, d) => s + d.value, 0);
+        const restTotal = catData.slice(TOP).reduce((s, d) => s + d.value, 0);
         return restTotal > 0
             ? [...top, { id: "__other", name: "Other", value: restTotal, color: "var(--fg-4)" }]
             : top;
@@ -321,7 +309,7 @@ export default function BudgetDetailPage() {
     const goalTarget = envelope?.targetAmount ?? 0;
     // A goal that's been spent against — its saved pool has drained. Surfaces
     // "Spent" and softens "Goal reached" → "Funded" so the drain is visible.
-    const goalSpent = isGoal ? envelope?.consumed ?? 0 : 0;
+    const goalSpent = isGoal ? (envelope?.consumed ?? 0) : 0;
     // Archived envelopes are frozen/read-only — never paint a red/amber alarm
     // on them anywhere (label still carries the fact). Neutralize alarm tones.
     const archived = !!envelope?.archived;
@@ -339,9 +327,7 @@ export default function BudgetDetailPage() {
         // ------- GOAL: saving pace toward the target -------
         if (isGoal) {
             const now = new Date();
-            const start = envelope.firstAllocatedAt
-                ? new Date(envelope.firstAllocatedAt)
-                : now;
+            const start = envelope.firstAllocatedAt ? new Date(envelope.firstAllocatedAt) : now;
             const elapsedDays = daysBetween(start, now);
             // A per-day rate needs at least a full day of history — otherwise a
             // same-day lump sum implies a multi-million/mo pace and a "done
@@ -351,32 +337,26 @@ export default function BudgetDetailPage() {
             const saved = goalSaved;
             const target = goalTarget;
             const reached = saved >= target;
-            const targetDate = envelope.targetDate
-                ? new Date(envelope.targetDate)
-                : null;
+            const targetDate = envelope.targetDate ? new Date(envelope.targetDate) : null;
             const targetX = targetDate ? daysBetween(start, targetDate) : null;
 
             // Projected completion at the realized average funding rate.
             const rate = trackable && saved > 0 ? saved / nowX : 0; // per day
             const rawCompletionX = !reached && rate > 0 ? target / rate : null;
             const completionDate =
-                rawCompletionX != null
-                    ? new Date(start.getTime() + rawCompletionX * DAY)
-                    : null;
+                rawCompletionX != null ? new Date(start.getTime() + rawCompletionX * DAY) : null;
             // Cap how far right a badly-behind projection can push the x-axis
             // (a goal 100 days in with almost nothing saved projects ~100k days
             // out, crushing the realized line into the y-axis). The foot text
             // still states the true, un-capped completion date.
             const capX = Math.max(targetX ?? 0, nowX) * 3;
-            const completionX =
-                rawCompletionX != null ? Math.min(rawCompletionX, capX) : null;
+            const completionX = rawCompletionX != null ? Math.min(rawCompletionX, capX) : null;
 
             const xMax =
                 // Floor at ~30 days so a brand-new / same-day-funded goal with
                 // no deadline shows a sensible month-wide window instead of a
                 // degenerate ~0-width chart pinned to the y-axis.
-                Math.max(nowX, targetX ?? 0, completionX ?? 0, nowX * 1.2, 30) *
-                1.04;
+                Math.max(nowX, targetX ?? 0, completionX ?? 0, nowX * 1.2, 30) * 1.04;
             const yMax = Math.max(target, saved) * 1.1 || 1;
 
             const actual: ChartPoint[] = [
@@ -384,7 +364,12 @@ export default function BudgetDetailPage() {
                 { x: nowX, y: Math.min(saved, yMax) },
             ];
             const pace: ChartPoint[] | null =
-                targetX != null ? [{ x: 0, y: 0 }, { x: targetX, y: target }] : null;
+                targetX != null
+                    ? [
+                          { x: 0, y: 0 },
+                          { x: targetX, y: target },
+                      ]
+                    : null;
             const projection: ChartPoint[] | null =
                 rawCompletionX != null && completionX != null
                     ? [
@@ -399,8 +384,7 @@ export default function BudgetDetailPage() {
                                       ? target
                                       : saved +
                                         (target - saved) *
-                                            ((completionX - nowX) /
-                                                (rawCompletionX - nowX)),
+                                            ((completionX - nowX) / (rawCompletionX - nowX)),
                           },
                       ]
                     : null;
@@ -450,10 +434,8 @@ export default function BudgetDetailPage() {
                 const onTime = targetDate ? completionDate <= targetDate : true;
                 foot = (
                     <span>
-                        At your average of{" "}
-                        <b className="tabular">{money0(rate * 30)}/mo</b> you'll reach{" "}
-                        {money0(target)} by{" "}
-                        <b>{formatInAppTz(completionDate, "MMM yyyy")}</b>
+                        At your average of <b className="tabular">{money0(rate * 30)}/mo</b> you'll
+                        reach {money0(target)} by <b>{formatInAppTz(completionDate, "MMM yyyy")}</b>
                         {targetDate ? (
                             <>
                                 {" "}
@@ -471,8 +453,8 @@ export default function BudgetDetailPage() {
             } else if (saved > 0) {
                 foot = (
                     <span>
-                        Funded <b className="tabular">{money0(saved)}</b> so far — your
-                        saving pace appears once there's more than a day of history.
+                        Funded <b className="tabular">{money0(saved)}</b> so far — your saving pace
+                        appears once there's more than a day of history.
                     </span>
                 );
             } else {
@@ -550,10 +532,8 @@ export default function BudgetDetailPage() {
             foot = over ? (
                 <span>
                     You've spent{" "}
-                    <b style={{ color: expenseC }}>
-                        {money0(spentToDate - budget)} over
-                    </b>{" "}
-                    budget with {pl - today} day{pl - today === 1 ? "" : "s"} to go.
+                    <b style={{ color: expenseC }}>{money0(spentToDate - budget)} over</b> budget
+                    with {pl - today} day{pl - today === 1 ? "" : "s"} to go.
                 </span>
             ) : (
                 <span>
@@ -564,13 +544,14 @@ export default function BudgetDetailPage() {
                     the pace line today — at this rate you'll finish at{" "}
                     <b className="tabular">{money0(projected)}</b>,{" "}
                     <b style={{ color: projected > budget ? expenseC : "var(--income)" }}>
-                        {money0(Math.abs(projected - budget))} {projected > budget ? "over" : "under"}
+                        {money0(Math.abs(projected - budget))}{" "}
+                        {projected > budget ? "over" : "under"}
                     </b>
                     .
                 </span>
             );
         } else {
-            const typicalNow = avg ? avg[today - 1] ?? 0 : 0;
+            const typicalNow = avg ? (avg[today - 1] ?? 0) : 0;
             const diff = spentToDate - typicalNow;
             foot =
                 avg && typicalNow > 0 ? (
@@ -671,9 +652,7 @@ export default function BudgetDetailPage() {
         if (!envelope) return null;
         if (isGoal) {
             const now = new Date();
-            const start = envelope.firstAllocatedAt
-                ? new Date(envelope.firstAllocatedAt)
-                : now;
+            const start = envelope.firstAllocatedAt ? new Date(envelope.firstAllocatedAt) : now;
             const months = Math.max(daysBetween(start, now) / 30, 0.001);
             const perMonth = goalSaved / months;
             const toGo = Math.max(0, goalTarget - goalSaved);
@@ -682,7 +661,12 @@ export default function BudgetDetailPage() {
                 ? daysBetween(now, new Date(envelope.targetDate)) / 30
                 : null;
             return [
-                { label: "Avg / month", val: money0(perMonth), sub: "funded so far", tone: "fg" as const },
+                {
+                    label: "Avg / month",
+                    val: money0(perMonth),
+                    sub: "funded so far",
+                    tone: "fg" as const,
+                },
                 { label: "% complete", val: `${pct}%`, sub: "of target", tone: "gold" as const },
                 {
                     label: "Needed / mo",
@@ -695,9 +679,7 @@ export default function BudgetDetailPage() {
                 },
                 {
                     label: "Deadline",
-                    val: envelope.targetDate
-                        ? formatInAppTz(envelope.targetDate, "MMM yyyy")
-                        : "—",
+                    val: envelope.targetDate ? formatInAppTz(envelope.targetDate, "MMM yyyy") : "—",
                     sub: envelope.targetDate ? "target date" : "none set",
                     tone: "fg" as const,
                 },
@@ -712,10 +694,7 @@ export default function BudgetDetailPage() {
         // final day of the month reads "1 day left", hitting 0 only once the
         // period has rolled over. Uses the memoized `now` for consistency with
         // the rest of the page rather than a fresh Date.now().
-        const daysLeft = Math.max(
-            0,
-            Math.ceil((periodEnd.getTime() - now.getTime()) / DAY)
-        );
+        const daysLeft = Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / DAY));
         const isPast = monthOffset < 0;
         const pctBudget = total > 0 ? Math.round((spent / total) * 100) : 0;
         // Same on-budget-pace math as the Spending pace chart's footnote
@@ -728,15 +707,62 @@ export default function BudgetDetailPage() {
         const paceDiff = !isPast && paceNow != null ? spent - paceNow : null;
         const paceUnder = paceDiff != null && paceDiff <= 0;
         return [
-            { label: "Last month", val: averages ? money0(averages.lastMonthSpend) : "—", sub: averages && averages.lastMonthPlanned > 0 ? `${Math.round((averages.lastMonthSpend / averages.lastMonthPlanned) * 100)}% of plan` : "spent", tone: "fg" as const },
-            { label: "3-month avg", val: averages ? money0(averages.avg3MonthSpend) : "—", sub: "per month", tone: "fg" as const },
-            { label: "Daily burn", val: velocity ? money0(velocity.perDayThisMonth) : "—", sub: "avg per day this month", tone: "fg" as const },
+            {
+                label: "Last month",
+                val: averages ? money0(averages.lastMonthSpend) : "—",
+                sub:
+                    averages && averages.lastMonthPlanned > 0
+                        ? `${Math.round((averages.lastMonthSpend / averages.lastMonthPlanned) * 100)}% of plan`
+                        : "spent",
+                tone: "fg" as const,
+            },
+            {
+                label: "3-month avg",
+                val: averages ? money0(averages.avg3MonthSpend) : "—",
+                sub: "per month",
+                tone: "fg" as const,
+            },
+            {
+                label: "Daily burn",
+                val: velocity ? money0(velocity.perDayThisMonth) : "—",
+                sub: isPast ? "avg per day" : "avg per day this month",
+                tone: "fg" as const,
+            },
+            // "allocated", not "budget/plan" — same noun the hero and the
+            // budgets-index tiles use.
             isPast
-                ? { label: "% of budget", val: total > 0 ? `${pctBudget}%` : "—", sub: total > 0 ? "of the plan spent" : "no budget set", tone: total > 0 && spent > total ? "expense" as const : "fg" as const }
-                : { label: "Projected end", val: daily ? money0(projEnd) : "—", sub: "at current pace", tone: daily && total > 0 && projEnd > total ? "expense" as const : "income" as const },
+                ? {
+                      label: "% of allocated",
+                      val: total > 0 ? `${pctBudget}%` : "—",
+                      sub: total > 0 ? "spent" : "no budget set",
+                      tone: total > 0 && spent > total ? ("expense" as const) : ("fg" as const),
+                  }
+                : {
+                      label: "Projected end",
+                      val: daily ? money0(projEnd) : "—",
+                      sub: "at current pace",
+                      // Neutral when there's no budget — green would read
+                      // "on track" against nothing (mirrors the index tile).
+                      tone:
+                          daily && total > 0
+                              ? projEnd > total
+                                  ? ("expense" as const)
+                                  : ("income" as const)
+                              : ("fg" as const),
+                  },
             isPast
-                ? { label: spent > total ? "Over by" : "Left over", val: total > 0 ? money0(Math.abs(total - spent)) : "—", sub: "vs the budget", tone: total > 0 && spent > total ? "expense" as const : "income" as const }
-                : { label: "Days left", val: String(daysLeft), sub: "this month", tone: "fg" as const },
+                ? {
+                      label: spent > total ? "Over by" : "Left over",
+                      val: total > 0 ? money0(Math.abs(total - spent)) : "—",
+                      sub: "vs allocated",
+                      tone: total > 0 && spent > total ? ("expense" as const) : ("income" as const),
+                  }
+                : {
+                      label: "Days left",
+                      val: String(daysLeft),
+                      sub: "this month",
+                      tone: "fg" as const,
+                  },
             // Same two-tier severity as the chart's own over-pace escalation:
             // warn (amber) while merely ahead of pace but still within the
             // month's budget, expense (red) reserved for actually over the
@@ -753,9 +779,32 @@ export default function BudgetDetailPage() {
                             ? ("expense" as const)
                             : ("warn" as const),
                   }
-                : { label: "Pace today", val: "—", sub: isPast ? "month completed" : "no budget set", tone: "fg" as const },
+                : // Past tense on completed months; while the daily series
+                  // loads, don't claim "no budget set" when one exists.
+                  {
+                      label: isPast ? "Pace" : "Pace today",
+                      val: "—",
+                      sub: isPast
+                          ? "month completed"
+                          : budget != null
+                            ? "checking pace…"
+                            : "no budget set",
+                      tone: "fg" as const,
+                  },
         ];
-    }, [envelope, isGoal, dailyQuery.data, averages, velocity, total, goalSaved, goalTarget, periodEnd, monthOffset, now]);
+    }, [
+        envelope,
+        isGoal,
+        dailyQuery.data,
+        averages,
+        velocity,
+        total,
+        goalSaved,
+        goalTarget,
+        periodEnd,
+        monthOffset,
+        now,
+    ]);
 
     // status pill for the hero
     const status = useMemo((): { label: string; tone: Tone | "income" | "fg" } | null => {
@@ -821,9 +870,7 @@ export default function BudgetDetailPage() {
                             Budgets
                         </Link>
                         <ChevronRight className="size-3" style={{ color: "var(--fg-4)" }} />{" "}
-                        <span style={{ color: "var(--fg-2)" }}>
-                            {envelope?.name ?? "Loading…"}
-                        </span>
+                        <span style={{ color: "var(--fg-2)" }}>{envelope?.name ?? "Loading…"}</span>
                     </span>
                     <h1 className="display ed-title">
                         {envelope ? (
@@ -880,13 +927,21 @@ export default function BudgetDetailPage() {
                                 envelopId={envelope.envelopId}
                                 envelopCadence={envelope.cadence}
                                 direction="allocate"
-                                trigger={<button type="button" className="od-btn">Allocate</button>}
+                                trigger={
+                                    <button type="button" className="od-btn">
+                                        Allocate
+                                    </button>
+                                }
                             />
                             <EnvelopeAllocateDialog
                                 envelopId={envelope.envelopId}
                                 envelopCadence={envelope.cadence}
                                 direction="deallocate"
-                                trigger={<button type="button" className="od-btn">Deallocate</button>}
+                                trigger={
+                                    <button type="button" className="od-btn">
+                                        Deallocate
+                                    </button>
+                                }
                             />
                             <EnvelopeTopUpDialog
                                 envelopId={envelope.envelopId}
@@ -916,7 +971,11 @@ export default function BudgetDetailPage() {
                                 envelopId={envelope.envelopId}
                                 envelopCadence={envelope.cadence}
                                 direction="deallocate"
-                                trigger={<button type="button" className="od-btn">Free trapped cash</button>}
+                                trigger={
+                                    <button type="button" className="od-btn">
+                                        Free trapped cash
+                                    </button>
+                                }
                             />
                         </PermissionGate>
                     )}
@@ -976,11 +1035,7 @@ export default function BudgetDetailPage() {
                                         <HeroNum label="Target" value={goalTarget} tone="fg" />
                                         <span className="ed-hero-div" />
                                         {goalSpent > 0 ? (
-                                            <HeroNum
-                                                label="Spent"
-                                                value={goalSpent}
-                                                tone="fg"
-                                            />
+                                            <HeroNum label="Spent" value={goalSpent} tone="fg" />
                                         ) : (
                                             <HeroNum
                                                 label="To go"
@@ -993,13 +1048,21 @@ export default function BudgetDetailPage() {
                                     <>
                                         <HeroNum label="Allocated" value={0} tone="fg" />
                                         <span className="ed-hero-div" />
-                                        <HeroNum label="Spent" value={envelope.consumed} tone="fg" />
+                                        <HeroNum
+                                            label="Spent"
+                                            value={envelope.consumed}
+                                            tone="fg"
+                                        />
                                     </>
                                 ) : (
                                     <>
                                         <HeroNum label="Allocated" value={total} tone="fg" />
                                         <span className="ed-hero-div" />
-                                        <HeroNum label="Spent" value={envelope.consumed} tone="brand" />
+                                        <HeroNum
+                                            label="Spent"
+                                            value={envelope.consumed}
+                                            tone="brand"
+                                        />
                                         <span className="ed-hero-div" />
                                         <HeroNum
                                             label={over ? "Over by" : "Remaining"}
@@ -1019,16 +1082,16 @@ export default function BudgetDetailPage() {
                                                   ? "var(--fg-3)"
                                                   : toneVar[status.tone];
                                         return (
-                                    <span
-                                        className="ed-pill"
-                                        style={{
-                                            color: pillColor,
-                                            background: `color-mix(in oklab, ${pillColor} 12%, transparent)`,
-                                            borderColor: `color-mix(in oklab, ${pillColor} 28%, transparent)`,
-                                        }}
-                                    >
-                                        {status.label}
-                                    </span>
+                                            <span
+                                                className="ed-pill"
+                                                style={{
+                                                    color: pillColor,
+                                                    background: `color-mix(in oklab, ${pillColor} 12%, transparent)`,
+                                                    borderColor: `color-mix(in oklab, ${pillColor} 28%, transparent)`,
+                                                }}
+                                            >
+                                                {status.label}
+                                            </span>
                                         );
                                     })()}
                                     <span className="ed-status-note">
@@ -1078,7 +1141,9 @@ export default function BudgetDetailPage() {
                     <section className="od-card ed-chart">
                         <div className="ed-sect-head">
                             <div className="ed-sect-text">
-                                <h2 className="display ed-sect-title">{chart?.title ?? "Spending pace"}</h2>
+                                <h2 className="display ed-sect-title">
+                                    {chart?.title ?? "Spending pace"}
+                                </h2>
                                 <span className="ed-sect-sub">{chart?.subtitle ?? ""}</span>
                             </div>
                             {chart?.legend && (
@@ -1090,7 +1155,9 @@ export default function BudgetDetailPage() {
                                                 style={
                                                     l.kind === "solid"
                                                         ? { background: l.color }
-                                                        : ({ ["--c" as never]: l.color } as CSSProperties)
+                                                        : ({
+                                                              ["--c" as never]: l.color,
+                                                          } as CSSProperties)
                                                 }
                                             />
                                             {l.label}
@@ -1182,7 +1249,9 @@ export default function BudgetDetailPage() {
                                             (isMonthlyCadence && allocQuery.isLoading) ? (
                                             <Skeleton height={200} />
                                         ) : !monthly || !hasData ? (
-                                            <div className="ed-empty">No monthly spend history yet.</div>
+                                            <div className="ed-empty">
+                                                No monthly spend history yet.
+                                            </div>
                                         ) : (
                                             <>
                                                 <div className="ed-chart-wrap">
@@ -1217,7 +1286,8 @@ export default function BudgetDetailPage() {
                                                               >
                                                                   {money0(
                                                                       Math.abs(
-                                                                          monthly.ytdSpent - ytdAllocated
+                                                                          monthly.ytdSpent -
+                                                                              ytdAllocated
                                                                       )
                                                                   )}{" "}
                                                                   {overAlloc ? "over" : "under"}
@@ -1235,7 +1305,9 @@ export default function BudgetDetailPage() {
                                                                               : "var(--income)",
                                                                   }}
                                                               >
-                                                                  {monthly.totalDelta >= 0 ? "+" : ""}
+                                                                  {monthly.totalDelta >= 0
+                                                                      ? "+"
+                                                                      : ""}
                                                                   {monthly.totalDelta.toFixed(0)}%
                                                               </b>{" "}
                                                               · this year vs last year (so far)
@@ -1424,7 +1496,9 @@ function VelocityViz({
                         <div className="ed-vbar-track" style={{ background: b.track }}>
                             <div
                                 className={
-                                    b.kind === "outline" ? "ed-vbar-fill ed-vbar-fill-outline" : "ed-vbar-fill"
+                                    b.kind === "outline"
+                                        ? "ed-vbar-fill ed-vbar-fill-outline"
+                                        : "ed-vbar-fill"
                                 }
                                 style={{
                                     width: `${Math.max(3, (b.value / max) * 100)}%`,
@@ -1525,8 +1599,7 @@ function EnvelopeMonthlyBars({
         const idx = Math.max(0, Math.min(labels.length - 1, Math.floor((svgX - p) / cw)));
         setHoverIdx(idx);
     };
-    const handleMove: React.MouseEventHandler<HTMLDivElement> = (e) =>
-        setIdxFromClientX(e.clientX);
+    const handleMove: React.MouseEventHandler<HTMLDivElement> = (e) => setIdxFromClientX(e.clientX);
     const handleTouch = (e: ReactTouchEvent<HTMLDivElement>) => {
         const t = e.touches[0];
         if (t) setIdxFromClientX(t.clientX);
@@ -1791,15 +1864,7 @@ function MonthlyTooltipRow({
     );
 }
 
-function HeroNum({
-    label,
-    value,
-    tone,
-}: {
-    label: string;
-    value: number;
-    tone: Tone | "fg";
-}) {
+function HeroNum({ label, value, tone }: { label: string; value: number; tone: Tone | "fg" }) {
     const color =
         tone === "fg"
             ? "var(--fg)"
