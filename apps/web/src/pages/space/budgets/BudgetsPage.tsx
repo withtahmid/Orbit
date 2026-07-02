@@ -17,17 +17,13 @@ import {
     Archive,
     ArchiveRestore,
     AlertTriangle,
+    NotebookPen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PermissionGate } from "@/components/shared/PermissionGate";
 import { Button } from "@/components/ui/button";
-import {
-    Dialog,
-    DialogContent,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -56,7 +52,7 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { ROUTES } from "@/router/routes";
 import { DEFAULT_COLOR } from "@/lib/entityStyle";
 import {
-    addMonths,
+    addMonthsClamped,
     startOfMonth,
     endOfMonth,
     makeAppTzDate,
@@ -71,14 +67,7 @@ import type { RouterOutput } from "@/trpc";
 
 type Cadence = "none" | "monthly";
 type EnvelopeRow = RouterOutput["analytics"]["envelopeUtilization"][number];
-type SortMode =
-    | "cadence"
-    | "urgency"
-    | "remaining"
-    | "spent"
-    | "name"
-    | "deadline"
-    | "progress";
+type SortMode = "cadence" | "urgency" | "remaining" | "spent" | "name" | "deadline" | "progress";
 
 const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
     { value: "cadence", label: "Cadence" },
@@ -89,6 +78,8 @@ const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
     { value: "progress", label: "Progress" },
     { value: "name", label: "Name" },
 ];
+
+const money0 = (n: number) => Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 
 function pctOf(consumed: number, allocated: number): number {
     if (allocated > 0) return (consumed / allocated) * 100;
@@ -150,11 +141,7 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
     else if (mode === "spent") arr.sort((a, b) => b.consumed - a.consumed);
     else if (mode === "remaining") arr.sort((a, b) => b.remaining - a.remaining);
     else if (mode === "urgency")
-        arr.sort(
-            (a, b) =>
-                pctOf(b.consumed, b.allocated) -
-                pctOf(a.consumed, a.allocated)
-        );
+        arr.sort((a, b) => pctOf(b.consumed, b.allocated) - pctOf(a.consumed, a.allocated));
     else if (mode === "deadline")
         // Earliest target_date first; rows without a deadline drop to
         // the end so goal envelopes with an upcoming target lead.
@@ -166,9 +153,7 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
     else if (mode === "progress")
         // Highest pctComplete (== pctSaved) first; rows without a target
         // are treated as 0 so plain envelopes sink below goals.
-        arr.sort(
-            (a, b) => (b.pctComplete ?? 0) - (a.pctComplete ?? 0)
-        );
+        arr.sort((a, b) => (b.pctComplete ?? 0) - (a.pctComplete ?? 0));
     else {
         // Default "cadence" sort, three tiers so the flat grid reads as
         // contiguous bands without a grouped view: monthly budgets first,
@@ -177,11 +162,7 @@ function sortEnvelopes(list: EnvelopeRow[], mode: SortMode): EnvelopeRow[] {
         // ASC) — Array.sort is spec-stable (ES2019+), so equal tiers keep
         // input order and editing a name never relocates a row.
         const tier = (e: EnvelopeRow) =>
-            e.cadence === "monthly"
-                ? 0
-                : e.targetAmount != null && e.targetAmount > 0
-                  ? 2
-                  : 1;
+            e.cadence === "monthly" ? 0 : e.targetAmount != null && e.targetAmount > 0 ? 2 : 1;
         arr.sort((a, b) => tier(a) - tier(b));
     }
     return arr;
@@ -195,7 +176,9 @@ export default function BudgetsPage() {
     const debouncedQuery = useDebouncedValue(query, 200);
 
     const now = useMemo(() => new Date(), []);
-    const viewingDate = useMemo(() => addMonths(now, monthOffset), [now, monthOffset]);
+    // Clamped: plain addMonths lets Jul 31 − 1mo overflow to Jul 1, which
+    // makes the ‹ stepper appear to do nothing on month-end days.
+    const viewingDate = useMemo(() => addMonthsClamped(now, monthOffset), [now, monthOffset]);
     const periodStart = useMemo(() => startOfMonth(viewingDate), [viewingDate]);
     const periodEnd = useMemo(() => endOfMonth(viewingDate), [viewingDate]);
 
@@ -211,23 +194,14 @@ export default function BudgetsPage() {
         periodEnd,
     });
 
-    const allEnvelopes = useMemo(
-        () => utilizationQuery.data ?? [],
-        [utilizationQuery.data]
-    );
+    const allEnvelopes = useMemo(() => utilizationQuery.data ?? [], [utilizationQuery.data]);
 
     // Active envelopes drive the main list, hero stats, and "needs attention".
     // Archived envelopes are revealed via the toggle below; they have no
     // current activity (server blocks new transactions/allocations) so
     // including them in totals would just be misleading zeros.
-    const envelopes = useMemo(
-        () => allEnvelopes.filter((e) => !e.archived),
-        [allEnvelopes]
-    );
-    const archivedEnvelopes = useMemo(
-        () => allEnvelopes.filter((e) => e.archived),
-        [allEnvelopes]
-    );
+    const envelopes = useMemo(() => allEnvelopes.filter((e) => !e.archived), [allEnvelopes]);
+    const archivedEnvelopes = useMemo(() => allEnvelopes.filter((e) => e.archived), [allEnvelopes]);
     const [showArchived, setShowArchived] = useState(false);
 
     const filtered = useMemo(() => {
@@ -235,22 +209,21 @@ export default function BudgetsPage() {
         const q = debouncedQuery.trim().toLowerCase();
         return envelopes.filter(
             (e) =>
-                e.name.toLowerCase().includes(q) ||
-                (e.description ?? "").toLowerCase().includes(q)
+                e.name.toLowerCase().includes(q) || (e.description ?? "").toLowerCase().includes(q)
         );
     }, [envelopes, debouncedQuery]);
 
     const sorted = useMemo(() => sortEnvelopes(filtered, sort), [filtered, sort]);
 
     const totals = useMemo(() => {
-        const allocated = envelopes.reduce(
-            (s, e) => s + e.allocated,
-            0
-        );
+        const allocated = envelopes.reduce((s, e) => s + e.allocated, 0);
         const consumed = envelopes.reduce((s, e) => s + e.consumed, 0);
         const remaining = envelopes.reduce((s, e) => s + e.remaining, 0);
+        // Zero-budget envelopes are "spent · no budget" on their cards, not
+        // "over budget" — keep this sum aligned with overCount so the sub
+        // never reads "−X over in 0 envelopes".
         const overAmount = envelopes.reduce(
-            (s, e) => s + Math.max(0, e.consumed - e.allocated),
+            (s, e) => s + (e.allocated > 0 ? Math.max(0, e.consumed - e.allocated) : 0),
             0
         );
         const overCount = envelopes.filter(
@@ -259,17 +232,182 @@ export default function BudgetsPage() {
         return { allocated, consumed, remaining, overAmount, overCount };
     }, [envelopes]);
 
-    const monthLabel = viewingDate.toLocaleString("en-US", {
-        month: "long",
-        year: "numeric",
-    });
+    // ── Space-level pace analytics (fills the dead space below the grid) ──
+    // Same anchor trick as the envelope detail page: current month anchors
+    // at `now` (mid-month "today" marker), a past month anchors at its last
+    // instant so the whole completed month renders.
+    const anchor = useMemo(
+        () => (monthOffset === 0 ? now : new Date(periodEnd.getTime() - 1)),
+        [monthOffset, now, periodEnd]
+    );
+    // Scope the daily series to the active envelopes so the chart's
+    // cumulative "spent" agrees with the summary strip's Spent (which sums
+    // envelope consumption) — unscoped, it would also count spend that was
+    // never assigned to an envelope.
+    const activeEnvelopeIds = useMemo(() => envelopes.map((e) => e.envelopId), [envelopes]);
+    const dailyQuery = trpc.analytics.trends.dailyComparison.useQuery(
+        {
+            spaceId: space.id,
+            granularity: "month",
+            anchor,
+            mode: "operational",
+            envelopeIds: activeEnvelopeIds,
+        },
+        { enabled: envelopes.length > 0 }
+    );
+    const paceData = useMemo(() => {
+        const daily = dailyQuery.data;
+        if (!daily) return null;
+        const pl = daily.periodLength;
+        const today = Math.min(daily.today, pl);
+        const cur: number[] = [];
+        const prv: number[] = [];
+        const avg: number[] | null = daily.average ? [] : null;
+        let ca = 0,
+            pa = 0,
+            aa = 0;
+        const len = Math.max(pl, daily.previous.length);
+        for (let i = 0; i < len; i++) {
+            ca += daily.current[i] ?? 0;
+            pa += daily.previous[i] ?? 0;
+            cur.push(ca);
+            prv.push(pa);
+            if (avg && daily.average) {
+                aa += daily.average[i] ?? 0;
+                avg.push(aa);
+            }
+        }
+        const spentToDate = cur[today - 1] ?? 0;
+        const projected = today > 0 ? (spentToDate / today) * pl : 0;
+        return {
+            cur,
+            prv,
+            avg,
+            today,
+            pl,
+            projected,
+            spentToDate,
+            bucketUnit: daily.bucketUnit,
+        };
+    }, [dailyQuery.data]);
+
+    // Coaching KPIs (last month / 3-mo avg) for the at-a-glance tiles —
+    // same procedure the detail page uses, referenced to the viewed month
+    // so "last month" stays relative to the stepper.
+    const averagesQuery = trpc.analytics.envelopeRecentAverages.useQuery(
+        { spaceId: space.id, referenceDate: periodStart },
+        { enabled: envelopes.length > 0 }
+    );
+
+    // APP_TZ, not browser-local — keeps the label in lockstep with the
+    // "Plan this month" link's yyyy-MM slug at month boundaries.
+    const monthLabel = formatInAppTz(viewingDate, "MMMM yyyy");
     const daysLeft =
         monthOffset === 0
-            ? Math.max(
-                  0,
-                  Math.ceil((periodEnd.getTime() - now.getTime()) / 86_400_000)
-              )
+            ? Math.max(0, Math.ceil((periodEnd.getTime() - now.getTime()) / 86_400_000))
             : null;
+
+    // At-a-glance tiles — the detail hero's 3x2 KPI grid, aggregated to
+    // space level (sums across active envelopes). Same tile set, same
+    // isPast swaps, same two-tier pace severity as the detail page.
+    const glanceTiles = useMemo(() => {
+        const isPast = monthOffset < 0;
+        const activeIds = new Set(envelopes.map((e) => e.envelopId));
+        const av = averagesQuery.data?.filter((a) => activeIds.has(a.envelopId));
+        const lastSpend = av ? av.reduce((s, a) => s + a.lastMonthSpend, 0) : null;
+        const lastPlanned = av ? av.reduce((s, a) => s + a.lastMonthPlanned, 0) : null;
+        const avg3 = av ? av.reduce((s, a) => s + a.avg3MonthSpend, 0) : null;
+        const spent = totals.consumed;
+        const alloc = totals.allocated;
+        const today = paceData?.today ?? null;
+        const pl = paceData?.pl ?? null;
+        const dailyBurn =
+            paceData && paceData.today > 0 ? paceData.spentToDate / paceData.today : null;
+        const projEnd = paceData?.projected ?? null;
+        const pctBudget = alloc > 0 ? Math.round((spent / alloc) * 100) : null;
+        const paceNow =
+            !isPast && alloc > 0 && today != null && today > 0 && pl != null && pl > 0
+                ? (alloc * today) / pl
+                : null;
+        const paceDiff = paceNow != null ? spent - paceNow : null;
+        const paceUnder = paceDiff != null && paceDiff <= 0;
+        const overBudget = alloc > 0 && spent > alloc;
+        return [
+            {
+                label: "Last month",
+                val: lastSpend != null ? money0(lastSpend) : "—",
+                sub:
+                    lastSpend != null && lastPlanned != null && lastPlanned > 0
+                        ? `${Math.round((lastSpend / lastPlanned) * 100)}% of plan`
+                        : "spent",
+            },
+            {
+                label: "3-month avg",
+                val: avg3 != null ? money0(avg3) : "—",
+                sub: "per month",
+            },
+            {
+                label: "Daily burn",
+                val: dailyBurn != null ? money0(dailyBurn) : "—",
+                sub: isPast ? "avg per day" : "avg per day this month",
+            },
+            isPast
+                ? {
+                      // "allocated", not "budget/plan" — same noun the
+                      // current-month Spent sub and the cards use.
+                      label: "% of allocated",
+                      val: pctBudget != null ? `${pctBudget}%` : "—",
+                      sub: alloc > 0 ? "spent" : "no budget set",
+                      color: overBudget ? "var(--expense)" : undefined,
+                  }
+                : {
+                      label: "Projected end",
+                      val: projEnd != null ? money0(projEnd) : "—",
+                      sub: "at current pace",
+                      color:
+                          projEnd != null && alloc > 0
+                              ? projEnd > alloc
+                                  ? "var(--expense)"
+                                  : "var(--income)"
+                              : undefined,
+                  },
+            isPast
+                ? {
+                      label: overBudget ? "Over by" : "Left over",
+                      val: alloc > 0 ? money0(Math.abs(alloc - spent)) : "—",
+                      sub: "vs allocated",
+                      color: overBudget ? "var(--expense)" : "var(--income)",
+                  }
+                : {
+                      label: "Days left",
+                      val: daysLeft != null ? String(daysLeft) : "—",
+                      sub: "this month",
+                  },
+            paceDiff != null
+                ? {
+                      label: "Pace today",
+                      val: money0(Math.abs(paceDiff)),
+                      sub: paceUnder ? "under pace" : "over pace",
+                      color: paceUnder
+                          ? "var(--income)"
+                          : overBudget
+                            ? "var(--expense)"
+                            : "var(--warn)",
+                  }
+                : {
+                      // Past tense on completed months; and while the daily
+                      // series is still loading, don't claim "no budget set"
+                      // when one exists.
+                      label: isPast ? "Pace" : "Pace today",
+                      val: "—",
+                      sub: isPast
+                          ? "month completed"
+                          : alloc > 0
+                            ? "checking pace…"
+                            : "no budget set",
+                  },
+        ];
+    }, [envelopes, averagesQuery.data, totals, paceData, monthOffset, daysLeft]);
 
     // Mid-month gentle nudge. After day 21 of the current month, surface a
     // one-time toast for each envelope that's already > 80% spent. Tracked
@@ -283,9 +421,7 @@ export default function BudgetsPage() {
         const storageKey = `orbit:nudge:${space.id}:${monthKey}`;
         let dismissed: string[] = [];
         try {
-            dismissed = JSON.parse(
-                localStorage.getItem(storageKey) ?? "[]"
-            );
+            dismissed = JSON.parse(localStorage.getItem(storageKey) ?? "[]");
         } catch {
             dismissed = [];
         }
@@ -326,14 +462,29 @@ export default function BudgetsPage() {
                     <h1 className="display env-title">Budgets</h1>
                 </div>
                 <div className="env-topbar-actions">
+                    {/* Persistent entry to the month planning page — the
+                        start-of-month ritual is a routine action with a
+                        stable home here, not just the CTA inside the
+                        over-budgeted warning banner (which stays as a
+                        contextual nudge). Month-stepper aware: viewing a
+                        past month links to that month's review. */}
+                    <Link
+                        to={ROUTES.spaceBudgetMonth(
+                            space.id,
+                            formatInAppTz(viewingDate, "yyyy-MM")
+                        )}
+                        className="od-btn"
+                    >
+                        <NotebookPen className="size-3.5" />
+                        {monthOffset === 0
+                            ? "Plan this month"
+                            : `Review ${formatInAppTz(viewingDate, "MMM")}`}
+                    </Link>
                     <SortPicker sort={sort} setSort={setSort} />
                     <PermissionGate roles={["owner"]}>
                         <CreateOrEditEnvelopeDialog
                             trigger={
-                                <button
-                                    type="button"
-                                    className="od-btn od-btn-primary"
-                                >
+                                <button type="button" className="od-btn od-btn-primary">
                                     <Plus className="size-3.5" /> New envelope
                                 </button>
                             }
@@ -348,75 +499,192 @@ export default function BudgetsPage() {
                     state, so there's no separate attention or priority surface. */}
                 <div className="od-card env-summary">
                     <div className="env-summary-main">
-                        <div className="env-month-nav">
-                            <button
-                                type="button"
-                                className="env-hero-arrow"
-                                onClick={() => setMonthOffset((m) => m - 1)}
-                                aria-label="Previous month"
-                            >
-                                <ChevronLeft className="size-3.5" />
-                            </button>
-                            <span className="env-month-label">{monthLabel}</span>
-                            <button
-                                type="button"
-                                className="env-hero-arrow"
-                                onClick={() => setMonthOffset((m) => m + 1)}
-                                disabled={monthOffset >= 0}
-                                aria-label="Next month"
-                            >
-                                <ChevronRight className="size-3.5" />
-                            </button>
-                            {daysLeft != null && (
-                                <span className="env-month-days">
-                                    {daysLeft} day{daysLeft === 1 ? "" : "s"} left
-                                </span>
+                        <div className="env-summary-left">
+                            <div className="env-month-nav">
+                                <button
+                                    type="button"
+                                    className="env-hero-arrow"
+                                    onClick={() => setMonthOffset((m) => m - 1)}
+                                    aria-label="Previous month"
+                                >
+                                    <ChevronLeft className="size-3.5" />
+                                </button>
+                                <span className="env-month-label">{monthLabel}</span>
+                                <button
+                                    type="button"
+                                    className="env-hero-arrow"
+                                    onClick={() => setMonthOffset((m) => m + 1)}
+                                    disabled={monthOffset >= 0}
+                                    aria-label="Next month"
+                                >
+                                    <ChevronRight className="size-3.5" />
+                                </button>
+                                {/* Days-left lives in the "Days left" glance
+                                    tile on the right — don't repeat it here. */}
+                            </div>
+                            {/* First-run: no envelopes means three hollow
+                                0.00s — lead with the empty state + banner
+                                CTA below instead. */}
+                            {(envelopes.length > 0 || utilizationQuery.isLoading) && (
+                                <div className="env-summary-stats">
+                                    <HeroStat
+                                        label="Allocated"
+                                        amount={totals.allocated}
+                                        size={34}
+                                        sub={`${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
+                                    />
+                                    <span className="env-summary-divider" />
+                                    <HeroStat
+                                        label="Spent"
+                                        amount={totals.consumed}
+                                        tone="brand"
+                                        size={34}
+                                        sub={
+                                            // Past months already carry this
+                                            // number in the "% of budget"
+                                            // tile — don't say it twice.
+                                            monthOffset === 0 && totals.allocated > 0
+                                                ? `${((totals.consumed / totals.allocated) * 100).toFixed(0)}% of allocated`
+                                                : ""
+                                        }
+                                    />
+                                    <span className="env-summary-divider" />
+                                    <HeroStat
+                                        label="Remaining"
+                                        amount={totals.remaining}
+                                        tone="gold"
+                                        size={34}
+                                        sub={
+                                            totals.overAmount > 0 ? (
+                                                <span style={{ color: "var(--expense)" }}>
+                                                    −
+                                                    <Money
+                                                        amount={totals.overAmount}
+                                                        size={11}
+                                                        variant="expense"
+                                                    />{" "}
+                                                    over in {totals.overCount} envelope
+                                                    {totals.overCount === 1 ? "" : "s"}
+                                                </span>
+                                            ) : monthOffset === 0 ? (
+                                                // Neutral — the pace tiles own
+                                                // the forward-looking verdict.
+                                                "left this month"
+                                            ) : (
+                                                "left unspent"
+                                            )
+                                        }
+                                    />
+                                </div>
                             )}
                         </div>
-                        <div className="env-summary-stats">
-                            <HeroStat
-                                label="Allocated"
-                                amount={totals.allocated}
-                                size={26}
-                                sub={`${envelopes.length} envelope${envelopes.length === 1 ? "" : "s"}`}
-                            />
-                            <span className="env-summary-divider" />
-                            <HeroStat
-                                label="Spent"
-                                amount={totals.consumed}
-                                tone="brand"
-                                size={26}
-                                sub={
-                                    totals.allocated > 0
-                                        ? `${((totals.consumed / totals.allocated) * 100).toFixed(0)}% of allocated`
-                                        : ""
-                                }
-                            />
-                            <span className="env-summary-divider" />
-                            <HeroStat
-                                label="Remaining"
-                                amount={totals.remaining}
-                                tone="gold"
-                                size={26}
-                                sub={
-                                    totals.overAmount > 0 ? (
-                                        <span style={{ color: "var(--expense)" }}>
-                                            −
-                                            <Money
-                                                amount={totals.overAmount}
-                                                size={11}
-                                                variant="expense"
-                                            />{" "}
-                                            over in {totals.overCount} envelope
-                                            {totals.overCount === 1 ? "" : "s"}
+                        {/* At-a-glance facts — the detail hero's KPI grid,
+                            aggregated across active envelopes, in the same
+                            top-right position as the detail page. Also
+                            rendered (as em-dashes) while utilization loads,
+                            so the summary card doesn't grow when data
+                            lands. */}
+                        {(envelopes.length > 0 || utilizationQuery.isLoading) && (
+                            <div className="env-facts env-summary-facts">
+                                {glanceTiles.map((t) => (
+                                    <div key={t.label} className="env-fact">
+                                        <span className="env-fact-label">{t.label}</span>
+                                        <span
+                                            className="env-fact-val tabular"
+                                            style={{
+                                                color:
+                                                    "color" in t && t.color ? t.color : "var(--fg)",
+                                            }}
+                                        >
+                                            {t.val}
                                         </span>
-                                    ) : (
-                                        "on track"
-                                    )
-                                }
-                            />
-                        </div>
+                                        <span className="env-fact-sub">{t.sub}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
+                    {/* Distribution bar — every envelope's allocation as a
+                        colored segment against the "cash you have" tick,
+                        same visual as the month planning page but thinner
+                        and caption-free (the banner below already carries
+                        the unbudgeted / over-budgeted verdict in words).
+                        Current month only — "funded" means nothing for a
+                        past month's view. aria-hidden: every number here
+                        is already text in the strip and banner. */}
+                    {monthOffset === 0 &&
+                        envelopes.length > 0 &&
+                        totals.allocated > 0 &&
+                        (() => {
+                            const funded = Math.max(0, summaryQuery.data?.spendableBalance ?? 0);
+                            const scale = Math.max(funded, totals.allocated, 1);
+                            let acc = 0;
+                            const segs = envelopes
+                                .map((e) => {
+                                    const seg = {
+                                        id: e.envelopId,
+                                        left: (acc / scale) * 100,
+                                        width: (e.allocated / scale) * 100,
+                                        color: e.color,
+                                        name: e.name,
+                                        value: e.allocated,
+                                    };
+                                    acc += e.allocated;
+                                    return seg;
+                                })
+                                .filter((s) => s.width > 0);
+                            return (
+                                <div className="env-dist-bar" aria-hidden>
+                                    {segs.map((s, i) => (
+                                        <span
+                                            key={s.id}
+                                            className="env-dist-seg"
+                                            style={{
+                                                left: `${s.left}%`,
+                                                width: `${s.width}%`,
+                                                background: s.color,
+                                                // Inline, not :last-child — the
+                                                // overlay/tick spans render after
+                                                // the segments in this parent.
+                                                ...(i === segs.length - 1 && {
+                                                    borderTopRightRadius: 5,
+                                                    borderBottomRightRadius: 5,
+                                                    borderRight: "none",
+                                                }),
+                                            }}
+                                            title={`${s.name}: ${s.value.toLocaleString("en-US", {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            })}`}
+                                        />
+                                    ))}
+                                    {funded > 0 && totals.allocated > funded && (
+                                        <span
+                                            className="env-dist-over"
+                                            style={{
+                                                left: `${(funded / scale) * 100}%`,
+                                                width: `${((totals.allocated - funded) / scale) * 100}%`,
+                                            }}
+                                        />
+                                    )}
+                                    {funded > 0 && (
+                                        <span
+                                            className="env-dist-tick"
+                                            style={{
+                                                left: `${(funded / scale) * 100}%`,
+                                            }}
+                                            title={`Cash you have: ${funded.toLocaleString(
+                                                "en-US",
+                                                {
+                                                    minimumFractionDigits: 2,
+                                                    maximumFractionDigits: 2,
+                                                }
+                                            )}`}
+                                        />
+                                    )}
+                                </div>
+                            );
+                        })()}
                     {/* Unbudgeted is only meaningful for the current month.
                         `spaceSummary.unallocated` now honors the requested
                         window server-side, but it subtracts the viewed month's
@@ -437,13 +705,11 @@ export default function BudgetsPage() {
                 {/* Search */}
                 <div className="env-toolbar">
                     <label className="env-search">
-                        <Search
-                            className="size-3.5"
-                            style={{ color: "var(--fg-4)" }}
-                        />
+                        <Search className="size-3.5" style={{ color: "var(--fg-4)" }} />
                         <input
                             className="od-input env-search-input"
                             placeholder="Search envelopes…"
+                            aria-label="Search envelopes"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                         />
@@ -470,8 +736,7 @@ export default function BudgetsPage() {
                             No budgets yet
                         </div>
                         <div style={{ fontSize: 12.5, color: "var(--fg-4)" }}>
-                            Create an envelope for monthly spending, or a goal
-                            for long-term saving.
+                            Create an envelope for monthly spending, or a goal for long-term saving.
                         </div>
                         <PermissionGate roles={["owner"]}>
                             <CreateOrEditEnvelopeDialog
@@ -501,6 +766,11 @@ export default function BudgetsPage() {
                                 key={e.envelopId}
                                 env={e}
                                 spaceId={space.id}
+                                pace={
+                                    monthOffset === 0 && paceData && paceData.today > 0
+                                        ? { today: paceData.today, pl: paceData.pl }
+                                        : null
+                                }
                             />
                         ))}
                     </div>
@@ -514,15 +784,11 @@ export default function BudgetsPage() {
                             onClick={() => setShowArchived((v) => !v)}
                         >
                             {showArchived ? "Hide" : "Show"} archived
-                            <span className="env-archived-count">
-                                {archivedEnvelopes.length}
-                            </span>
+                            <span className="env-archived-count">{archivedEnvelopes.length}</span>
                             <ChevronDown
                                 className="size-3"
                                 style={{
-                                    transform: showArchived
-                                        ? "rotate(180deg)"
-                                        : "none",
+                                    transform: showArchived ? "rotate(180deg)" : "none",
                                     transition: "transform 140ms ease",
                                 }}
                             />
@@ -530,11 +796,7 @@ export default function BudgetsPage() {
                         {showArchived && (
                             <div className="env-grid env-archived-grid">
                                 {archivedEnvelopes.map((e) => (
-                                    <EnvelopeCard
-                                        key={e.envelopId}
-                                        env={e}
-                                        spaceId={space.id}
-                                    />
+                                    <EnvelopeCard key={e.envelopId} env={e} spaceId={space.id} />
                                 ))}
                             </div>
                         )}
@@ -552,9 +814,14 @@ export default function BudgetsPage() {
 function EnvelopeCard({
     env,
     spaceId,
+    pace,
 }: {
     env: EnvelopeRow;
     spaceId: string;
+    /** Current-month elapsed time (day-of-month / period length) — lets the
+     *  card judge spend against the calendar instead of a time-blind 80%
+     *  threshold. Null for past months and archived envelopes. */
+    pace?: { today: number; pl: number } | null;
 }) {
     // Period-scoped pool: what's available to spend this period.
     const total = env.allocated;
@@ -563,9 +830,23 @@ function EnvelopeCard({
     // A target of exactly 0 is not a goal — treat it like a plain envelope so
     // the gauge and the "over-funded" copy stay consistent.
     const isGoal = env.targetAmount != null && env.targetAmount > 0;
-    // Running low: ≥ warnAt (80%) of the budget spent but not yet over. Paired
+    // Pace-aware warning: projected to overrun at the current run-rate —
+    // the same math as the "By envelope" list's ⚠ flag, so card and list
+    // always agree. Falls back to the static ≥80%-spent heuristic when no
+    // pace context is available (past months, data still loading). Paired
     // with a textual cue below so the amber glass isn't a colour-only signal.
-    const low = !isGoal && !drift && total > 0 && env.consumed / total >= 0.8;
+    const projectedOver =
+        pace != null &&
+        !isGoal &&
+        !drift &&
+        total > 0 &&
+        pace.today > 0 &&
+        (env.consumed / pace.today) * pace.pl > total;
+    const low =
+        !isGoal &&
+        !drift &&
+        total > 0 &&
+        (pace != null ? projectedOver : env.consumed / total >= 0.8);
     const goalSaved = env.lifetimeFunded ?? 0;
     const goalPct =
         isGoal && env.targetAmount && env.targetAmount > 0
@@ -583,13 +864,9 @@ function EnvelopeCard({
                 <span className="env-card-name">
                     <EntityAvatar icon={env.icon} colorVar={env.color} size={32} />
                     <span className="env-card-text">
-                        <span className="env-card-title">
+                        <span className="env-card-title" title={env.name}>
                             {env.name}
-                            {env.archived && (
-                                <span className="env-archived-pill">
-                                    Archived
-                                </span>
-                            )}
+                            {env.archived && <span className="env-archived-pill">Archived</span>}
                         </span>
                         <span className="env-card-cadence">
                             <span>
@@ -607,12 +884,15 @@ function EnvelopeCard({
                                     </span>
                                 </>
                             )}
-                            {low && (
+                            {/* Only the no-pace-context fallback lives up
+                                here — when pace is known, the footer's
+                                "91% left · over pace" already carries the
+                                verdict, and saying it twice on one small
+                                card is noise. */}
+                            {low && pace == null && (
                                 <>
                                     <span aria-hidden>·</span>
-                                    <span style={{ color: "var(--warn)" }}>
-                                        running low
-                                    </span>
+                                    <span style={{ color: "var(--warn)" }}>running low</span>
                                 </>
                             )}
                             {(env.lifetimeOverrun ?? 0) > 0 && (
@@ -646,7 +926,7 @@ function EnvelopeCard({
                 <EnvelopeGlass
                     variant={isGoal ? "save" : "spend"}
                     current={isGoal ? goalSaved : env.consumed}
-                    total={isGoal ? env.targetAmount ?? 0 : total}
+                    total={isGoal ? (env.targetAmount ?? 0) : total}
                     height={132}
                     color={env.color}
                 />
@@ -656,20 +936,11 @@ function EnvelopeCard({
                 <>
                     <div className="env-card-hero env-card-hero-center">
                         <span className="env-card-hero-amt">
-                            <Money
-                                amount={goalSaved}
-                                size={24}
-                                weight={600}
-                                variant="neutral"
-                            />
+                            <Money amount={goalSaved} size={24} weight={600} variant="neutral" />
                         </span>
                         <span className="env-card-hero-label">
                             saved of{" "}
-                            <Money
-                                amount={env.targetAmount ?? 0}
-                                variant="muted"
-                                size={11}
-                            />
+                            <Money amount={env.targetAmount ?? 0} variant="muted" size={11} />
                         </span>
                     </div>
                     <div className="env-card-foot">
@@ -681,10 +952,7 @@ function EnvelopeCard({
                                 }}
                             >
                                 Over-funded by{" "}
-                                <Money
-                                    amount={goalSaved - (env.targetAmount ?? 0)}
-                                    size={11}
-                                />
+                                <Money amount={goalSaved - (env.targetAmount ?? 0)} size={11} />
                             </span>
                         ) : (
                             <span style={{ color: "var(--fg-3)" }}>
@@ -693,12 +961,7 @@ function EnvelopeCard({
                         )}
                         {env.consumed > 0 && (
                             <span style={{ color: "var(--fg-3)" }}>
-                                spent{" "}
-                                <Money
-                                    amount={env.consumed}
-                                    size={11}
-                                    variant="muted"
-                                />
+                                spent <Money amount={env.consumed} size={11} variant="muted" />
                             </span>
                         )}
                     </div>
@@ -723,9 +986,7 @@ function EnvelopeCard({
                         >
                             {/* Color alone can't carry overspend (invisible to
                                 color-blind users) — pair it with an icon + word. */}
-                            {drift && (
-                                <AlertTriangle className="size-3" aria-hidden />
-                            )}
+                            {drift && <AlertTriangle className="size-3" aria-hidden />}
                             {total > 0
                                 ? drift
                                     ? overBudgetLabel(env.consumed, total)
@@ -751,15 +1012,27 @@ function EnvelopeCard({
                         </div>
                     </div>
                     {/* Share of budget still in the glass, so the words agree
-                        with the draining liquid. Suppressed when overspent. */}
+                        with the draining liquid — plus the pace verdict when
+                        we know where we are in the month. Suppressed when
+                        overspent (the hero already carries that state). */}
                     {!drift && total > 0 && (
                         <div className="env-card-foot env-card-foot-center">
                             <span style={{ color: "var(--fg-3)" }}>
-                                {Math.min(
-                                    100,
-                                    Math.round((remaining / total) * 100)
+                                {Math.min(100, Math.round((remaining / total) * 100))}% left
+                                {pace != null && (
+                                    <>
+                                        {" · "}
+                                        <span
+                                            style={{
+                                                color: projectedOver
+                                                    ? "var(--warn)"
+                                                    : "var(--fg-3)",
+                                            }}
+                                        >
+                                            {projectedOver ? "over pace" : "on pace"}
+                                        </span>
+                                    </>
                                 )}
-                                % left
                             </span>
                         </div>
                     )}
@@ -784,11 +1057,7 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
         <span onClick={(e) => e.stopPropagation()}>
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                    <button
-                        type="button"
-                        className="env-card-menu"
-                        aria-label="More"
-                    >
+                    <button type="button" className="env-card-menu" aria-label="More">
                         <MoreHorizontal className="size-3.5" />
                     </button>
                 </DropdownMenuTrigger>
@@ -835,11 +1104,7 @@ function EnvelopeMenu({ env }: { env: EnvelopeRow }) {
                             archived={env.archived}
                             currentRemaining={env.remaining}
                         />
-                        {!env.archived && (
-                            <DeleteEnvelopeMenuItem
-                                envelopId={env.envelopId}
-                            />
-                        )}
+                        {!env.archived && <DeleteEnvelopeMenuItem envelopId={env.envelopId} />}
                     </PermissionGate>
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -897,10 +1162,7 @@ function UnbudgetedBanner({
     return (
         <div className="env-unbudgeted">
             <div className="env-unbudgeted-cell">
-                <span
-                    className="env-unbudgeted-dot"
-                    style={{ background: tone }}
-                />
+                <span className="env-unbudgeted-dot" style={{ background: tone }} />
                 <span className="env-unbudgeted-text">
                     <span className="env-unbudgeted-title">
                         {title}{" "}
@@ -922,10 +1184,7 @@ function UnbudgetedBanner({
                     <span className="env-unbudgeted-sub">{sub}</span>
                 </span>
             </div>
-            <Link
-                to={ROUTES.spaceBudgetMonth(spaceId, monthSlug)}
-                className="env-unbudgeted-cta"
-            >
+            <Link to={ROUTES.spaceBudgetMonth(spaceId, monthSlug)} className="env-unbudgeted-cta">
                 Budget this month →
             </Link>
         </div>
@@ -945,19 +1204,14 @@ function HeroStat({
     sub?: ReactNode;
     size?: number;
 }) {
-    const color =
-        tone === "brand"
-            ? "var(--brand)"
-            : tone === "gold"
-              ? "var(--gold)"
-              : "var(--fg)";
+    const color = tone === "brand" ? "var(--brand)" : tone === "gold" ? "var(--gold)" : "var(--fg)";
     return (
         <div className="env-hero-stat">
             <span className="eyebrow">{label}</span>
             <span
                 className="tabular"
                 style={{
-                    fontSize: size,
+                    fontSize: `var(--hero-num, ${size}px)`,
                     fontWeight: 500,
                     color,
                     letterSpacing: "-0.04em",
@@ -1063,37 +1317,23 @@ function Skeleton({ height = 16 }: { height?: number }) {
     );
 }
 
-function SortPicker({
-    sort,
-    setSort,
-}: {
-    sort: SortMode;
-    setSort: (v: SortMode) => void;
-}) {
-    const label =
-        SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Cadence";
+function SortPicker({ sort, setSort }: { sort: SortMode; setSort: (v: SortMode) => void }) {
+    const label = SORT_OPTIONS.find((o) => o.value === sort)?.label ?? "Cadence";
     return (
         <Popover>
             <PopoverTrigger asChild>
                 <button type="button" className="od-btn">
                     <FilterIcon className="size-3.5" /> Sort: {label}
-                    <ChevronDown
-                        className="size-3"
-                        style={{ color: "var(--fg-4)" }}
-                    />
+                    <ChevronDown className="size-3" style={{ color: "var(--fg-4)" }} />
                 </button>
             </PopoverTrigger>
-            <PopoverContent
-                align="end"
-                className="orbit-design env-popover w-52 p-1"
-            >
+            <PopoverContent align="end" className="orbit-design env-popover w-52 p-1">
                 {SORT_OPTIONS.map((o) => {
                     // Deadline + Progress are goal-only axes; in the
                     // grouped view they reorder the Goals section but
                     // leave Monthly + Rolling on cadence order so the
                     // page doesn't look broken under those sorts.
-                    const isGoalOnly =
-                        o.value === "deadline" || o.value === "progress";
+                    const isGoalOnly = o.value === "deadline" || o.value === "progress";
                     return (
                         <button
                             key={o.value}
@@ -1104,9 +1344,7 @@ function SortPicker({
                             <span className="env-sort-item-text">
                                 {o.label}
                                 {isGoalOnly && (
-                                    <span className="env-sort-item-sub">
-                                        Reorders Goals only
-                                    </span>
+                                    <span className="env-sort-item-sub">Reorders Goals only</span>
                                 )}
                             </span>
                             {sort === o.value && (
@@ -1166,9 +1404,7 @@ export function CreateOrEditEnvelopeDialog({
         envelope?.targetAmount != null ? String(envelope.targetAmount) : ""
     );
     const [targetDate, setTargetDate] = useState<string>(
-        envelope?.targetDate
-            ? new Date(envelope.targetDate).toISOString().slice(0, 10)
-            : ""
+        envelope?.targetDate ? new Date(envelope.targetDate).toISOString().slice(0, 10) : ""
     );
 
     const invalidate = async () => {
@@ -1203,13 +1439,9 @@ export function CreateOrEditEnvelopeDialog({
         // Server validates the same constraint; we mirror it here so the
         // submit button can't ship contradictory state.
         const parsedAmountRaw =
-            cadence === "none" && targetAmount.trim()
-                ? Number(targetAmount)
-                : null;
+            cadence === "none" && targetAmount.trim() ? Number(targetAmount) : null;
         const parsedTargetAmount =
-            parsedAmountRaw != null && Number.isFinite(parsedAmountRaw)
-                ? parsedAmountRaw
-                : null;
+            parsedAmountRaw != null && Number.isFinite(parsedAmountRaw) ? parsedAmountRaw : null;
         // `<input type="date">` emits "YYYY-MM-DD". `new Date(s)` would
         // parse it as UTC midnight and then PG's session-tz conversion
         // could shift the stored `date` column by one day for any user
@@ -1220,11 +1452,7 @@ export function CreateOrEditEnvelopeDialog({
             const y = Number(yStr);
             const m = Number(mStr);
             const d = Number(dStr);
-            if (
-                Number.isFinite(y) &&
-                Number.isFinite(m) &&
-                Number.isFinite(d)
-            ) {
+            if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)) {
                 parsedTargetDate = makeAppTzDate(y, m - 1, d);
             }
         }
@@ -1237,9 +1465,7 @@ export function CreateOrEditEnvelopeDialog({
             // intentional clear and lock-step cascades the other column.
             // Track change vs the original envelope's serialized state.
             const origAmountStr =
-                envelope?.targetAmount != null
-                    ? String(envelope.targetAmount)
-                    : "";
+                envelope?.targetAmount != null ? String(envelope.targetAmount) : "";
             const origDateStr = envelope?.targetDate
                 ? new Date(envelope.targetDate).toISOString().slice(0, 10)
                 : "";
@@ -1317,11 +1543,7 @@ export function CreateOrEditEnvelopeDialog({
                                 onClick={submit}
                             >
                                 <Plus className="size-3.5" />
-                                {pending
-                                    ? "Saving…"
-                                    : editing
-                                      ? "Save changes"
-                                      : "Create envelope"}
+                                {pending ? "Saving…" : editing ? "Save changes" : "Create envelope"}
                             </button>
                         </>
                     }
@@ -1333,11 +1555,7 @@ export function CreateOrEditEnvelopeDialog({
                     <div className="env-mod-id-row">
                         <div className="env-mod-style-row">
                             <ColorPickerButton value={color} onChange={setColor} />
-                            <IconPickerButton
-                                value={icon}
-                                onChange={setIcon}
-                                color={color}
-                            />
+                            <IconPickerButton value={icon} onChange={setIcon} color={color} />
                         </div>
                         <div className="env-mod-name-wrap">
                             <OrbitField label="Name" required>
@@ -1396,9 +1614,7 @@ export function CreateOrEditEnvelopeDialog({
                                     min={0}
                                     step="0.01"
                                     value={targetAmount}
-                                    onChange={(e) =>
-                                        setTargetAmount(e.target.value)
-                                    }
+                                    onChange={(e) => setTargetAmount(e.target.value)}
                                     placeholder="0.00"
                                 />
                             </OrbitField>
@@ -1576,9 +1792,19 @@ const ENV_STYLES = `
 }
 .env-summary-main {
     display: flex;
-    align-items: center;
-    gap: 36px;
+    align-items: stretch;
+    gap: 28px;
     flex-wrap: wrap;
+}
+/* Left column — month nav stacked above the three hero stats, so the
+   at-a-glance facts grid fits beside it (detail-hero layout). */
+.env-summary-left {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 16px;
+    flex: 1 1 400px;
+    min-width: 0;
 }
 .env-month-nav {
     display: inline-flex;
@@ -1591,15 +1817,10 @@ const ENV_STYLES = `
     color: var(--fg);
     min-width: 96px;
 }
-.env-month-days {
-    font-size: 12px;
-    color: var(--fg-4);
-    margin-left: 2px;
-}
 .env-summary-stats {
     display: flex;
     align-items: center;
-    gap: 28px;
+    gap: 32px;
     flex-wrap: wrap;
 }
 .env-summary-divider {
@@ -1608,11 +1829,17 @@ const ENV_STYLES = `
     min-height: 40px;
     background: var(--line-soft);
 }
+/* Below ~1440px the three stats can wrap (34px numbers + the facts grid
+   squeezing the left column between 1101px and ~1430px), which strands a
+   divider at a row end — hide them across the whole wrap band. Verified
+   one-row only at ≥1440. */
+@media (max-width: 1439px) {
+    .env-summary-divider { display: none; }
+}
 @media (max-width: 640px) {
     .orbit-design .od-card.env-summary { padding: 16px; gap: 14px; }
     .env-summary-main { gap: 16px; }
-    .env-summary-stats { gap: 18px; }
-    .env-summary-divider { display: none; }
+    .env-summary-stats { gap: 18px; --hero-num: 26px; }
 }
 .env-hero-arrow {
     width: 26px;
@@ -1631,6 +1858,10 @@ const ENV_STYLES = `
     color: var(--fg);
 }
 .env-hero-arrow:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Comfortable tap targets on touch widths. */
+@media (max-width: 640px) {
+    .env-hero-arrow { width: 40px; height: 40px; }
+}
 .env-unbudgeted {
     margin-top: 14px;
     display: flex;
@@ -1970,6 +2201,76 @@ const ENV_STYLES = `
     font-size: 11px;
     color: var(--fg-4);
     font-weight: 400;
+}
+
+/* Distribution bar — the month-plan page's allocation bar, thinner and
+   caption-free. Segments = each envelope's allocation, tick = cash you
+   have, red overlay = allocation past your cash. Not overflow-clipped so
+   the tick survives sitting at 100%. */
+.env-dist-bar {
+    position: relative;
+    height: 9px;
+    border-radius: 5px;
+    background: var(--bg-elev-2);
+}
+.env-dist-seg {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    border-right: 1px solid var(--bg-elev-1);
+}
+.env-dist-seg:first-child { border-top-left-radius: 5px; border-bottom-left-radius: 5px; }
+/* Right-end rounding is applied inline on the last segment — :last-child
+   can't match it (the overlay/tick spans are later siblings). */
+.env-dist-over {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    /* Diagonal hatching — a flat tint disappears on top of the bright
+       segment colors; stripes read as "this part exceeds your cash". */
+    background: repeating-linear-gradient(
+        135deg,
+        color-mix(in oklab, var(--expense) 65%, transparent) 0 3px,
+        transparent 3px 6px
+    );
+    border: 1px solid color-mix(in oklab, var(--expense) 80%, transparent);
+    border-radius: 4px;
+    pointer-events: none;
+}
+.env-dist-tick {
+    position: absolute;
+    top: -3px;
+    bottom: -3px;
+    width: 2.5px;
+    transform: translateX(-50%);
+    background: var(--fg);
+    border-radius: 2px;
+}
+
+/* At-a-glance facts — the detail hero's KPI grid pattern, docked to the
+   right side of the summary strip (border-left divider, 3x2). */
+.env-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px 24px;
+    align-content: center;
+}
+.env-summary-facts {
+    flex: 1 1 320px;
+    min-width: 0;
+    align-self: stretch;
+    padding-left: 28px;
+    border-left: 1px solid var(--line-soft);
+}
+.env-fact { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.env-fact-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-3); font-weight: 500; }
+.env-fact-val { font-size: 19px; font-weight: 500; letter-spacing: -0.02em; }
+.env-fact-sub { font-size: 10.5px; color: var(--fg-3); }
+@media (max-width: 1100px) {
+    .env-summary-facts { padding-left: 0; border-left: none; flex-basis: 100%; }
+}
+@media (max-width: 640px) {
+    .env-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }
 }
 
 /* Archived envelopes — collapsible reveal section + dimmed cards. */
